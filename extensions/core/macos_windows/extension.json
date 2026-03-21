@@ -1,0 +1,34 @@
+{
+  "name": "macos-windows",
+  "version": "0.1.0",
+  "description": "macOS window management via Quartz, SkyLight, and ApplicationServices APIs",
+  "provider": "core",
+  "platforms": ["darwin"],
+  "capabilities": [
+    "window.list",
+    "window.capture",
+    "input.simulate",
+    "workspace.manage"
+  ],
+  "python_dependencies": [
+    "pyobjc-framework-Quartz>=11.0",
+    "pyobjc-framework-ApplicationServices>=12.1"
+  ],
+  "entry_point": "provider:MacOSWindowsExtension",
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "exclude_apps": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Application names to exclude from window listing",
+        "default": []
+      },
+      "capture_nominal_resolution": {
+        "type": "boolean",
+        "description": "Use nominal (non-Retina) resolution for captures",
+        "default": true
+      }
+    }
+  }
+}
