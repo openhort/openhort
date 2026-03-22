@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/fill/style.css">
 <link rel="stylesheet" href="/static/vendor/material-icons.css">
 <link rel="stylesheet" href="/static/vendor/quasar.prod.css">
+<link rel="stylesheet" href="/static/vendor/xterm.css">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -305,6 +306,62 @@ body {
 
 /* Quasar overrides for dark theme */
 .q-dark { background: #1a1a2e !important; }
+
+/* ===== TERMINAL VIEW ===== */
+.terminal-view {
+    position: fixed; inset: 0; background: #000; display: flex; flex-direction: column;
+}
+.terminal-header {
+    background: #16213e; padding: 6px 10px; display: flex; align-items: center; gap: 6px;
+    border-bottom: 1px solid #0f3460; flex-shrink: 0;
+}
+.terminal-header .back-btn {
+    background: #e94560; color: white; border: none; border-radius: 6px;
+    padding: 6px 10px; font-size: 13px; cursor: pointer; font-weight: 600;
+}
+.terminal-header .term-title {
+    flex: 1; font-size: 12px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.terminal-header .close-btn {
+    background: #333; color: #e94560; border: none; border-radius: 6px;
+    padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600;
+}
+.terminal-body {
+    flex: 1; overflow: hidden;
+}
+.terminal-body .xterm { height: 100%; }
+/* Mobile toolbar */
+.term-toolbar {
+    background: #16213e; padding: 4px 6px; display: flex; gap: 4px;
+    overflow-x: auto; scrollbar-width: none; flex-shrink: 0;
+    border-top: 1px solid #0f3460;
+}
+.term-toolbar::-webkit-scrollbar { display: none; }
+.term-toolbar button {
+    flex-shrink: 0; background: #0f3460; color: #aaa; border: 1px solid #333;
+    border-radius: 6px; padding: 8px 12px; font-size: 13px; cursor: pointer;
+    font-family: monospace; min-width: 40px;
+}
+.term-toolbar button:active { background: #e94560; color: #fff; }
+/* Plugin action buttons */
+.term-actions {
+    background: rgba(22,33,62,0.95); padding: 6px 10px; display: flex; gap: 6px;
+    flex-shrink: 0; border-top: 1px solid #0f3460;
+}
+.term-actions button {
+    padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px;
+    cursor: pointer; font-weight: 600;
+}
+.term-actions .action-accept { background: #27ae60; color: #fff; }
+.term-actions .action-decline { background: #e94560; color: #fff; }
+.term-actions .action-choice { background: #0f3460; color: #eee; border: 1px solid #333; }
+/* Spawn button in picker */
+.spawn-term-btn {
+    background: #0f3460; border: 1px dashed #e94560; color: #e94560; border-radius: 10px;
+    padding: 12px; margin: 6px 8px; cursor: pointer; text-align: center;
+    font-size: 13px; font-weight: 600; transition: background 0.15s;
+}
+.spawn-term-btn:hover { background: #16213e; }
 </style>
 </head>
 <body>
@@ -313,6 +370,9 @@ body {
   <hort-app></hort-app>
 </div>
 
+<script src="/static/vendor/xterm.min.js"></script>
+<script src="/static/vendor/xterm-addon-fit.min.js"></script>
+<script src="/static/vendor/xterm-addon-web-links.min.js"></script>
 <script src="/static/vendor/vue.global.prod.js"></script>
 <script src="/static/vendor/quasar.umd.prod.js"></script>
 <script src="/static/vendor/hort-ext.js"></script>
@@ -337,6 +397,10 @@ body {
     // Targets
     targets: [],          // [{id, name, provider_type, status}]
     activeTarget: 'all',  // 'all' or a target id
+
+    // Terminals
+    terminals: [],        // [{terminal_id, target_id, title, alive}]
+    activeTerminalId: null,
 
     // Windows
     allWindows: [],
@@ -528,6 +592,26 @@ body {
         state.activeTarget = msg.target_id;
         requestWindows();
         break;
+      case 'terminal_spawned':
+        state.terminals.push({
+          terminal_id: msg.terminal_id,
+          target_id: msg.target_id,
+          title: msg.title,
+          alive: true,
+        });
+        state.activeTerminalId = msg.terminal_id;
+        state.view = 'terminal';
+        break;
+      case 'terminal_list':
+        state.terminals = msg.terminals || [];
+        break;
+      case 'terminal_closed':
+        state.terminals = state.terminals.filter(t => t.terminal_id !== msg.terminal_id);
+        if (state.activeTerminalId === msg.terminal_id) {
+          state.activeTerminalId = null;
+          if (state.view === 'terminal') state.view = 'picker';
+        }
+        break;
       case 'heartbeat_ack':
         break;
     }
@@ -552,6 +636,20 @@ body {
 
   function setTarget(targetId) {
     sendControl({ type: 'set_target', target_id: targetId });
+  }
+
+  // ===== TERMINAL =====
+
+  function spawnTerminal(targetId) {
+    sendControl({ type: 'terminal_spawn', target_id: targetId });
+  }
+
+  function closeTerminal(terminalId) {
+    sendControl({ type: 'terminal_close', terminal_id: terminalId });
+  }
+
+  function requestTerminalList() {
+    sendControl({ type: 'terminal_list' });
   }
 
   // ===== WINDOW LIST =====
@@ -747,11 +845,15 @@ body {
   }
 
   function refreshPicker() {
+    // Only refresh when picker is visible — don't waste bandwidth/CPU during viewer/terminal
+    if (state.view !== 'picker') return;
     requestWindows();
     requestSpaces();
     // Request thumbnails for current nav windows after a short delay for windows_list to arrive
     setTimeout(() => {
-      state.navWindows.forEach(w => requestThumbnail(w.window_id));
+      if (state.view === 'picker') {
+        state.navWindows.forEach(w => requestThumbnail(w.window_id));
+      }
     }, 300);
   }
 
@@ -1660,12 +1762,29 @@ body {
           <div v-if="state.navWindows.length === 0" class="picker-status">
             {{ emptyMessage }}
           </div>
+          <!-- Active terminals -->
+          <div v-if="state.terminals.length > 0" style="padding: 0 0 4px">
+            <div class="target-divider"><i class="ph ph-terminal-window"></i><span>Terminals</span><span class="target-count">{{ state.terminals.length }}</span></div>
+            <div v-for="t in state.terminals" :key="t.terminal_id"
+                 class="win-card" @click="openTerminal(t.terminal_id)">
+              <div style="width:80px;height:50px;background:#0f3460;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i class="ph ph-terminal-window" style="font-size:24px;color:#e94560"></i>
+              </div>
+              <div class="win-info">
+                <div class="win-app">{{ t.title }}</div>
+                <div class="win-name">{{ t.target_id }}</div>
+              </div>
+            </div>
+          </div>
+
           <template v-if="state.activeTarget === 'all' && targetGroups.length > 1">
             <template v-for="group in targetGroups" :key="group.targetId">
               <div class="target-divider">
                 <i :class="group.icon"></i>
                 <span>{{ group.targetName }}</span>
                 <span class="target-count">{{ group.windows.length }}</span>
+                <button class="spawn-term-btn" style="margin:0;padding:4px 10px;font-size:11px;border-radius:6px"
+                        @click.stop="onSpawnTerminal(group.targetId)"><i class="ph ph-terminal-window"></i> Terminal</button>
               </div>
               <div v-for="win in group.windows" :key="win.window_id"
                    class="win-card" @click="$emit('select-window', navWindowIndex(win))">
@@ -1697,6 +1816,14 @@ body {
               </button>
             </div>
           </template>
+
+          <!-- Spawn terminal button (always visible) -->
+          <div v-if="state.activeTarget !== 'all'" class="spawn-term-btn" @click="onSpawnTerminal(state.activeTarget)">
+            <i class="ph ph-terminal-window"></i> Open Terminal on {{ currentTargetName }}
+          </div>
+          <div v-else-if="state.targets.length === 1" class="spawn-term-btn" @click="onSpawnTerminal(state.targets[0].id)">
+            <i class="ph ph-terminal-window"></i> Open Terminal
+          </div>
         </div>
       </div>
     `,
@@ -1801,16 +1928,265 @@ body {
         return Object.values(groups);
       });
 
+      const currentTargetName = computed(() => {
+        const t = state.targets.find(t => t.id === state.activeTarget);
+        return t ? t.name : state.activeTarget;
+      });
+
       function navWindowIndex(win) {
         return state.navWindows.findIndex(w => w.window_id === win.window_id && w.target_id === win.target_id);
       }
 
+      function onSpawnTerminal(targetId) {
+        spawnTerminal(targetId);
+      }
+
+      function openTerminal(terminalId) {
+        state.activeTerminalId = terminalId;
+        state.view = 'terminal';
+      }
+
       return {
-        state, groupsList, emptyMessage, targetGroups,
+        state, groupsList, emptyMessage, targetGroups, currentTargetName,
         isInAnyGroup, onAppFilterChange, setNavMode,
         toggleGroup, editGroup, openNewGroup,
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
-        onSetTarget, navWindowIndex,
+        onSetTarget, navWindowIndex, onSpawnTerminal, openTerminal,
+      };
+    },
+  };
+
+
+  // =============================================
+  // COMPONENT: hort-terminal
+  // =============================================
+
+  // Terminal plugin patterns — auto-detect prompts and show clickable buttons
+  const TERMINAL_PLUGINS = [
+    {
+      name: 'claude-accept',
+      pattern: /\b(allow|permit|proceed|accept)\b.*\?\s*$/im,
+      buttons: [
+        { label: 'Accept', input: 'y\n', cls: 'action-accept' },
+        { label: 'Decline', input: 'n\n', cls: 'action-decline' },
+      ],
+    },
+    {
+      name: 'yes-no',
+      pattern: /\(y(?:es)?\/n(?:o)?\)\s*$/im,
+      buttons: [
+        { label: 'Yes', input: 'y\n', cls: 'action-accept' },
+        { label: 'No', input: 'n\n', cls: 'action-decline' },
+      ],
+    },
+    {
+      name: 'continue',
+      pattern: /press enter to continue|hit enter/im,
+      buttons: [
+        { label: 'Continue', input: '\n', cls: 'action-accept' },
+      ],
+    },
+  ];
+
+  const HortTerminal = {
+    template: `
+      <div v-if="state.view === 'terminal' && activeTerminal" class="terminal-view">
+        <div class="terminal-header">
+          <button class="back-btn" @click="goBack"><i class="ph ph-arrow-left"></i></button>
+          <span class="term-title">{{ activeTerminal.title }} ({{ activeTerminal.target_id }})</span>
+          <button class="close-btn" @click="confirmClose">Close</button>
+        </div>
+        <div class="terminal-body" ref="termContainer"></div>
+        <div v-if="detectedActions.length" class="term-actions">
+          <button v-for="btn in detectedActions" :key="btn.label"
+                  :class="btn.cls" @click="sendAction(btn.input)">{{ btn.label }}</button>
+        </div>
+        <div class="term-toolbar">
+          <button @click="sendKey(KEYS.ESC)">Esc</button>
+          <button @click="sendKey(KEYS.TAB)">Tab</button>
+          <button @click="sendKey(KEYS.CTRL_C)">Ctrl+C</button>
+          <button @click="sendKey(KEYS.CTRL_D)">Ctrl+D</button>
+          <button @click="sendKey(KEYS.CTRL_Z)">Ctrl+Z</button>
+          <button @click="sendKey(KEYS.UP)">↑</button>
+          <button @click="sendKey(KEYS.DOWN)">↓</button>
+          <button @click="sendKey(KEYS.LEFT)">←</button>
+          <button @click="sendKey(KEYS.RIGHT)">→</button>
+          <button @click="sendKey(KEYS.BACKSPACE)">⌫</button>
+        </div>
+      </div>
+    `,
+    setup() {
+      const termContainer = ref(null);
+      let xterm = null;
+      let fitAddon = null;
+      let termWs = null;
+      let currentTermId = null;
+
+      const KEYS = {
+        ESC: '\x1b', TAB: '\t', CTRL_C: '\x03', CTRL_D: '\x04', CTRL_Z: '\x1a',
+        UP: '\x1b[A', DOWN: '\x1b[B', LEFT: '\x1b[D', RIGHT: '\x1b[C',
+        BACKSPACE: '\x7f', ENTER: '\r',
+      };
+
+      const detectedActions = ref([]);
+
+      const activeTerminal = computed(() => {
+        return state.terminals.find(t => t.terminal_id === state.activeTerminalId) || null;
+      });
+
+      // Scan last N chars of terminal buffer for plugin patterns
+      function detectActions() {
+        if (!xterm) { detectedActions.value = []; return; }
+        // Get last 2000 chars from the terminal buffer
+        const buf = xterm.buffer.active;
+        const lines = [];
+        const start = Math.max(0, buf.cursorY - 5);
+        for (let i = start; i <= buf.cursorY; i++) {
+          const line = buf.getLine(i + buf.baseY);
+          if (line) lines.push(line.translateToString().trimEnd());
+        }
+        const text = lines.join('\n');
+        for (const plugin of TERMINAL_PLUGINS) {
+          if (plugin.pattern.test(text)) {
+            detectedActions.value = plugin.buttons;
+            return;
+          }
+        }
+        detectedActions.value = [];
+      }
+
+      function connectTerminal(terminalId) {
+        if (termWs) { termWs.close(); termWs = null; }
+        currentTermId = terminalId;
+
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        termWs = new WebSocket(proto + '://' + location.host + '/ws/terminal/' + terminalId);
+        termWs.binaryType = 'arraybuffer';
+
+        termWs.onmessage = (e) => {
+          if (e.data instanceof ArrayBuffer) {
+            const text = new TextDecoder().decode(e.data);
+            xterm.write(text);
+            // Debounce action detection
+            clearTimeout(connectTerminal._detectTimer);
+            connectTerminal._detectTimer = setTimeout(detectActions, 200);
+          }
+        };
+        termWs.onclose = () => { termWs = null; };
+        termWs.onerror = () => {};
+      }
+      connectTerminal._detectTimer = null;
+
+      function disconnectTerminal() {
+        if (termWs) { termWs.close(); termWs = null; }
+        currentTermId = null;
+      }
+
+      function sendKey(data) {
+        if (termWs && termWs.readyState === WebSocket.OPEN) {
+          termWs.send(new TextEncoder().encode(data));
+        }
+      }
+
+      function sendAction(input) {
+        sendKey(input);
+        detectedActions.value = [];
+      }
+
+      function goBack() {
+        disconnectTerminal();
+        state.view = 'picker';
+        state.activeTerminalId = null;
+      }
+
+      function confirmClose() {
+        if (confirm('Close this terminal?')) {
+          const tid = state.activeTerminalId;
+          disconnectTerminal();
+          if (tid) closeTerminal(tid);
+          state.view = 'picker';
+          state.activeTerminalId = null;
+        }
+      }
+
+      function setupXterm() {
+        if (!termContainer.value) return;
+        if (xterm) { xterm.dispose(); xterm = null; }
+
+        xterm = new Terminal({
+          cursorBlink: true,
+          fontSize: 14,
+          fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
+          theme: {
+            background: '#1a1a2e',
+            foreground: '#eee',
+            cursor: '#e94560',
+            selectionBackground: 'rgba(233,69,96,0.3)',
+          },
+          scrollback: 10000,
+          convertEol: true,
+        });
+
+        fitAddon = new FitAddon.FitAddon();
+        xterm.loadAddon(fitAddon);
+        xterm.loadAddon(new WebLinksAddon.WebLinksAddon());
+
+        xterm.open(termContainer.value);
+        fitAddon.fit();
+        xterm.focus();
+
+        // Forward keyboard input to the PTY
+        xterm.onData((data) => {
+          if (termWs && termWs.readyState === WebSocket.OPEN) {
+            termWs.send(new TextEncoder().encode(data));
+          }
+        });
+
+        // Send resize when terminal size changes
+        xterm.onResize(({ cols, rows }) => {
+          if (termWs && termWs.readyState === WebSocket.OPEN) {
+            termWs.send(JSON.stringify({ type: 'resize', cols, rows }));
+          }
+          sendControl({ type: 'terminal_resize', terminal_id: currentTermId, cols, rows });
+        });
+
+        // Handle window resize
+        const onResize = () => { if (fitAddon) fitAddon.fit(); };
+        window.addEventListener('resize', onResize);
+        xterm._hortResizeHandler = onResize;
+      }
+
+      // Watch for terminal activation
+      watch(() => state.activeTerminalId, (newId) => {
+        if (newId && state.view === 'terminal') {
+          nextTick(() => {
+            setupXterm();
+            connectTerminal(newId);
+            // Send initial resize
+            if (xterm && fitAddon) {
+              fitAddon.fit();
+              sendControl({
+                type: 'terminal_resize',
+                terminal_id: newId,
+                cols: xterm.cols,
+                rows: xterm.rows,
+              });
+            }
+          });
+        }
+      });
+
+      onUnmounted(() => {
+        disconnectTerminal();
+        if (xterm) {
+          if (xterm._hortResizeHandler) window.removeEventListener('resize', xterm._hortResizeHandler);
+          xterm.dispose();
+        }
+      });
+
+      return {
+        state, termContainer, activeTerminal, detectedActions, KEYS,
+        goBack, confirmClose, sendKey, sendAction,
       };
     },
   };
@@ -1823,6 +2199,7 @@ body {
     template: `
       <hort-picker @select-window="onSelectWindow"></hort-picker>
       <hort-viewer ref="viewer"></hort-viewer>
+      <hort-terminal></hort-terminal>
       <hort-group-modal></hort-group-modal>
     `,
     setup() {
@@ -1886,6 +2263,7 @@ body {
   app.component('hort-settings', HortSettings);
   app.component('hort-overview', HortOverview);
   app.component('hort-group-modal', HortGroupModal);
+  app.component('hort-terminal', HortTerminal);
 
   app.use(Quasar, {
     config: {

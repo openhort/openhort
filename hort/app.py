@@ -249,6 +249,13 @@ def _register_routes(app: FastAPI) -> None:
         registry: HortRegistry = HortRegistry.get()  # type: ignore[assignment]
         await run_stream(websocket, session_id, registry)
 
+    @app.websocket("/ws/terminal/{terminal_id}")
+    async def terminal_ws(websocket: WebSocket, terminal_id: str) -> None:
+        """Terminal I/O — binary PTY data over WebSocket."""
+        from hort.terminal import handle_terminal_ws
+
+        await handle_terminal_ws(websocket, terminal_id)
+
     @app.websocket("/ws/devreload")
     async def dev_reload(websocket: WebSocket) -> None:
         """Watch static files and notify client to reload on change."""

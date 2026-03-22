@@ -6,10 +6,16 @@ the target is local macOS, a Linux Docker container, or a remote VM.
 
 When the target is ``"all"``, windows from every registered provider
 are aggregated into a single list, each tagged with its ``target_id``.
+
+**IMPORTANT:** Every provider call (list_windows, capture_window, handle_input,
+etc.) runs in a thread executor via ``_run_sync`` so it never blocks the
+async event loop.  Provider implementations may use subprocess, docker exec,
+or other blocking I/O — none of that touches the main thread.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from typing import Any
 
@@ -18,6 +24,12 @@ from llming_com import BaseController
 from hort.ext.types import PlatformProvider
 from hort.models import InputEvent, StreamConfig
 from hort.targets import TargetRegistry
+
+
+async def _run_sync(fn: Any, *args: Any) -> Any:
+    """Run a synchronous function in the default executor (thread pool)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, fn, *args)
 
 
 class HortController(BaseController):
@@ -33,6 +45,10 @@ class HortController(BaseController):
         switch_space     → space_switched response
         stream_config    → updates session stream config
         input            → forwards input event to target
+        terminal_spawn   → terminal_spawned response
+        terminal_list    → terminal_list response
+        terminal_close   → terminal_closed response
+        terminal_resize  → (no response)
         heartbeat        → heartbeat_ack (handled by base)
     """
 
@@ -100,6 +116,14 @@ class HortController(BaseController):
             await self._handle_stream_config(msg)
         elif msg_type == "input":
             await self._handle_input(msg)
+        elif msg_type == "terminal_spawn":
+            await self._handle_terminal_spawn(msg)
+        elif msg_type == "terminal_list":
+            await self._handle_terminal_list()
+        elif msg_type == "terminal_close":
+            await self._handle_terminal_close(msg)
+        elif msg_type == "terminal_resize":
+            await self._handle_terminal_resize(msg)
         else:
             await super().handle_message(msg)
 
@@ -125,26 +149,27 @@ class HortController(BaseController):
             if self._entry is not None:
                 self._entry.stream_config = None
                 self._entry.active_window_id = 0
+            self._cached_window = None
+            self._cached_provider = None
             await self.send({"type": "target_changed", "target_id": target_id})
         else:
             await self.send({"type": "error", "message": f"Unknown target: {target_id}"})
 
-    # ----- Window operations -----
+    # ----- Window operations (all provider calls in executor) -----
 
     async def _handle_list_windows(self, msg: dict[str, Any]) -> None:
         registry = TargetRegistry.get()
         app_filter = msg.get("app_filter")
 
         if self._target_id == "all":
-            # Aggregate from all targets, tag each window
             all_win: list[dict[str, Any]] = []
             all_names: set[str] = set()
             for info in registry.list_targets():
                 p = registry.get_provider(info.id)
                 if p is None:
                     continue
-                windows = p.list_windows(app_filter)
-                unfiltered = p.list_windows() if app_filter else windows
+                windows = await _run_sync(p.list_windows, app_filter)
+                unfiltered = (await _run_sync(p.list_windows)) if app_filter else windows
                 all_names.update(w.owner_name for w in unfiltered)
                 for w in windows:
                     d = w.model_dump()
@@ -161,8 +186,8 @@ class HortController(BaseController):
             if provider is None:
                 await self.send({"type": "windows_list", "windows": [], "app_names": []})
                 return
-            windows = provider.list_windows(app_filter)
-            unfiltered = provider.list_windows() if app_filter else windows
+            windows = await _run_sync(provider.list_windows, app_filter)
+            unfiltered = (await _run_sync(provider.list_windows)) if app_filter else windows
             app_names = sorted({w.owner_name for w in unfiltered})
             win_dicts = []
             target_info = registry.get_info(self._target_id)
@@ -181,13 +206,12 @@ class HortController(BaseController):
         window_id = msg.get("window_id", 0)
         target_id = msg.get("target_id", "")
 
-        # If target_id provided, use that provider directly
         if target_id:
             provider = TargetRegistry.get().get_provider(target_id)
         else:
             provider, _ = self._provider_for_window(window_id)
 
-        jpeg = provider.capture_window(window_id, max_width=400, quality=50) if provider else None
+        jpeg = (await _run_sync(provider.capture_window, window_id, 400, 50)) if provider else None
         if jpeg is not None:
             await self.send({
                 "type": "thumbnail",
@@ -216,33 +240,32 @@ class HortController(BaseController):
         if provider is None:
             await self.send({"type": "spaces", "spaces": [], "current": 1, "count": 0})
             return
-        workspaces = provider.get_workspaces()
+        workspaces = await _run_sync(provider.get_workspaces)
+        current = await _run_sync(provider.get_current_index)
         await self.send({
             "type": "spaces",
             "spaces": [
                 {"index": ws.index, "is_current": ws.is_current}
                 for ws in workspaces
             ],
-            "current": provider.get_current_index(),
+            "current": current,
             "count": len(workspaces),
         })
 
     async def _handle_switch_space(self, msg: dict[str, Any]) -> None:
         provider = self._provider()
         index = msg.get("index", 0)
-        ok = provider.switch_to(index) if provider else False
+        ok = (await _run_sync(provider.switch_to, index)) if provider else False
         await self.send({"type": "space_switched", "ok": ok, "target": index})
 
     async def _handle_stream_config(self, msg: dict[str, Any]) -> None:
         try:
             data = {k: v for k, v in msg.items() if k != "type"}
-            # Client may send target_id to route the stream to the right provider
             target_id = data.pop("target_id", "")
             config = StreamConfig(**data)
             if self._entry is not None:
                 self._entry.stream_config = config
                 self._entry.active_window_id = config.window_id
-                # Resolve which target owns this window
                 if target_id:
                     self._entry.active_target_id = target_id
                 elif self._target_id != "all":
@@ -250,13 +273,13 @@ class HortController(BaseController):
                 else:
                     _, resolved = self._provider_for_window(config.window_id)
                     self._entry.active_target_id = resolved
-                # Cache provider + window so input doesn't call list_windows per keystroke
+                # Cache provider + window for input (non-blocking lookup)
                 p = self._provider() if self._target_id != "all" else (
                     TargetRegistry.get().get_provider(self._entry.active_target_id)
                 )
                 self._cached_provider = p
                 if p:
-                    wins = p.list_windows()
+                    wins = await _run_sync(p.list_windows)
                     self._cached_window = next(
                         (w for w in wins if w.window_id == config.window_id), None
                     )
@@ -276,6 +299,65 @@ class HortController(BaseController):
             if "event_type" in event_data:
                 event_data["type"] = event_data.pop("event_type")
             event = InputEvent(**event_data)
-            provider.handle_input(event, win.bounds, pid=win.owner_pid)
+            # Run input in executor — may call docker exec for Linux targets
+            await _run_sync(provider.handle_input, event, win.bounds, win.owner_pid)
         except Exception:
             pass
+
+    # ----- Terminal management -----
+
+    async def _handle_terminal_spawn(self, msg: dict[str, Any]) -> None:
+        from hort.terminal import TerminalManager
+
+        manager = TerminalManager.get()
+        target_id = msg.get("target_id", "local-macos")
+        cols = msg.get("cols", 120)
+        rows = msg.get("rows", 30)
+        command = msg.get("command")
+        cmd_list = command.split() if isinstance(command, str) else command
+        session = manager.spawn(target_id, command=cmd_list, cols=cols, rows=rows)
+        await self.send({
+            "type": "terminal_spawned",
+            "terminal_id": session.terminal_id,
+            "target_id": session.target_id,
+            "title": session.title,
+        })
+
+    async def _handle_terminal_list(self) -> None:
+        from hort.terminal import TerminalManager
+
+        manager = TerminalManager.get()
+        terminals = manager.list_sessions()
+        await self.send({
+            "type": "terminal_list",
+            "terminals": [
+                {
+                    "terminal_id": t.terminal_id,
+                    "target_id": t.target_id,
+                    "title": t.title,
+                    "cols": t.cols,
+                    "rows": t.rows,
+                    "alive": t.alive,
+                }
+                for t in terminals
+            ],
+        })
+
+    async def _handle_terminal_close(self, msg: dict[str, Any]) -> None:
+        from hort.terminal import TerminalManager
+
+        terminal_id = msg.get("terminal_id", "")
+        ok = TerminalManager.get().close_session(terminal_id)
+        await self.send({
+            "type": "terminal_closed",
+            "terminal_id": terminal_id,
+            "ok": ok,
+        })
+
+    async def _handle_terminal_resize(self, msg: dict[str, Any]) -> None:
+        from hort.terminal import TerminalManager
+
+        terminal_id = msg.get("terminal_id", "")
+        session = TerminalManager.get().get_session(terminal_id)
+        if session:
+            session.resize(msg.get("cols", session.cols), msg.get("rows", session.rows))

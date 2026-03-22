@@ -109,7 +109,7 @@ class TestRunStream:
         registry = HortRegistry.get()
         old_ws = AsyncMock()
         config = StreamConfig(window_id=1, fps=60)
-        entry = HortSessionEntry(user_id="u1", stream_ws=old_ws, stream_config=config)
+        entry = HortSessionEntry(user_id="u1", stream_ws=old_ws, stream_config=config, active_target_id="test")
         registry.register("s1", entry)
 
         new_ws = AsyncMock()
@@ -124,7 +124,7 @@ class TestRunStream:
         old_ws = AsyncMock()
         old_ws.close = AsyncMock(side_effect=Exception("dead"))
         config = StreamConfig(window_id=1, fps=60)
-        entry = HortSessionEntry(user_id="u1", stream_ws=old_ws, stream_config=config)
+        entry = HortSessionEntry(user_id="u1", stream_ws=old_ws, stream_config=config, active_target_id="test")
         registry.register("s1", entry)
 
         new_ws = AsyncMock()
@@ -161,7 +161,7 @@ class TestRunStream:
         registry = HortRegistry.get()
         config = StreamConfig(window_id=999, fps=60)
         control_ws = AsyncMock()
-        entry = HortSessionEntry(user_id="u1", stream_config=config, websocket=control_ws)
+        entry = HortSessionEntry(user_id="u1", stream_config=config, websocket=control_ws, active_target_id="test")
         registry.register("s1", entry)
 
         ws = AsyncMock()
@@ -189,7 +189,7 @@ class TestRunStream:
         config = StreamConfig(window_id=999, fps=60)
         control_ws = AsyncMock()
         control_ws.send_text = AsyncMock(side_effect=Exception("dead"))
-        entry = HortSessionEntry(user_id="u1", stream_config=config, websocket=control_ws)
+        entry = HortSessionEntry(user_id="u1", stream_config=config, websocket=control_ws, active_target_id="test")
         registry.register("s1", entry)
 
         ws = AsyncMock()
@@ -205,7 +205,7 @@ class TestRunStream:
         stub_platform._jpeg = None  # type: ignore[assignment]
         registry = HortRegistry.get()
         config = StreamConfig(window_id=1, fps=60)
-        entry = HortSessionEntry(user_id="u1", stream_config=config)
+        entry = HortSessionEntry(user_id="u1", stream_config=config, active_target_id="test")
         registry.register("s1", entry)
 
         ws = AsyncMock()
@@ -244,7 +244,7 @@ class TestRunStream:
         # No target registered (autouse fixture reset everything)
         registry = HortRegistry.get()
         config = StreamConfig(window_id=1, fps=60)
-        entry = HortSessionEntry(user_id="u1", stream_config=config)
+        entry = HortSessionEntry(user_id="u1", stream_config=config, active_target_id="test")
         registry.register("s1", entry)
 
         ws = AsyncMock()

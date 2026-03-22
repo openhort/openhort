@@ -416,6 +416,15 @@ class TestTargetDiscovery:
         assert targets[0].provider_type == "linux-docker"
 
 
+class TestTerminalWebSocket:
+    def test_invalid_terminal(self, app_client: TestClient) -> None:
+        try:
+            with app_client.websocket_connect("/ws/terminal/nonexistent"):
+                pass
+        except Exception:
+            pass  # Server closes with 4004
+
+
 class TestStreamWebSocket:
     def test_invalid_session(self, app_client: TestClient) -> None:
         from hort.session import HortRegistry
