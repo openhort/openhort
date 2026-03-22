@@ -11,6 +11,8 @@ dependencies = [
     "pydantic>=2.10,<3.0",
     "pyobjc-framework-Quartz>=11.0; sys_platform == 'darwin'",
     "pyobjc-framework-ApplicationServices>=12.1,<13.0; sys_platform == 'darwin'",
+    "websockets (>=16.0,<17.0)",
+    "itsdangerous (>=2.2.0,<3.0.0)",
 ]
 
 [project.scripts]
@@ -47,7 +49,7 @@ addopts = "-m 'not integration'"
 
 [tool.coverage.run]
 source = ["hort"]
-omit = ["hort/static/*", "hort/extensions/*", "hort/terminal.py", "hort/termd.py", "hort/termd_client.py"]
+omit = ["hort/static/*", "hort/extensions/*", "hort/terminal.py", "hort/termd.py", "hort/termd_client.py", "hort/access/*"]
 
 [tool.coverage.report]
 fail_under = 100

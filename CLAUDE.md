@@ -67,6 +67,8 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 - [UX Guidelines](docs/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
 - [Extension System](docs/extensions.md) — plugin architecture, provider interfaces, creating extensions
+- [Llmings](docs/llmings.md) — panel architecture, shared components, plugin lifecycle
+- [Access Server](docs/access-server.md) — remote proxy, Azure deployment, tunnel protocol
 - [Container Environments](docs/containers.md) — Docker/Azure container management, preview panel
 
 ## Critical Rules
