@@ -284,6 +284,8 @@ frame = platform.capture_window(windows[0].window_id)
 
 ## Creating an Extension
 
+The following examples illustrate how to create different types of extensions. Only `core/macos-windows` is currently implemented — these serve as templates.
+
 ### Minimal Example: Null Platform (testing/CI)
 
 ```

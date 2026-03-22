@@ -1,4 +1,4 @@
-"""Entry point for llming-control."""
+"""Entry point for openhort."""
 
 from hort.app import main
 

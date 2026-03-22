@@ -12,24 +12,13 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
 
 from hort.cert import ensure_certs
-from hort.models import (
-    InputEvent,
-    ServerInfo,
-    StatusResponse,
-    StreamConfig,
-    WindowListResponse,
-)
-from hort.input import _activate_app, handle_input
+from hort.models import ServerInfo
 from hort.network import generate_qr_data_uri, get_lan_ip
-from hort.screen import capture_window
-from hort.spaces import get_spaces, switch_to_space
-from hort.windows import list_windows
 
 STATIC_DIR = Path(__file__).parent / "static"
 CERTS_DIR = Path(__file__).parent.parent / "certs"
@@ -46,22 +35,6 @@ if _ENV_FILE.exists():
             os.environ.setdefault(key.strip(), value.strip())
 
 DEV_MODE = os.environ.get("LLMING_DEV", "0") == "1"
-
-# Active WebSocket observers — tracked globally for the app instance
-_active_observers: set[int] = set()
-_observer_counter: int = 0
-
-
-def get_observer_count() -> int:
-    """Return number of currently connected observers."""
-    return len(_active_observers)
-
-
-def reset_observers() -> None:
-    """Reset observer tracking. Used in tests."""
-    global _observer_counter
-    _active_observers.clear()
-    _observer_counter = 0
 
 
 def _file_hash(path: Path) -> str:
@@ -81,11 +54,100 @@ def _static_hash() -> str:
 def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     is_dev = dev_mode if dev_mode is not None else DEV_MODE
-    app = FastAPI(title="llming-control", version="0.1.0")
+    app = FastAPI(title="openhort", version="0.1.0")
     app.state.dev_mode = is_dev
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    _register_targets()
     _register_routes(app)
     return app
+
+
+def _register_targets() -> None:
+    """Register platform targets available on this machine."""
+    from hort.targets import TargetInfo, TargetRegistry
+
+    registry = TargetRegistry.get()
+
+    # Register local macOS target (only on macOS)
+    if sys.platform == "darwin":
+        try:
+            mac_provider = _load_extension_provider(
+                "macos_windows", "MacOSWindowsExtension"
+            )
+            if mac_provider is not None:
+                registry.register(
+                    "local-macos",
+                    TargetInfo(id="local-macos", name="This Mac", provider_type="macos"),
+                    mac_provider,
+                )
+        except Exception:
+            pass  # Quartz not available
+
+    # Discover Docker-based Linux targets
+    _register_docker_targets(registry)
+
+
+def _load_extension_provider(
+    ext_dir_name: str, class_name: str, config: dict[str, Any] | None = None
+) -> Any:
+    """Load a provider class from an extension directory."""
+    import importlib.util
+
+    module_path = (
+        Path(__file__).parent.parent
+        / "extensions"
+        / "core"
+        / ext_dir_name
+        / "provider.py"
+    )
+    if not module_path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location(
+        f"_ext_{ext_dir_name}_provider", module_path
+    )
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cls = getattr(module, class_name, None)
+    if cls is None:
+        return None
+    instance = cls()
+    if config is not None and hasattr(instance, "activate"):
+        instance.activate(config)
+    return instance
+
+
+def _register_docker_targets(registry: object) -> None:
+    """Check for running openhort Linux desktop containers."""
+    import subprocess
+
+    from hort.targets import TargetInfo, TargetRegistry
+
+    assert isinstance(registry, TargetRegistry)
+
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}", "--filter", "ancestor=openhort-linux-desktop"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            for name in result.stdout.strip().splitlines():
+                if not name:
+                    continue
+                provider = _load_extension_provider(
+                    "linux_windows", "LinuxWindowsExtension",
+                    config={"container_name": name},
+                )
+                if provider is not None:
+                    target_id = f"docker-{name}"
+                    registry.register(
+                        target_id,
+                        TargetInfo(id=target_id, name=f"Linux ({name})", provider_type="linux-docker"),
+                        provider,
+                    )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass  # Docker not installed or not responding
 
 
 def _register_routes(app: FastAPI) -> None:
@@ -152,48 +214,67 @@ def _register_routes(app: FastAPI) -> None:
             headers={"Cache-Control": "no-cache"},
         )
 
-    @app.get("/api/windows")
-    async def get_windows(
-        app_filter: str | None = Query(default=None),
-    ) -> WindowListResponse:
-        windows = list_windows(app_filter)
-        app_names = sorted({w.owner_name for w in list_windows()})
-        return WindowListResponse(windows=windows, app_names=app_names)
+    @app.post("/api/session")
+    async def create_session() -> dict[str, str]:
+        """Create a new viewer session and return its ID."""
+        from hort.session import HortRegistry, HortSessionEntry
 
-    @app.get("/api/windows/{window_id}/thumbnail")
-    async def get_thumbnail(window_id: int) -> Response:
-        jpeg_bytes = capture_window(window_id, max_width=400, quality=50)
-        if jpeg_bytes is None:
-            return Response(
-                content=_generate_icon(80), media_type="image/png"
-            )
-        etag = hashlib.md5(jpeg_bytes).hexdigest()[:16]
-        return Response(
-            content=jpeg_bytes,
-            media_type="image/jpeg",
-            headers={"ETag": etag, "Cache-Control": "no-cache"},
+        registry = HortRegistry.get()
+        import secrets
+
+        session_id = secrets.token_urlsafe(24)
+        entry = HortSessionEntry(user_id="viewer")
+        registry.register(session_id, entry)
+        return {"session_id": session_id}
+
+    @app.websocket("/ws/control/{session_id}")
+    async def control_ws(websocket: WebSocket, session_id: str) -> None:
+        """Control channel — all JSON commands flow through here."""
+        from llming_com import run_websocket_session
+
+        from hort.controller import HortController
+        from hort.session import HortRegistry, HortSessionEntry
+
+        registry = HortRegistry.get()
+
+        async def on_connect(
+            entry: object, ws: WebSocket
+        ) -> None:
+            assert isinstance(entry, HortSessionEntry)
+            controller = HortController(session_id)
+            controller.set_websocket(ws)
+            controller.set_session_entry(entry)
+            entry.controller = controller
+            await controller.send({"type": "connected", "version": "0.1.0"})
+
+        async def on_message(entry: object, msg: dict[str, Any]) -> None:
+            assert isinstance(entry, HortSessionEntry)
+            if entry.controller:
+                await entry.controller.handle_message(msg)
+
+        async def on_disconnect(sid: str, entry: object) -> None:
+            assert isinstance(entry, HortSessionEntry)
+            if entry.controller:
+                await entry.controller.cleanup()
+
+        await run_websocket_session(
+            websocket,
+            session_id,
+            registry,
+            on_connect=on_connect,
+            on_message=on_message,
+            on_disconnect=on_disconnect,
+            log_prefix="CTRL",
         )
 
-    @app.get("/api/status")
-    async def get_status() -> StatusResponse:
-        return StatusResponse(observers=len(_active_observers))
+    @app.websocket("/ws/stream/{session_id}")
+    async def session_stream(websocket: WebSocket, session_id: str) -> None:
+        """Binary stream channel — JPEG frames for a window."""
+        from hort.session import HortRegistry
+        from hort.stream import run_stream
 
-    @app.get("/api/spaces")
-    async def api_spaces() -> dict[str, object]:
-        spaces = get_spaces()
-        return {
-            "spaces": [
-                {"index": s.index, "is_current": s.is_current}
-                for s in spaces
-            ],
-            "current": next((s.index for s in spaces if s.is_current), 1),
-            "count": len(spaces),
-        }
-
-    @app.post("/api/spaces/{index}")
-    async def api_switch_space(index: int) -> dict[str, object]:
-        ok = switch_to_space(index)
-        return {"ok": ok, "target": index}
+        registry: HortRegistry = HortRegistry.get()  # type: ignore[assignment]
+        await run_stream(websocket, session_id, registry)
 
     @app.websocket("/ws/devreload")
     async def dev_reload(websocket: WebSocket) -> None:
@@ -211,124 +292,6 @@ def _register_routes(app: FastAPI) -> None:
                     )
         except WebSocketDisconnect:
             pass
-
-    @app.websocket("/ws/stream")
-    async def stream_window(websocket: WebSocket) -> None:
-        global _observer_counter
-        await websocket.accept()
-        _observer_counter += 1
-        observer_id = _observer_counter
-        _active_observers.add(observer_id)
-        config: StreamConfig | None = None
-        prev_window_id: int = 0
-        try:
-            while True:
-                if config is None:
-                    raw = await websocket.receive_text()
-                    config = _parse_stream_config(raw)
-                    if config is None:
-                        await websocket.send_text(
-                            json.dumps({"error": "Invalid config"})
-                        )
-                        continue
-
-                # Raise window whenever it changes
-                if config.window_id != prev_window_id:
-                    _raise_window_for_config(config)
-                    prev_window_id = config.window_id
-
-                effective_max_width = _effective_max_width(config)
-                frame = capture_window(
-                    config.window_id, effective_max_width, config.quality
-                )
-                if frame is None:
-                    await websocket.send_text(
-                        json.dumps({"error": "Window not found or capture failed"})
-                    )
-                    await asyncio.sleep(1.0)
-                    config = None
-                    prev_window_id = 0
-                    continue
-
-                await websocket.send_bytes(frame)
-
-                try:
-                    raw = await asyncio.wait_for(
-                        websocket.receive_text(), timeout=1.0 / config.fps
-                    )
-                    new_config = _handle_ws_message(raw, config)
-                    if new_config is not None:
-                        config = new_config
-                except asyncio.TimeoutError:
-                    pass
-
-        except WebSocketDisconnect:
-            pass
-        finally:
-            _active_observers.discard(observer_id)
-
-
-def _raise_window_for_config(config: StreamConfig) -> None:
-    """Bring the specific window to the front, switching Space if needed."""
-    from hort.spaces import get_current_space_index, switch_to_space
-
-    windows = list_windows()
-    win = next((w for w in windows if w.window_id == config.window_id), None)
-    if not win or not win.owner_pid:
-        return
-    # Auto-switch Space if the window is on a different one
-    if win.space_index > 0 and win.space_index != get_current_space_index():
-        switch_to_space(win.space_index)
-    _activate_app(win.owner_pid, bounds=win.bounds)
-
-
-def _parse_stream_config(raw: str) -> StreamConfig | None:
-    """Parse a JSON string into a StreamConfig, returning None on failure."""
-    try:
-        data: dict[str, Any] = json.loads(raw)
-        return StreamConfig(**data)
-    except (json.JSONDecodeError, ValidationError, TypeError):
-        return None
-
-
-def _handle_ws_message(raw: str, config: StreamConfig) -> StreamConfig | None:
-    """Handle a WebSocket text message — either config update or input event.
-
-    Returns a new StreamConfig if this was a config update, None otherwise.
-    """
-    try:
-        data: dict[str, Any] = json.loads(raw)
-    except json.JSONDecodeError:
-        return None
-
-    msg_type = data.get("type", "")
-
-    # Input events have a type like "click", "key", "scroll", etc.
-    if msg_type in ("click", "double_click", "right_click", "move", "scroll", "key"):
-        try:
-            event = InputEvent(**data)
-            # Look up window bounds for coordinate mapping
-            windows = list_windows()
-            win = next(
-                (w for w in windows if w.window_id == config.window_id), None
-            )
-            if win is not None:
-                handle_input(event, win.bounds, pid=win.owner_pid)
-        except (ValidationError, TypeError):
-            pass
-        return None
-
-    # Otherwise treat as config update (raise handled in main loop)
-    return _parse_stream_config(raw)
-
-
-def _effective_max_width(config: StreamConfig) -> int:
-    """Cap max_width to the client's usable screen resolution."""
-    if config.screen_width > 0 and config.screen_dpr > 0:
-        client_pixels = int(config.screen_width * config.screen_dpr)
-        return min(config.max_width, client_pixels)
-    return config.max_width
-
 
 def _generate_icon(size: int) -> bytes:
     """Generate a simple app icon as PNG bytes."""
@@ -393,7 +356,7 @@ def _render_landing(server_info: ServerInfo, qr_data_uri: str, static_hash: str 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>llming-control</title>
+<title>openhort</title>
 <style>
 body {{
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -413,7 +376,7 @@ code {{ background: #16213e; padding: 4px 10px; border-radius: 4px; color: #e945
 </style>
 </head>
 <body>
-<h1>llming-control</h1>
+<h1>openhort</h1>
 <p>Scan the QR code with your phone to connect</p>
 <div class="qr"><img src="{qr_data_uri}" alt="QR Code"></div>
 <p>Or open manually:</p>
@@ -446,18 +409,66 @@ def main() -> None:  # pragma: no cover
         lan_ip=lan_ip, http_port=HTTP_PORT, https_port=HTTPS_PORT
     )
 
-    print(f"\n  llming-control v0.1.0")
+    print(f"\n  openhort v0.1.0")
     if is_dev:
-        print(f"  MODE:  DEVELOPER (hot-reload enabled)")
+        print(f"  MODE:  DEVELOPER (auto-reload enabled)")
     print(f"  HTTP:  {server_info.http_url}")
     print(f"  HTTPS: {server_info.https_url}")
     print(f"  Scan the QR code at {server_info.http_url} to connect\n")
 
-    asyncio.run(_run_servers(cert_path, key_path))
+    if is_dev:
+        _run_dev(cert_path, key_path)
+    else:
+        asyncio.run(_run_servers(cert_path, key_path))
+
+
+def _run_dev(cert_path: Path, key_path: Path) -> None:  # pragma: no cover
+    """Run with uvicorn --reload for auto-restart on Python file changes.
+
+    Spawns two uvicorn processes: HTTP on 8940, HTTPS on 8950.
+    Both watch ``hort/`` for changes and auto-restart.
+    """
+    import subprocess
+    import signal
+
+    reload_dir = str(Path(__file__).parent)
+    http_proc = subprocess.Popen([
+        sys.executable, "-m", "uvicorn",
+        "hort.app:app",
+        "--host", "0.0.0.0",
+        "--port", str(HTTP_PORT),
+        "--reload",
+        "--reload-dir", reload_dir,
+        "--log-level", "info",
+    ])
+    https_proc = subprocess.Popen([
+        sys.executable, "-m", "uvicorn",
+        "hort.app:app",
+        "--host", "0.0.0.0",
+        "--port", str(HTTPS_PORT),
+        "--reload",
+        "--reload-dir", reload_dir,
+        "--ssl-certfile", str(cert_path),
+        "--ssl-keyfile", str(key_path),
+        "--log-level", "info",
+    ])
+
+    def shutdown(signum: int, frame: object) -> None:
+        http_proc.terminate()
+        https_proc.terminate()
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
+    try:
+        http_proc.wait()
+    finally:
+        https_proc.terminate()
+        https_proc.wait()
 
 
 async def _run_servers(cert_path: Path, key_path: Path) -> None:  # pragma: no cover
-    """Run both HTTP and HTTPS uvicorn servers concurrently."""
+    """Run both HTTP and HTTPS uvicorn servers concurrently (production)."""
     http_config = uvicorn.Config(
         app, host="0.0.0.0", port=HTTP_PORT, log_level="info"
     )

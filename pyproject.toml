@@ -2,7 +2,7 @@
 name = "hort"
 version = "0.1.0"
 description = "Remote window viewer - watch your machine from your phone"
-requires-python = ">=3.11,<3.15"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi>=0.115,<1.0",
     "uvicorn[standard]>=0.34,<1.0",
@@ -25,11 +25,19 @@ pytest-cov = ">=6.0,<7.0"
 pytest-asyncio = ">=0.24,<1.0"
 httpx = ">=0.28,<1.0"
 mypy = ">=1.14,<2.0"
+llming-com = {path = "../llming-com", develop = true}
+playwright = "^1.58.0"
+pytest-playwright = "^0.7.2"
 
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
 exclude = ["tests/", "extensions/"]
+
+[[tool.mypy.overrides]]
+module = "llming_com.*"
+ignore_missing_imports = true
+follow_untyped_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

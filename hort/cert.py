@@ -25,7 +25,7 @@ def _run_openssl(cert_path: Path, key_path: Path, lan_ip: str) -> None:
             "365",
             "-nodes",
             "-subj",
-            "/CN=llming-control",
+            "/CN=openhort",
             "-addext",
             f"subjectAltName=IP:{lan_ip},IP:127.0.0.1",
         ],

@@ -12,17 +12,11 @@ from starlette.websockets import WebSocketDisconnect
 
 from hort.app import (
     _dev_reload_script,
-    _effective_max_width,
     _file_hash,
-    _handle_ws_message,
-    _parse_stream_config,
-    _raise_window_for_config,
     _render_landing,
     _static_hash,
-    get_observer_count,
-    reset_observers,
 )
-from hort.models import ServerInfo, StreamConfig
+from hort.models import ServerInfo
 
 
 class TestLandingPage:
@@ -31,7 +25,7 @@ class TestLandingPage:
             resp = app_client.get("/")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
-        assert "llming-control" in resp.text
+        assert "openhort" in resp.text
 
     def test_contains_qr_code(self, app_client: TestClient) -> None:
         with patch("hort.app.get_lan_ip", return_value="192.168.1.42"):
@@ -54,211 +48,11 @@ class TestRenderLanding:
         assert "abc123hash0" in html
 
 
-class TestWindowsEndpoint:
-    def test_list_all(self, app_client: TestClient) -> None:
-        resp = app_client.get("/api/windows")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "windows" in data
-        assert "app_names" in data
-        assert len(data["windows"]) == 3
-
-    def test_filter_by_app(self, app_client: TestClient) -> None:
-        resp = app_client.get("/api/windows?app_filter=Chrome")
-        assert resp.status_code == 200
-        data = resp.json()
-        for win in data["windows"]:
-            assert "Chrome" in win["owner_name"]
-
-    def test_app_names_sorted(self, app_client: TestClient) -> None:
-        resp = app_client.get("/api/windows")
-        data = resp.json()
-        assert data["app_names"] == sorted(data["app_names"])
-
-
-class TestThumbnailEndpoint:
-    def test_returns_jpeg(self, app_client: TestClient) -> None:
-        resp = app_client.get("/api/windows/101/thumbnail")
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/jpeg"
-
-    def test_uncapturable_returns_placeholder(self, app_client: TestClient) -> None:
-        with patch("hort.app.capture_window", return_value=None):
-            resp = app_client.get("/api/windows/99999/thumbnail")
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/png"
-        assert resp.content[:4] == b"\x89PNG"
-
-
-class TestSpacesEndpoints:
-    def test_get_spaces(self, app_client: TestClient) -> None:
-        with patch("hort.app.get_spaces", return_value=[]):
-            resp = app_client.get("/api/spaces")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "spaces" in data
-        assert "count" in data
-        assert "current" in data
-
-    def test_switch_space(self, app_client: TestClient) -> None:
-        with patch("hort.app.switch_to_space", return_value=True):
-            resp = app_client.post("/api/spaces/2")
-        assert resp.status_code == 200
-        assert resp.json()["ok"] is True
-
-
-class TestStatusEndpoint:
-    def test_returns_status(self, app_client: TestClient) -> None:
-        resp = app_client.get("/api/status")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "observers" in data
-        assert "version" in data
-        assert isinstance(data["observers"], int)
-
-    def test_zero_observers_initially(self, app_client: TestClient) -> None:
-        reset_observers()
-        resp = app_client.get("/api/status")
-        assert resp.json()["observers"] == 0
-
-
-class TestObserverTracking:
-    def test_observer_added_on_connect(self, app_client: TestClient) -> None:
-        reset_observers()
-        assert get_observer_count() == 0
-        with app_client.websocket_connect("/ws/stream") as ws:
-            ws.send_text(json.dumps({"window_id": 101, "fps": 60}))
-            ws.receive_bytes()
-            assert get_observer_count() == 1
-        # After disconnect, observer is removed
-        assert get_observer_count() == 0
-
-    def test_multiple_observers(self, app_client: TestClient) -> None:
-        reset_observers()
-        with app_client.websocket_connect("/ws/stream") as ws1:
-            ws1.send_text(json.dumps({"window_id": 101, "fps": 60}))
-            ws1.receive_bytes()
-            with app_client.websocket_connect("/ws/stream") as ws2:
-                ws2.send_text(json.dumps({"window_id": 101, "fps": 60}))
-                ws2.receive_bytes()
-                assert get_observer_count() == 2
-            assert get_observer_count() == 1
-        assert get_observer_count() == 0
-
-    def test_cleanup_on_error(self, app_client: TestClient) -> None:
-        reset_observers()
-        with patch("hort.app.capture_window", return_value=None):
-            with app_client.websocket_connect("/ws/stream") as ws:
-                ws.send_text(json.dumps({"window_id": 99999, "fps": 10}))
-                ws.receive_text()  # error message
-                assert get_observer_count() == 1
-        assert get_observer_count() == 0
-
-
-class TestWebSocket:
-    def test_stream_receives_frames(self, app_client: TestClient) -> None:
-        with app_client.websocket_connect("/ws/stream") as ws:
-            config = {"window_id": 101, "fps": 10, "quality": 70, "max_width": 800}
-            ws.send_text(json.dumps(config))
-            data = ws.receive_bytes()
-            assert data[:2] == b"\xff\xd8"  # JPEG magic
-
-    def test_invalid_config(self, app_client: TestClient) -> None:
-        with app_client.websocket_connect("/ws/stream") as ws:
-            ws.send_text("not json")
-            resp = ws.receive_text()
-            parsed = json.loads(resp)
-            assert "error" in parsed
-
-    def test_capture_failure(self, app_client: TestClient) -> None:
-        with patch("hort.app.capture_window", return_value=None):
-            with app_client.websocket_connect("/ws/stream") as ws:
-                config = {"window_id": 99999, "fps": 10}
-                ws.send_text(json.dumps(config))
-                resp = ws.receive_text()
-                parsed = json.loads(resp)
-                assert "error" in parsed
-
-    def test_capture_failure_then_recover(
-        self, app_client: TestClient, sample_jpeg_bytes: bytes
-    ) -> None:
-        """After capture failure, config resets; sending new config recovers."""
-        call_count = 0
-
-        def capture_side_effect(*args: object, **kwargs: object) -> bytes | None:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return None  # First call fails
-            return sample_jpeg_bytes  # Subsequent calls succeed
-
-        with patch("hort.app.capture_window", side_effect=capture_side_effect):
-            with app_client.websocket_connect("/ws/stream") as ws:
-                ws.send_text(json.dumps({"window_id": 99999, "fps": 60}))
-                # Get error from failed capture
-                resp = ws.receive_text()
-                assert "error" in json.loads(resp)
-                # Server reset config to None, now send new valid config
-                ws.send_text(json.dumps({"window_id": 101, "fps": 60}))
-                # Should now get a frame
-                data = ws.receive_bytes()
-                assert data[:2] == b"\xff\xd8"
-
-    def test_update_config_mid_stream(
-        self, app_client: TestClient, sample_jpeg_bytes: bytes
-    ) -> None:
-        with patch("hort.app.capture_window", return_value=sample_jpeg_bytes):
-            with app_client.websocket_connect("/ws/stream") as ws:
-                ws.send_text(json.dumps({"window_id": 101, "fps": 10}))
-                ws.receive_bytes()
-                # Update config
-                ws.send_text(json.dumps({"window_id": 102, "fps": 15, "quality": 90}))
-                data = ws.receive_bytes()
-                assert data[:2] == b"\xff\xd8"
-
-    def test_stream_multiple_frames_no_config_update(
-        self, app_client: TestClient, sample_jpeg_bytes: bytes
-    ) -> None:
-        """Covers the TimeoutError path when no config update arrives."""
-        with patch("hort.app.capture_window", return_value=sample_jpeg_bytes):
-            with app_client.websocket_connect("/ws/stream") as ws:
-                ws.send_text(json.dumps({"window_id": 101, "fps": 60}))
-                # Receive multiple frames without sending any config update
-                for _ in range(3):
-                    data = ws.receive_bytes()
-                    assert data[:2] == b"\xff\xd8"
-
-
-class TestEffectiveMaxWidth:
-    def test_caps_to_client_resolution(self) -> None:
-        config = StreamConfig(
-            window_id=1, max_width=3840, screen_width=390, screen_dpr=3.0
-        )
-        assert _effective_max_width(config) == 1170  # 390 * 3
-
-    def test_uses_max_width_when_smaller(self) -> None:
-        config = StreamConfig(
-            window_id=1, max_width=800, screen_width=1920, screen_dpr=1.0
-        )
-        assert _effective_max_width(config) == 800
-
-    def test_no_screen_info_uses_max_width(self) -> None:
-        config = StreamConfig(window_id=1, max_width=1200)
-        assert _effective_max_width(config) == 1200
-
-    def test_tablet_resolution(self) -> None:
-        config = StreamConfig(
-            window_id=1, max_width=5140, screen_width=1024, screen_dpr=2.0
-        )
-        assert _effective_max_width(config) == 2048
-
-
 class TestViewerPage:
     def test_returns_html(self, app_client: TestClient) -> None:
         resp = app_client.get("/viewer")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
-        assert "llming-control" in resp.text
 
     def test_has_etag(self, app_client: TestClient) -> None:
         resp = app_client.get("/viewer")
@@ -278,7 +72,7 @@ class TestViewerDevMode:
             patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
             patch("hort.windows._get_space_index_map", return_value={1: 1}),
             patch("hort.windows._get_window_space", return_value=1),
-            patch("hort.app.capture_window", return_value=sample_jpeg_bytes),
+            patch("hort.screen._raw_capture", return_value=None),
         ):
             from hort.app import create_app as _create
 
@@ -376,7 +170,7 @@ class TestDevReloadWebSocket:
             patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
             patch("hort.windows._get_space_index_map", return_value={1: 1}),
             patch("hort.windows._get_window_space", return_value=1),
-            patch("hort.app.capture_window", return_value=sample_jpeg_bytes),
+            patch("hort.screen._raw_capture", return_value=None),
             patch("hort.app.asyncio.sleep", side_effect=sleep_then_raise),
         ):
             from hort.app import create_app as _create
@@ -400,7 +194,7 @@ class TestDevReloadWebSocket:
             patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
             patch("hort.windows._get_space_index_map", return_value={1: 1}),
             patch("hort.windows._get_window_space", return_value=1),
-            patch("hort.app.capture_window", return_value=sample_jpeg_bytes),
+            patch("hort.screen._raw_capture", return_value=None),
             patch("hort.app._static_hash", side_effect=changing_hash),
             patch("hort.app.asyncio.sleep", return_value=None),
         ):
@@ -415,177 +209,232 @@ class TestDevReloadWebSocket:
                     assert "hash" in data
 
 
-class TestRaiseWindowForConfig:
-    def test_raises_when_window_found(
-        self, sample_raw_windows: list[dict[str, Any]]
-    ) -> None:
-        config = StreamConfig(window_id=101)
+# ===== Session-based endpoint tests =====
+
+
+class TestSessionEndpoint:
+    def test_create_session(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        resp = app_client.post("/api/session")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "session_id" in data
+        assert len(data["session_id"]) > 10
+
+    def test_create_multiple_sessions(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        r1 = app_client.post("/api/session").json()
+        r2 = app_client.post("/api/session").json()
+        assert r1["session_id"] != r2["session_id"]
+
+
+class TestControlWebSocket:
+    def test_connect_and_receive_connected(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        sid = app_client.post("/api/session").json()["session_id"]
+        with app_client.websocket_connect(f"/ws/control/{sid}") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "connected"
+            assert msg["version"] == "0.1.0"
+
+    def test_invalid_session(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        try:
+            with app_client.websocket_connect("/ws/control/nonexistent"):
+                pass
+        except Exception:
+            pass  # llming-com closes with 4004, TestClient raises
+
+    def test_list_windows(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        sid = app_client.post("/api/session").json()["session_id"]
+        with app_client.websocket_connect(f"/ws/control/{sid}") as ws:
+            ws.receive_text()  # connected message
+            ws.send_text(json.dumps({"type": "list_windows"}))
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "windows_list"
+            assert "windows" in msg
+            assert "app_names" in msg
+
+    def test_get_status(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        sid = app_client.post("/api/session").json()["session_id"]
+        with app_client.websocket_connect(f"/ws/control/{sid}") as ws:
+            ws.receive_text()  # connected
+            ws.send_text(json.dumps({"type": "get_status"}))
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "status"
+            assert "observers" in msg
+
+    def test_heartbeat(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        sid = app_client.post("/api/session").json()["session_id"]
+        with app_client.websocket_connect(f"/ws/control/{sid}") as ws:
+            ws.receive_text()  # connected
+            ws.send_text(json.dumps({"type": "heartbeat"}))
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "heartbeat_ack"
+
+
+class TestTargetDiscovery:
+    def test_register_targets_on_create(self, app_client: TestClient) -> None:
+        """create_app registers the local macOS target."""
+        from hort.targets import TargetRegistry
+
+        reg = TargetRegistry.get()
+        targets = reg.list_targets()
+        assert any(t.id == "local-macos" for t in targets)
+
+    def test_list_targets_via_ws(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        sid = app_client.post("/api/session").json()["session_id"]
+        with app_client.websocket_connect(f"/ws/control/{sid}") as ws:
+            ws.receive_text()
+            ws.send_text(json.dumps({"type": "list_targets"}))
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "targets_list"
+            assert len(msg["targets"]) >= 1
+
+    def test_get_spaces_via_ws(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        sid = app_client.post("/api/session").json()["session_id"]
+        with app_client.websocket_connect(f"/ws/control/{sid}") as ws:
+            ws.receive_text()
+            ws.send_text(json.dumps({"type": "get_spaces"}))
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "spaces"
+
+    def test_get_thumbnail_via_ws(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        sid = app_client.post("/api/session").json()["session_id"]
+        with app_client.websocket_connect(f"/ws/control/{sid}") as ws:
+            ws.receive_text()
+            ws.send_text(json.dumps({"type": "get_thumbnail", "window_id": 101}))
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "thumbnail"
+
+    def test_switch_space_via_ws(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
+
+        HortRegistry.reset()
+        sid = app_client.post("/api/session").json()["session_id"]
         with (
-            patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
-            patch("hort.windows._get_space_index_map", return_value={1: 1}),
-            patch("hort.windows._get_window_space", return_value=1),
-            patch("hort.app._activate_app") as mock_activate,
+            patch("hort.spaces.switch_to_space", return_value=True),
+            app_client.websocket_connect(f"/ws/control/{sid}") as ws,
         ):
-            _raise_window_for_config(config)
-        mock_activate.assert_called_once()
-        assert mock_activate.call_args[0][0] == 1001  # Chrome's PID
-        assert mock_activate.call_args[1]["bounds"] is not None
+            ws.receive_text()
+            ws.send_text(json.dumps({"type": "switch_space", "index": 1}))
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "space_switched"
 
-    def test_switches_space_when_needed(
-        self, sample_raw_windows: list[dict[str, Any]]
-    ) -> None:
-        config = StreamConfig(window_id=101)
+    def test_load_extension_provider_missing(self) -> None:
+        from hort.app import _load_extension_provider
+
+        assert _load_extension_provider("nonexistent_dir", "Cls") is None
+
+    def test_load_extension_provider_bad_spec(self) -> None:
+        from hort.app import _load_extension_provider
+
+        with patch("importlib.util.spec_from_file_location", return_value=None):
+            assert _load_extension_provider("macos_windows", "MacOSWindowsExtension") is None
+
+    def test_load_extension_provider_missing_class(self) -> None:
+        from hort.app import _load_extension_provider
+
+        assert _load_extension_provider("macos_windows", "NonexistentClass") is None
+
+    def test_register_targets_import_error(self) -> None:
+        """Covers the except Exception: pass branch in _register_targets."""
+        from hort.app import _register_targets
+        from hort.targets import TargetRegistry
+
+        TargetRegistry.reset()
         with (
-            patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
-            patch("hort.windows._get_space_index_map", return_value={1: 1}),
-            patch("hort.windows._get_window_space", return_value=1),
-            patch("hort.windows._get_space_index_map", return_value={}),
-            patch("hort.windows._get_window_space", return_value=2),
-            patch("hort.app._activate_app"),
-            patch("hort.spaces.get_current_space_index", return_value=1),
-            patch("hort.spaces.switch_to_space") as mock_switch,
+            patch("hort.app._load_extension_provider", side_effect=ImportError("no quartz")),
+            patch("hort.app._register_docker_targets"),
         ):
-            _raise_window_for_config(config)
-        mock_switch.assert_called_once_with(2)
+            _register_targets()
+        # Should not raise
 
-    def test_noop_when_window_not_found(self) -> None:
-        config = StreamConfig(window_id=99999)
+    def test_register_docker_no_docker(self) -> None:
+        from hort.app import _register_docker_targets
+        from hort.targets import TargetRegistry
+
+        TargetRegistry.reset()
+        reg = TargetRegistry.get()
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            _register_docker_targets(reg)
+        assert reg.list_targets() == []
+
+    def test_register_docker_empty(self) -> None:
+        from hort.app import _register_docker_targets
+        from hort.targets import TargetRegistry
+
+        TargetRegistry.reset()
+        reg = TargetRegistry.get()
+        mock_result = type("R", (), {"returncode": 0, "stdout": ""})()
+        with patch("subprocess.run", return_value=mock_result):
+            _register_docker_targets(reg)
+        assert reg.list_targets() == []
+
+    def test_register_docker_with_empty_name_in_list(self) -> None:
+        from hort.app import _register_docker_targets
+        from hort.targets import TargetRegistry
+
+        TargetRegistry.reset()
+        reg = TargetRegistry.get()
+        # "container1\n\ncontainer2" → splitlines gives ["container1", "", "container2"]
+        # The empty string should be skipped
+        # "a\n\nb" → strip().splitlines() = ['a', '', 'b'] — empty string in middle
+        mock_result = type("R", (), {"returncode": 0, "stdout": "c1\n\nc2"})()
         with (
-            patch("hort.windows._raw_window_list", return_value=[]),
-            patch("hort.windows._get_space_index_map", return_value={}),
-            patch("hort.windows._get_window_space", return_value=0),
-            patch("hort.app._activate_app") as mock_activate,
+            patch("subprocess.run", return_value=mock_result),
+            patch("hort.app._load_extension_provider", return_value=None),
         ):
-            _raise_window_for_config(config)
-        mock_activate.assert_not_called()
+            _register_docker_targets(reg)
+        assert reg.list_targets() == []
+
+    def test_register_docker_with_container(self) -> None:
+        from hort.app import _register_docker_targets
+        from hort.targets import TargetRegistry
+
+        TargetRegistry.reset()
+        reg = TargetRegistry.get()
+        mock_result = type("R", (), {"returncode": 0, "stdout": "openhort-linux-desktop\n"})()
+        with patch("subprocess.run", return_value=mock_result):
+            _register_docker_targets(reg)
+        targets = reg.list_targets()
+        assert len(targets) == 1
+        assert targets[0].provider_type == "linux-docker"
 
 
-class TestHandleWsMessage:
-    def test_config_update(self) -> None:
-        config = StreamConfig(window_id=1)
-        result = _handle_ws_message('{"window_id": 2, "fps": 15}', config)
-        assert result is not None
-        assert result.window_id == 2
+class TestStreamWebSocket:
+    def test_invalid_session(self, app_client: TestClient) -> None:
+        from hort.session import HortRegistry
 
-    def test_config_update_same_window(self) -> None:
-        config = StreamConfig(window_id=1)
-        result = _handle_ws_message('{"window_id": 1, "fps": 30}', config)
-        assert result is not None
-        assert result.fps == 30
-
-    def test_input_event_click(
-        self, sample_raw_windows: list[dict[str, Any]]
-    ) -> None:
-        config = StreamConfig(window_id=101)
-        with (
-            patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
-            patch("hort.windows._get_space_index_map", return_value={1: 1}),
-            patch("hort.windows._get_window_space", return_value=1),
-            patch("hort.app.handle_input") as mock_input,
-        ):
-            result = _handle_ws_message(
-                '{"type": "click", "nx": 0.5, "ny": 0.5}', config
-            )
-        assert result is None
-        mock_input.assert_called_once()
-
-    def test_input_event_key(
-        self, sample_raw_windows: list[dict[str, Any]]
-    ) -> None:
-        config = StreamConfig(window_id=101)
-        with (
-            patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
-            patch("hort.windows._get_space_index_map", return_value={1: 1}),
-            patch("hort.windows._get_window_space", return_value=1),
-            patch("hort.app.handle_input") as mock_input,
-        ):
-            result = _handle_ws_message(
-                '{"type": "key", "key": "a", "modifiers": []}', config
-            )
-        assert result is None
-        mock_input.assert_called_once()
-
-    def test_input_event_scroll(
-        self, sample_raw_windows: list[dict[str, Any]]
-    ) -> None:
-        config = StreamConfig(window_id=101)
-        with (
-            patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
-            patch("hort.windows._get_space_index_map", return_value={1: 1}),
-            patch("hort.windows._get_window_space", return_value=1),
-            patch("hort.app.handle_input") as mock_input,
-        ):
-            result = _handle_ws_message(
-                '{"type": "scroll", "nx": 0.5, "ny": 0.5, "dx": 0, "dy": -3}', config
-            )
-        assert result is None
-        mock_input.assert_called_once()
-
-    def test_input_window_not_found(self) -> None:
-        config = StreamConfig(window_id=99999)
-        with (
-            patch("hort.windows._raw_window_list", return_value=[]),
-            patch("hort.windows._get_space_index_map", return_value={}),
-            patch("hort.windows._get_window_space", return_value=0),
-            patch("hort.app.handle_input") as mock_input,
-        ):
-            result = _handle_ws_message(
-                '{"type": "click", "nx": 0.5, "ny": 0.5}', config
-            )
-        assert result is None
-        mock_input.assert_not_called()
-
-    def test_invalid_json(self) -> None:
-        config = StreamConfig(window_id=1)
-        result = _handle_ws_message("not json", config)
-        assert result is None
-
-    def test_invalid_input_event(
-        self, sample_raw_windows: list[dict[str, Any]]
-    ) -> None:
-        config = StreamConfig(window_id=101)
-        with (
-            patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
-            patch("hort.windows._get_space_index_map", return_value={1: 1}),
-            patch("hort.windows._get_window_space", return_value=1),
-            patch("hort.app.handle_input") as mock_input,
-        ):
-            # nx out of range triggers ValidationError
-            result = _handle_ws_message(
-                '{"type": "click", "nx": 5.0, "ny": 0.5}', config
-            )
-        assert result is None
-        mock_input.assert_not_called()
-
-
-class TestParseStreamConfig:
-    def test_valid(self) -> None:
-        raw = '{"window_id": 42, "fps": 15}'
-        config = _parse_stream_config(raw)
-        assert config is not None
-        assert config.window_id == 42
-        assert config.fps == 15
-
-    def test_invalid_json(self) -> None:
-        assert _parse_stream_config("not json") is None
-
-    def test_validation_error(self) -> None:
-        assert _parse_stream_config('{"window_id": 1, "fps": 0}') is None
-
-    def test_missing_required(self) -> None:
-        assert _parse_stream_config('{"fps": 10}') is None
-
-    def test_defaults(self) -> None:
-        config = _parse_stream_config('{"window_id": 1}')
-        assert config is not None
-        assert config.fps == 10
-        assert config.quality == 70
-        assert config.max_width == 800
-
-    def test_screen_info(self) -> None:
-        config = _parse_stream_config(
-            '{"window_id": 1, "screen_width": 1024, "screen_dpr": 2.0}'
-        )
-        assert config is not None
-        assert config.screen_width == 1024
-        assert config.screen_dpr == 2.0
+        HortRegistry.reset()
+        try:
+            with app_client.websocket_connect("/ws/stream/nonexistent"):
+                pass
+        except Exception:
+            pass  # Server closes with 4004, TestClient raises

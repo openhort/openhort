@@ -1,11 +1,12 @@
-# llming-control
+# openhort
 
-Remote macOS window viewer and controller — watch and interact with your Mac from your phone, tablet, or another computer over your local network.
+Remote window viewer and controller — watch and interact with your Mac from your phone, tablet, or another computer over your local network.
 
 ## Quick Start
 
 ```bash
-cd /Users/michael/projects/llming-control
+git clone <repo-url> openhort
+cd openhort
 poetry install
 poetry run python run.py
 ```
@@ -110,7 +111,7 @@ Override in the gear menu if needed.
 
 | Port | Protocol | Purpose |
 |------|----------|---------|
-| 8940 | HTTP | Landing page, QR code, API |
+| 8940 | HTTP | Landing page, QR code |
 | 8950 | HTTPS | Secure streaming (self-signed cert) |
 
 Both ports serve the same app. HTTPS is needed for `wss://` WebSocket on mobile browsers. On first connect over HTTPS, accept the self-signed certificate warning (Advanced → Proceed).
@@ -133,41 +134,105 @@ Or via CLI flag:
 poetry run python run.py --dev
 ```
 
-The server watches static files every 500ms and pushes reload notifications over a dedicated WebSocket (`/ws/devreload`). Zero overhead in production (script not injected when dev mode is off).
+In dev mode:
+- **Python changes** — uvicorn runs with `--reload`, automatically restarts the server when any `.py` file in `hort/` changes.
+- **HTML/CSS/JS changes** — the client-side hot-reload WebSocket (`/ws/devreload`) detects changes to `index.html` and refreshes the browser automatically.
 
-## API
+Zero overhead in production (no reload watcher, no dev script injected).
+
+## Communication Protocol
+
+All control communication uses a session-based JSON WebSocket (via [llming-com](https://github.com/Alyxion/llming-com)). Image streams use a separate binary WebSocket.
+
+### Session Lifecycle
+
+1. Client sends `POST /api/session` → receives `{session_id}`
+2. Client connects control WS to `/ws/control/{session_id}`
+3. Client connects stream WS to `/ws/stream/{session_id}` when viewing a window
+
+### Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | Landing page with QR code |
-| `/viewer` | GET | Main viewer app (cache-busted) |
-| `/api/windows` | GET | List windows (optional `?app_filter=Chrome`) |
-| `/api/windows/{id}/thumbnail` | GET | Single window screenshot (JPEG) |
-| `/api/status` | GET | Observer count, version |
+| `/viewer` | GET | Main viewer app (Quasar/Vue 3) |
+| `/api/session` | POST | Create a new viewer session |
 | `/api/hash` | GET | Static file content hash, dev mode flag |
-| `/ws/stream` | WebSocket | Live window stream + input events |
+| `/api/icon/{size}` | GET | Generated PNG app icon |
+| `/manifest.json` | GET | PWA manifest |
+| `/sw.js` | GET | Service worker |
+| `/ws/control/{session_id}` | WebSocket | JSON control channel (all commands) |
+| `/ws/stream/{session_id}` | WebSocket | Binary JPEG frame stream |
 | `/ws/devreload` | WebSocket | Dev mode file-change notifications |
+
+### Control WebSocket Messages
+
+| Client sends | Server responds |
+|---|---|
+| `{type: "list_windows"}` | `{type: "windows_list", windows: [...], app_names: [...]}` |
+| `{type: "get_thumbnail", window_id: N}` | `{type: "thumbnail", window_id: N, data: "<base64>"}` |
+| `{type: "get_status"}` | `{type: "status", observers: N, version: "..."}` |
+| `{type: "get_spaces"}` | `{type: "spaces", spaces: [...], current: N, count: N}` |
+| `{type: "switch_space", index: N}` | `{type: "space_switched", ok: bool}` |
+| `{type: "stream_config", window_id: N, ...}` | `{type: "stream_config_ack", window_id: N}` |
+| `{type: "input", event_type: "click", ...}` | *(no response)* |
+| `{type: "heartbeat"}` | `{type: "heartbeat_ack"}` |
 
 ## Architecture
 
 ```
-control/
-├── app.py          FastAPI routes, WebSocket streaming, observer tracking
+hort/
+├── app.py          FastAPI routes, session creation, WS endpoints
+├── session.py      Session entry and registry (llming-com)
+├── controller.py   Control WS message handler (HortController)
+├── stream.py       Binary stream transport (JPEG frames)
 ├── models.py       Pydantic models (WindowInfo, StreamConfig, InputEvent, etc.)
 ├── screen.py       Window capture (Quartz CGWindowListCreateImage → PIL → JPEG)
-├── windows.py      Window listing/filtering (Quartz CGWindowListCopyWindowInfo)
+├── windows.py      Window listing/filtering (Quartz + SkyLight)
 ├── input.py        Input simulation (mouse/keyboard via Quartz CGEvent)
+├── spaces.py       macOS Spaces detection and switching (SkyLight)
 ├── network.py      LAN IP detection, QR code generation
 ├── cert.py         Self-signed TLS certificate generation
+├── ext/            Extension system (types, manifest, registry)
 └── static/
-    └── index.html  Complete mobile-first UI (vanilla JS)
+    ├── index.html  Quasar/Vue 3 mobile-first UI
+    └── vendor/     Pre-compiled Vue, Quasar, Plotly.js, Material Icons
+
+extensions/
+└── core/
+    └── macos_windows/   macOS platform extension (reference implementation)
 ```
 
 All client state (groups, per-window zoom, settings) is stored in the browser's localStorage. Multiple clients can connect independently with their own state.
 
+## Extension System
+
+The extension system makes platform capabilities replaceable and composable. See [docs/extensions.md](docs/extensions.md) for the full specification.
+
+Key concepts:
+- **`PlatformProvider`** — unified ABC for window listing, capture, input, workspaces
+- **`ExtensionBase`** — lifecycle hooks (`activate`/`deactivate`) for all extensions
+- **`HortExtension`** (JS) — client-side extension base for Quasar UI panels
+- Extensions are discovered from `extensions/<provider>/<name>/extension.json`
+
 ## Quality
 
 ```bash
-poetry run pytest tests/ --cov=control    # 127 tests, 100% coverage
-poetry run mypy control/                   # strict mode, 0 errors
+poetry run pytest tests/ --cov=hort    # 227 tests, 100% coverage
+poetry run mypy hort/                   # strict mode, 0 errors
 ```
+
+### Playwright UI Tests
+
+End-to-end tests that render the UI in headless Chromium and take screenshots:
+
+```bash
+# One-time setup
+poetry add --group dev playwright pytest-playwright
+poetry run playwright install chromium
+
+# Run UI tests (marked as integration, skipped by default)
+poetry run pytest tests/test_ui_playwright.py -v -m integration
+```
+
+Tests verify: landing page renders, Quasar/Vue mount without errors, picker shows windows, viewer streams frames, no broken images, mobile and tablet viewports. Screenshots saved to `screenshots/`.

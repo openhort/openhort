@@ -1,4 +1,4 @@
-# UX Guidelines — llming-control
+# UX Guidelines — openhort
 
 ## Target Devices
 
@@ -74,11 +74,13 @@ The server sends exactly what the client requests. No over-delivery.
 
 ## Session Management
 
-- Each WebSocket connection is a tracked observer session.
-- The server maintains a live count of connected observers.
-- Observer count is exposed via `/api/status` and displayed in the UI.
+- Each viewer client creates a session via `POST /api/session`.
+- A control WebSocket (`/ws/control/{session_id}`) carries all JSON commands.
+- A separate binary WebSocket (`/ws/stream/{session_id}`) carries JPEG frames.
+- The server tracks live observer count (sessions with active stream).
+- Observer count is available via `{type: "get_status"}` on the control WS.
 - Disconnections are detected immediately (WebSocket close) and cleaned up.
-- No zombie sessions. The server never holds references to closed connections.
+- Sessions with no active WebSocket expire after 5 minutes (llming-com TTL).
 
 ## Accessibility
 

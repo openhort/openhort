@@ -14,6 +14,8 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/bold/style.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/fill/style.css">
+<link rel="stylesheet" href="/static/vendor/material-icons.css">
+<link rel="stylesheet" href="/static/vendor/quasar.prod.css">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -24,19 +26,30 @@ body {
 }
 
 /* ===== PICKER VIEW ===== */
-.header {
+.picker-header {
     position: sticky; top: 0; z-index: 100;
     background: #16213e; padding: 10px 12px;
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
     border-bottom: 1px solid #0f3460;
 }
-.header h1 { font-size: 15px; color: #e94560; flex-shrink: 0; }
-.header select {
+.picker-header h1 { font-size: 15px; color: #e94560; flex-shrink: 0; }
+.picker-header select {
     flex: 1; min-width: 0; background: #0f3460; color: #eee;
     border: 1px solid #e94560; border-radius: 6px; padding: 7px 10px; font-size: 13px;
     -webkit-appearance: none; appearance: none;
 }
-#picker { padding: 8px; }
+.picker-body { padding: 8px; }
+.target-divider {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px 4px; margin-top: 4px;
+    font-size: 12px; color: #e94560; font-weight: 600;
+    border-bottom: 1px solid #0f3460; margin-bottom: 6px;
+}
+.target-divider i { font-size: 16px; }
+.target-count {
+    background: #0f3460; border-radius: 10px; padding: 1px 8px;
+    font-size: 11px; color: #aaa; font-weight: normal;
+}
 .win-card {
     display: flex; align-items: center; gap: 10px;
     background: #16213e; border-radius: 10px; padding: 8px 12px;
@@ -56,14 +69,14 @@ body {
 }
 .win-add-btn:hover { border-color: #e94560; color: #e94560; }
 .win-add-btn.added { border-color: #e94560; color: #e94560; background: rgba(233,69,96,0.15); }
-#status { text-align: center; padding: 40px 20px; color: #666; font-size: 14px; }
+.picker-status { text-align: center; padding: 40px 20px; color: #666; font-size: 14px; }
 
-/* Groups bar */
-#spaces-bar {
+/* Spaces bar */
+.spaces-bar {
     display: none; gap: 6px; padding: 8px 12px 4px; align-items: center;
 }
-#spaces-bar.visible { display: flex; }
-#spaces-bar .spaces-label { font-size: 11px; color: #666; margin-right: 2px; }
+.spaces-bar.visible { display: flex; }
+.spaces-bar .spaces-label { font-size: 11px; color: #666; margin-right: 2px; }
 .space-btn {
     width: 32px; height: 24px; border-radius: 6px; border: 1px solid #333;
     background: #0f3460; color: #aaa; font-size: 12px; font-weight: 600;
@@ -71,22 +84,23 @@ body {
 }
 .space-btn:hover { border-color: #e94560; color: #eee; }
 .space-btn.active { background: #e94560; color: #fff; border-color: #e94560; }
-#viewer-spaces {
+.viewer-spaces {
     display: none; align-items: center; gap: 2px; flex-shrink: 0;
     background: #0f3460; border-radius: 6px; padding: 2px 4px;
 }
-#viewer-spaces.visible { display: inline-flex; }
-#space-label { font-size: 11px; color: #e94560; min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
+.viewer-spaces.visible { display: inline-flex; }
+.space-label { font-size: 11px; color: #e94560; min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
 .space-nav-btn {
     background: none; border: none; color: #aaa; font-size: 14px;
     cursor: pointer; padding: 2px 4px; display: flex; align-items: center;
 }
 .space-nav-btn:hover { color: #e94560; }
 
-#groups-bar {
+/* Groups bar */
+.groups-bar {
     display: flex; gap: 6px; padding: 8px 12px 4px; overflow-x: auto; scrollbar-width: none;
 }
-#groups-bar::-webkit-scrollbar { display: none; }
+.groups-bar::-webkit-scrollbar { display: none; }
 .group-chip {
     flex-shrink: 0; padding: 6px 14px; border-radius: 16px;
     background: #0f3460; border: 1px solid #333; color: #aaa;
@@ -98,36 +112,36 @@ body {
 .group-chip.new-group:hover { border-color: #e94560; color: #e94560; }
 
 /* ===== VIEWER ===== */
-#viewer {
+.viewer {
     display: none; position: fixed; top: 0; left: 0;
     width: 100vw; height: 100vh; background: #000;
     touch-action: none; overflow: hidden;
 }
-#stream-container {
+.viewer.visible { display: block; }
+.stream-container {
     position: absolute;
     top: calc(44px + env(safe-area-inset-top, 0px));
     left: env(safe-area-inset-left, 0px);
     right: env(safe-area-inset-right, 0px);
-    bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+    bottom: env(safe-area-inset-bottom, 0px);
     overflow: hidden;
 }
-#stream-img {
+.stream-img {
     position: absolute; top: 0; left: 0; transform-origin: 0 0;
 }
 
 /* Active mode */
-#viewer.active-mode #stream-container { cursor: none; }
-#viewer.active-mode .nav-arrow { display: none; }
-#mode-btn.active { background: #e94560; color: #fff; border-color: #e94560; }
+.viewer.active-mode .stream-container { cursor: none; }
+.viewer.active-mode .nav-arrow { display: none; }
 
 /* Remote cursor indicator */
-#remote-cursor {
+.remote-cursor {
     display: none; position: absolute; z-index: 180; pointer-events: none;
     width: 24px; height: 24px; transform: translate(-2px, -2px);
 }
-#remote-cursor svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8)); }
-#viewer.active-mode #remote-cursor { display: block; }
-#click-ripple {
+.remote-cursor svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8)); }
+.viewer.active-mode .remote-cursor { display: block; }
+.click-ripple {
     display: none; position: absolute; z-index: 179; pointer-events: none;
     width: 40px; height: 40px; transform: translate(-20px, -20px);
     border: 2px solid #e94560; border-radius: 50%;
@@ -139,7 +153,7 @@ body {
 }
 
 /* Viewer header */
-#viewer-header {
+.viewer-header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 200;
     background: rgba(22, 33, 62, 0.9);
     padding: calc(6px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 6px calc(10px + env(safe-area-inset-left, 0px));
@@ -150,18 +164,18 @@ body {
     background: #e94560; color: white; border: none; border-radius: 6px;
     padding: 6px 10px; font-size: 13px; cursor: pointer; font-weight: 600; flex-shrink: 0;
 }
-#nav-mode-select {
+.nav-mode-select {
     background: #0f3460; color: #eee; border: 1px solid #333; border-radius: 6px;
     padding: 5px 8px; font-size: 12px; flex-shrink: 0; max-width: 140px;
     -webkit-appearance: none; appearance: none;
 }
-#viewer-title {
+.viewer-title {
     flex: 1; font-size: 12px; color: #aaa; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-#nav-counter { font-size: 11px; color: #e94560; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-#fps-display { font-size: 10px; color: #555; flex-shrink: 0; }
-#observer-count { font-size: 10px; color: #555; flex-shrink: 0; }
+.nav-counter { font-size: 11px; color: #e94560; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.fps-display { font-size: 10px; color: #555; flex-shrink: 0; }
+.observer-count { font-size: 10px; color: #555; flex-shrink: 0; }
 .hdr-btn {
     background: rgba(22, 33, 62, 0.7); border: 1px solid #0f3460;
     color: #aaa; font-size: 16px; width: 32px; height: 32px; border-radius: 50%;
@@ -179,37 +193,12 @@ body {
     transition: background 0.15s, color 0.15s;
 }
 .nav-arrow:hover { background: #e94560; color: #fff; }
-#nav-prev { left: env(safe-area-inset-left, 0px); border-radius: 0 8px 8px 0; }
-#nav-next { right: env(safe-area-inset-right, 0px); border-radius: 8px 0 0 8px; }
+.nav-arrow.prev { left: env(safe-area-inset-left, 0px); border-radius: 0 8px 8px 0; }
+.nav-arrow.next { right: env(safe-area-inset-right, 0px); border-radius: 8px 0 0 8px; }
 
-/* Bottom thumbnail strip */
-#thumb-strip {
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
-    background: rgba(22,33,62,0.92);
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    display: flex; overflow-x: auto; gap: 6px;
-    padding: 6px calc(10px + env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) calc(10px + env(safe-area-inset-left, 0px));
-    scrollbar-width: none;
-}
-#thumb-strip::-webkit-scrollbar { display: none; }
-.strip-item {
-    flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer;
-}
-.strip-item img {
-    width: 68px; height: 44px; border-radius: 5px; object-fit: cover;
-    background: #0f3460; border: 2px solid transparent; opacity: 0.5;
-    transition: opacity 0.15s, border-color 0.15s;
-}
-.strip-item:hover img { opacity: 0.9; }
-.strip-item.active img { border-color: #e94560; opacity: 1; }
-.strip-item span {
-    font-size: 9px; color: #666; max-width: 68px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
-}
-.strip-item.active span { color: #e94560; }
 
 /* Settings panel */
-#settings-panel {
+.settings-panel {
     display: none; position: fixed;
     top: calc(44px + env(safe-area-inset-top, 0px));
     right: calc(12px + env(safe-area-inset-right, 0px));
@@ -219,8 +208,8 @@ body {
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
-#settings-panel.open { display: block; }
-#settings-panel h3 { font-size: 11px; color: #e94560; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 1px; }
+.settings-panel.open { display: block; }
+.settings-panel h3 { font-size: 11px; color: #e94560; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 1px; }
 .setting-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .setting-row:last-child { margin-bottom: 0; }
 .setting-row label { font-size: 12px; color: #999; min-width: 65px; flex-shrink: 0; }
@@ -232,7 +221,7 @@ body {
 }
 
 /* Minimap */
-#minimap {
+.minimap {
     display: none; position: fixed;
     bottom: calc(70px + env(safe-area-inset-bottom, 0px));
     right: calc(12px + env(safe-area-inset-right, 0px));
@@ -240,39 +229,39 @@ body {
     background: rgba(22,33,62,0.9); border: 1px solid #0f3460; border-radius: 8px;
     padding: 6px; backdrop-filter: blur(8px);
 }
-#minimap.visible { display: block; }
-#minimap-wrap {
+.minimap.visible { display: block; }
+.minimap-wrap {
     position: relative; width: 180px; cursor: crosshair; overflow: hidden; border-radius: 4px;
 }
-#minimap-img { width: 100%; display: block; background: #0f3460; }
-#minimap-viewport {
+.minimap-img { width: 100%; display: block; background: #0f3460; }
+.minimap-viewport {
     position: absolute; border: 2px solid #e94560; background: rgba(233,69,96,0.1);
     pointer-events: none; border-radius: 2px;
 }
-#minimap-nav {
+.minimap-nav {
     display: flex; gap: 4px; margin-top: 6px;
 }
-#minimap-nav button {
+.minimap-nav button {
     flex: 1; background: #0f3460; border: 1px solid #333; color: #aaa;
     border-radius: 4px; padding: 4px; font-size: 11px; cursor: pointer; font-weight: 600;
 }
-#minimap-nav button:hover { background: #e94560; color: #fff; border-color: #e94560; }
+.minimap-nav button:hover { background: #e94560; color: #fff; border-color: #e94560; }
 
 /* Overview grid */
-#overview {
+.overview {
     display: none; position: fixed; inset: 0; z-index: 350;
     background: rgba(0,0,0,0.85); overflow-y: auto; padding: 50px 16px 16px;
 }
-#overview.open { display: block; }
-#overview-header {
+.overview.open { display: block; }
+.overview-header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 360;
     background: rgba(22,33,62,0.95); padding: 10px 16px;
     display: flex; align-items: center; gap: 10px;
     backdrop-filter: blur(8px);
 }
-#overview-spaces { display: inline-flex; gap: 3px; flex-shrink: 0; }
-#overview-header h2 { flex: 1; font-size: 15px; color: #e94560; }
-#overview-grid {
+.overview-spaces { display: inline-flex; gap: 3px; flex-shrink: 0; }
+.overview-header h2 { flex: 1; font-size: 15px; color: #e94560; }
+.overview-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 10px;
 }
@@ -290,21 +279,21 @@ body {
 .overview-card .ov-name { font-size: 10px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Group modal */
-#group-modal {
+.group-modal-overlay {
     display: none; position: fixed; inset: 0; z-index: 400;
     background: rgba(0,0,0,0.7); align-items: center; justify-content: center;
 }
-#group-modal.open { display: flex; }
-#group-modal-content {
+.group-modal-overlay.open { display: flex; }
+.group-modal-content {
     background: #16213e; border: 1px solid #0f3460; border-radius: 12px;
     padding: 20px; width: 90%; max-width: 360px;
 }
-#group-modal-content h3 { color: #e94560; margin-bottom: 12px; font-size: 15px; }
-#group-modal-content input {
+.group-modal-content h3 { color: #e94560; margin-bottom: 12px; font-size: 15px; }
+.group-modal-content input {
     width: 100%; background: #0f3460; color: #eee; border: 1px solid #333;
     border-radius: 6px; padding: 10px; font-size: 14px; margin-bottom: 12px;
 }
-#group-modal-content input:focus { outline: none; border-color: #e94560; }
+.group-modal-content input:focus { outline: none; border-color: #e94560; }
 .modal-btns { display: flex; gap: 8px; }
 .modal-btns button {
     flex: 1; padding: 10px; border: none; border-radius: 6px;
@@ -313,1105 +302,1615 @@ body {
 .modal-save { background: #e94560; color: #fff; }
 .modal-cancel { background: #0f3460; color: #aaa; }
 .modal-delete { background: #333; color: #e94560; flex: 0; padding: 10px 16px; }
+
+/* Quasar overrides for dark theme */
+.q-dark { background: #1a1a2e !important; }
 </style>
 </head>
 <body>
 
-<!-- PICKER VIEW -->
-<div id="picker-view">
-    <div class="header">
-        <h1>llming-control</h1>
-        <select id="app-filter"><option value="">All Apps</option></select>
-    </div>
-    <div id="spaces-bar"></div>
-    <div id="groups-bar"></div>
-    <div id="picker"></div>
-    <div id="status">Loading windows...</div>
+<div id="q-app">
+  <hort-app></hort-app>
 </div>
 
-<!-- VIEWER -->
-<div id="viewer">
-    <div id="viewer-header">
-        <button class="back-btn" id="back-btn"><i class="ph ph-arrow-left"></i></button>
-        <span id="viewer-spaces">
-            <button class="space-nav-btn" id="space-prev" title="Previous Space"><i class="ph-bold ph-caret-left"></i></button>
-            <span id="space-label">1/2</span>
-            <button class="space-nav-btn" id="space-next" title="Next Space"><i class="ph-bold ph-caret-right"></i></button>
-        </span>
-        <select id="nav-mode-select"></select>
-        <span id="viewer-title"></span>
-        <span id="nav-counter"></span>
-        <span id="observer-count"></span>
-        <span id="fps-display"></span>
-        <button class="hdr-btn" id="mode-btn" title="Toggle active mode (I)"><i class="ph ph-eye"></i></button>
-        <button class="hdr-btn" id="fit-btn" title="Auto-fit (F)"><i class="ph-bold ph-corners-out"></i></button>
-        <button class="hdr-btn" id="fitv-btn" title="Fit vertical (V)"><i class="ph-bold ph-arrows-out-line-vertical"></i></button>
-        <button class="hdr-btn" id="overview-btn" title="Overview (G)"><i class="ph ph-squares-four"></i></button>
-        <button class="hdr-btn" id="gear-btn"><i class="ph ph-gear-six"></i></button>
-    </div>
-    <button class="nav-arrow" id="nav-prev"><i class="ph-bold ph-caret-left"></i></button>
-    <button class="nav-arrow" id="nav-next"><i class="ph-bold ph-caret-right"></i></button>
-    <div id="stream-container">
-        <img id="stream-img" alt="">
-        <div id="remote-cursor">
-            <svg viewBox="0 0 24 24" fill="none">
-                <path d="M4 4L10.5 20L13 13L20 10.5L4 4Z" fill="white" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>
-            </svg>
+<script src="/static/vendor/vue.global.prod.js"></script>
+<script src="/static/vendor/quasar.umd.prod.js"></script>
+<script src="/static/vendor/hort-ext.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const { createApp, ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, toRaw } = Vue;
+
+  // ===== SHARED STATE =====
+  const state = reactive({
+    // Connection
+    sessionId: null,
+    controlWs: null,
+    streamWs: null,
+    connected: false,
+    serverVersion: '',
+
+    // View: 'picker' | 'viewer'
+    view: 'picker',
+
+    // Targets
+    targets: [],          // [{id, name, provider_type, status}]
+    activeTarget: 'all',  // 'all' or a target id
+
+    // Windows
+    allWindows: [],
+    navWindows: [],
+    navIndex: 0,
+    appNames: [],
+    appFilter: '',
+
+    // Groups
+    navMode: 'all', // 'all' | 'app' | group name
+    activeGroupName: null,
+
+    // Spaces
+    spacesData: { spaces: [], current: 1, count: 0 },
+
+    // Viewer
+    activeMode: false,
+    fitMode: 'auto', // 'auto' | 'vertical' | 'custom'
+    scale: 1,
+    tx: 0,
+    ty: 0,
+    imgNatW: 0,
+    imgNatH: 0,
+
+    // Stream
+    streamBlobUrl: null,
+    prevBlobUrl: null,
+    frameCount: 0,
+    fpsText: '',
+    observerCount: 0,
+
+    // Settings
+    quality: 70,
+    fps: 15,
+    maxWidth: 1920,
+    settingsOpen: false,
+
+    // Overview
+    overviewOpen: false,
+
+    // Group modal
+    groupModalOpen: false,
+    groupModalTitle: 'New Group',
+    groupModalName: '',
+    groupModalEditing: null,
+    groupModalCallback: null,
+
+    // Thumbnails (for cache busting)
+    thumbCounter: 0,
+
+    // Extension panels
+    extensionPanels: [],
+  });
+
+  // ===== PERSISTENCE HELPERS =====
+  function loadGroups() {
+    try { return JSON.parse(localStorage.getItem('llming-groups') || '{}'); } catch { return {}; }
+  }
+  function saveGroups(g) { localStorage.setItem('llming-groups', JSON.stringify(g)); }
+
+  function saveWindowState(winId) {
+    if (!winId) return;
+    const states = loadAllWindowStates();
+    states[winId] = { scale: state.scale, tx: state.tx, ty: state.ty, fitMode: state.fitMode };
+    localStorage.setItem('llming-wstates', JSON.stringify(states));
+  }
+  function loadWindowState(winId) {
+    return loadAllWindowStates()[winId] || null;
+  }
+  function loadAllWindowStates() {
+    try { return JSON.parse(localStorage.getItem('llming-wstates') || '{}'); } catch { return {}; }
+  }
+
+  // ===== CONTROL WS =====
+  let pendingRequests = {};
+  let requestId = 0;
+  let heartbeatTimer = null;
+  let reconnectTimer = null;
+
+  function sendControl(msg) {
+    if (state.controlWs && state.controlWs.readyState === WebSocket.OPEN) {
+      state.controlWs.send(JSON.stringify(msg));
+    }
+  }
+
+  function sendControlRequest(msg) {
+    return new Promise((resolve) => {
+      const id = ++requestId;
+      pendingRequests[id] = resolve;
+      msg._req_id = id;
+      sendControl(msg);
+      // Timeout after 10s
+      setTimeout(() => {
+        if (pendingRequests[id]) {
+          delete pendingRequests[id];
+          resolve(null);
+        }
+      }, 10000);
+    });
+  }
+
+  async function initSession() {
+    try {
+      const resp = await fetch('/api/session', { method: 'POST' });
+      const data = await resp.json();
+      state.sessionId = data.session_id;
+      connectControlWs();
+    } catch (e) {
+      console.error('Failed to create session:', e);
+      setTimeout(initSession, 2000);
+    }
+  }
+
+  function connectControlWs() {
+    if (state.controlWs) {
+      state.controlWs.close();
+      state.controlWs = null;
+    }
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/control/${state.sessionId}`);
+    state.controlWs = ws;
+
+    ws.onopen = () => {
+      state.connected = true;
+      startHeartbeat();
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        handleControlMessage(msg);
+      } catch {}
+    };
+
+    ws.onclose = () => {
+      state.connected = false;
+      stopHeartbeat();
+      // Reconnect
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        if (state.sessionId) connectControlWs();
+      }, 1000);
+    };
+
+    ws.onerror = () => {};
+  }
+
+  function handleControlMessage(msg) {
+    // Check if this is a response to a pending request
+    if (msg._req_id && pendingRequests[msg._req_id]) {
+      pendingRequests[msg._req_id](msg);
+      delete pendingRequests[msg._req_id];
+      // Still process the message for side effects
+    }
+
+    switch (msg.type) {
+      case 'connected':
+        state.serverVersion = msg.version || '';
+        requestTargets();
+        break;
+      case 'windows_list':
+        handleWindowsList(msg);
+        break;
+      case 'thumbnail':
+        handleThumbnail(msg);
+        break;
+      case 'status':
+        state.observerCount = msg.observers || 0;
+        break;
+      case 'spaces':
+        handleSpaces(msg);
+        break;
+      case 'space_switched':
+        if (msg.ok) {
+          requestSpaces();
+          requestWindows();
+        }
+        break;
+      case 'stream_config_ack':
+        break;
+      case 'stream_error':
+        handleStreamError(msg);
+        break;
+      case 'targets_list':
+        state.targets = msg.targets || [];
+        state.activeTarget = msg.active || 'all';
+        break;
+      case 'target_changed':
+        state.activeTarget = msg.target_id;
+        requestWindows();
+        break;
+      case 'heartbeat_ack':
+        break;
+    }
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      sendControl({ type: 'heartbeat' });
+    }, 15000);
+  }
+
+  function stopHeartbeat() {
+    clearInterval(heartbeatTimer);
+  }
+
+  // ===== TARGETS =====
+
+  function requestTargets() {
+    sendControl({ type: 'list_targets' });
+  }
+
+  function setTarget(targetId) {
+    sendControl({ type: 'set_target', target_id: targetId });
+  }
+
+  // ===== WINDOW LIST =====
+  let thumbnailCache = {};
+
+  function requestWindows() {
+    sendControl({ type: 'list_windows', app_filter: state.appFilter || '' });
+  }
+
+  function handleWindowsList(msg) {
+    state.allWindows = msg.windows || [];
+    state.appNames = msg.app_names || [];
+    computeNavWindows();
+  }
+
+  function requestThumbnail(windowId, targetId) {
+    const msg = { type: 'get_thumbnail', window_id: windowId };
+    if (targetId) msg.target_id = targetId;
+    sendControl(msg);
+  }
+
+  // 1x1 transparent PNG (valid, generated by PIL)
+  const PLACEHOLDER_THUMB = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==';
+
+  function handleThumbnail(msg) {
+    if (msg.data) {
+      thumbnailCache[msg.window_id] = 'data:image/jpeg;base64,' + msg.data;
+    } else {
+      thumbnailCache[msg.window_id] = PLACEHOLDER_THUMB;
+    }
+    state.thumbCounter++; // Trigger reactivity
+  }
+
+  function getThumbnailSrc(windowId) {
+    // Access thumbCounter to make this reactive
+    void state.thumbCounter;
+    return thumbnailCache[windowId] || PLACEHOLDER_THUMB;
+  }
+
+  function onThumbError(event) {
+    // Hide broken image — CSS background (#0f3460) shows through
+    event.target.style.visibility = 'hidden';
+  }
+
+  function requestStatus() {
+    sendControl({ type: 'get_status' });
+  }
+
+  function requestSpaces() {
+    sendControl({ type: 'get_spaces' });
+  }
+
+  function handleSpaces(msg) {
+    state.spacesData = {
+      spaces: msg.spaces || [],
+      current: msg.current || 1,
+      count: msg.count || 0,
+    };
+  }
+
+  function switchSpace(index) {
+    sendControl({ type: 'switch_space', index });
+  }
+
+  // ===== NAV =====
+  function currentWindow() {
+    return state.navWindows[state.navIndex] || null;
+  }
+
+  function computeNavWindows() {
+    if (state.navMode === 'all') {
+      state.navWindows = [...state.allWindows];
+    } else if (state.navMode === 'app') {
+      const cur = currentWindow();
+      const appName = cur ? cur.owner_name : '';
+      state.navWindows = state.allWindows.filter(w => w.owner_name === appName);
+    } else {
+      const groups = loadGroups();
+      const ids = groups[state.navMode] || [];
+      state.navWindows = ids.map(id => state.allWindows.find(w => w.window_id === id)).filter(Boolean);
+    }
+  }
+
+  // ===== STREAM WS =====
+  let fpsTimer = null;
+  let statusTimer = null;
+
+  function connectStreamWs() {
+    disconnectStreamWs();
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/stream/${state.sessionId}`);
+    ws.binaryType = 'arraybuffer';
+    state.streamWs = ws;
+
+    ws.onopen = () => {
+      startFpsCounter();
+    };
+
+    ws.onmessage = (e) => {
+      if (e.data instanceof ArrayBuffer) {
+        const blob = new Blob([e.data], { type: 'image/jpeg' });
+        const url = URL.createObjectURL(blob);
+        if (state.prevBlobUrl) URL.revokeObjectURL(state.prevBlobUrl);
+        state.prevBlobUrl = state.streamBlobUrl;
+        state.streamBlobUrl = url;
+        state.frameCount++;
+      }
+    };
+
+    ws.onclose = () => {
+      // Reconnect only if we're still in viewer mode with an active window
+      if (state.view === 'viewer' && currentWindow()) {
+        setTimeout(connectStreamWs, 1000);
+      }
+    };
+  }
+
+  function disconnectStreamWs() {
+    if (state.streamWs) {
+      state.streamWs.close();
+      state.streamWs = null;
+    }
+    stopFpsCounter();
+  }
+
+  function sendStreamConfig(windowId, targetId) {
+    const msg = {
+      type: 'stream_config',
+      window_id: windowId,
+      fps: state.fps,
+      quality: state.quality,
+      max_width: state.maxWidth,
+      screen_width: window.innerWidth,
+      screen_dpr: window.devicePixelRatio || 1,
+    };
+    if (targetId) msg.target_id = targetId;
+    sendControl(msg);
+  }
+
+  function startFpsCounter() {
+    state.frameCount = 0;
+    fpsTimer = setInterval(() => {
+      state.fpsText = state.frameCount + ' fps';
+      state.frameCount = 0;
+    }, 1000);
+    requestStatus();
+    statusTimer = setInterval(requestStatus, 5000);
+  }
+
+  function stopFpsCounter() {
+    clearInterval(fpsTimer);
+    clearInterval(statusTimer);
+    state.fpsText = '';
+    state.observerCount = 0;
+  }
+
+  function handleStreamError(msg) {
+    // Window likely closed - refresh and switch
+    requestWindows();
+    // The windows_list response will trigger computeNavWindows and the viewer will adapt
+  }
+
+  function sendInput(data) {
+    sendControl({ type: 'input', ...data });
+  }
+
+  // ===== THUMBNAIL REFRESH =====
+  let thumbRefreshTimer = null;
+
+  function startThumbRefresh() {
+    stopThumbRefresh();
+    thumbRefreshTimer = setInterval(() => {
+      if (state.view !== 'viewer' || state.overviewOpen) return;
+      state.navWindows.forEach(w => requestThumbnail(w.window_id));
+    }, 5000);
+  }
+
+  function stopThumbRefresh() {
+    clearInterval(thumbRefreshTimer);
+  }
+
+  // ===== PICKER REFRESH =====
+  let pickerRefreshTimer = null;
+
+  function startPickerRefresh() {
+    stopPickerRefresh();
+    refreshPicker();
+    pickerRefreshTimer = setInterval(refreshPicker, 3000);
+  }
+
+  function stopPickerRefresh() {
+    clearInterval(pickerRefreshTimer);
+  }
+
+  function refreshPicker() {
+    requestWindows();
+    requestSpaces();
+    // Request thumbnails for current nav windows after a short delay for windows_list to arrive
+    setTimeout(() => {
+      state.navWindows.forEach(w => requestThumbnail(w.window_id));
+    }, 300);
+  }
+
+  // ===== ESCAPE HELPER =====
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+
+  // =============================================
+  // COMPONENT: hort-group-modal
+  // =============================================
+  const HortGroupModal = {
+    template: `
+      <div class="group-modal-overlay" :class="{ open: state.groupModalOpen }" @click.self="cancel">
+        <div class="group-modal-content">
+          <h3>{{ state.groupModalTitle }}</h3>
+          <input ref="nameInput" v-model="state.groupModalName"
+                 placeholder="Group name (e.g. Debug Pair)" maxlength="30"
+                 @keydown.enter="save" @keydown.escape="cancel">
+          <div class="modal-btns">
+            <button class="modal-cancel" @click="cancel">Cancel</button>
+            <button v-if="state.groupModalEditing" class="modal-delete" @click="doDelete">Delete</button>
+            <button class="modal-save" @click="save">Save</button>
+          </div>
         </div>
-        <div id="click-ripple"></div>
-    </div>
-    <div id="minimap">
-        <div id="minimap-wrap">
-            <img id="minimap-img" alt="">
-            <div id="minimap-viewport"></div>
-        </div>
-        <div id="minimap-nav">
-            <button id="mm-left">L</button>
-            <button id="mm-center">M</button>
-            <button id="mm-right">R</button>
-        </div>
-    </div>
-    <div id="thumb-strip"></div>
-    <div id="settings-panel">
+      </div>
+    `,
+    setup() {
+      const nameInput = ref(null);
+
+      watch(() => state.groupModalOpen, (open) => {
+        if (open) nextTick(() => { if (nameInput.value) nameInput.value.focus(); });
+      });
+
+      function save() {
+        const n = state.groupModalName.trim();
+        if (!n) return;
+        if (state.groupModalCallback) {
+          state.groupModalCallback(n);
+          closeModal();
+          return;
+        }
+        const g = loadGroups();
+        if (state.groupModalEditing && state.groupModalEditing !== n) {
+          g[n] = g[state.groupModalEditing] || [];
+          delete g[state.groupModalEditing];
+          if (state.navMode === state.groupModalEditing) state.navMode = n;
+        } else if (!state.groupModalEditing) {
+          g[n] = [];
+        }
+        saveGroups(g);
+        closeModal();
+        computeNavWindows();
+      }
+
+      function doDelete() {
+        if (!state.groupModalEditing) return;
+        const g = loadGroups();
+        delete g[state.groupModalEditing];
+        saveGroups(g);
+        if (state.navMode === state.groupModalEditing) state.navMode = 'all';
+        closeModal();
+        computeNavWindows();
+      }
+
+      function cancel() {
+        closeModal();
+      }
+
+      function closeModal() {
+        state.groupModalOpen = false;
+        state.groupModalEditing = null;
+        state.groupModalCallback = null;
+      }
+
+      return { state, nameInput, save, doDelete, cancel };
+    },
+  };
+
+
+  // =============================================
+  // COMPONENT: hort-settings
+  // =============================================
+  const HortSettings = {
+    template: `
+      <div class="settings-panel" :class="{ open: state.settingsOpen }">
         <h3>Settings</h3>
         <div class="setting-row">
-            <label>Quality</label>
-            <input type="range" id="quality-slider" min="10" max="100" value="70" step="5">
-            <span class="setting-val" id="quality-val">70</span>
+          <label>Quality</label>
+          <input type="range" min="10" max="100" step="5" v-model.number="state.quality" @change="onSettingChange">
+          <span class="setting-val">{{ state.quality }}</span>
         </div>
         <div class="setting-row">
-            <label>FPS</label>
-            <input type="range" id="fps-slider" min="1" max="60" value="15" step="1">
-            <span class="setting-val" id="fps-val">15</span>
+          <label>FPS</label>
+          <input type="range" min="1" max="60" step="1" v-model.number="state.fps" @change="onSettingChange">
+          <span class="setting-val">{{ state.fps }}</span>
         </div>
         <div class="setting-row">
-            <label>Max Width</label>
-            <select id="resolution-select">
-                <option value="640">640px</option>
-                <option value="800">800px</option>
-                <option value="1200">1200px</option>
-                <option value="1920" selected>1920px</option>
-                <option value="2560">2560px</option>
-                <option value="3840">3840px</option>
-                <option value="5140">5140px (full)</option>
-            </select>
+          <label>Max Width</label>
+          <select v-model.number="state.maxWidth" @change="onSettingChange">
+            <option :value="640">640px</option>
+            <option :value="800">800px</option>
+            <option :value="1200">1200px</option>
+            <option :value="1920">1920px</option>
+            <option :value="2560">2560px</option>
+            <option :value="3840">3840px</option>
+            <option :value="5140">5140px (full)</option>
+          </select>
         </div>
         <div class="setting-row">
-            <label>Fullscreen</label>
-            <button class="hdr-btn" id="fullscreen-btn" style="width:auto;border-radius:6px;padding:4px 12px;font-size:12px"><i class="ph ph-arrows-out"></i> Toggle</button>
+          <label>Fullscreen</label>
+          <button class="hdr-btn" style="width:auto;border-radius:6px;padding:4px 12px;font-size:12px" @click="toggleFullscreen">
+            <i class="ph ph-arrows-out"></i> Toggle
+          </button>
         </div>
-    </div>
-</div>
+      </div>
+    `,
+    setup() {
+      function onSettingChange() {
+        const win = currentWindow();
+        if (win) sendStreamConfig(win.window_id, win.target_id);
+      }
 
-<!-- OVERVIEW -->
-<div id="overview">
-    <div id="overview-header">
-        <button class="back-btn" id="overview-close"><i class="ph ph-x"></i></button>
-        <span id="overview-spaces"></span>
-        <h2>All Windows</h2>
-    </div>
-    <div id="overview-grid"></div>
-</div>
-
-<!-- GROUP MODAL -->
-<div id="group-modal">
-    <div id="group-modal-content">
-        <h3 id="group-modal-title">New Group</h3>
-        <input id="group-name-input" placeholder="Group name (e.g. Debug Pair)" maxlength="30">
-        <div class="modal-btns">
-            <button class="modal-cancel" id="group-cancel">Cancel</button>
-            <button class="modal-delete" id="group-delete" style="display:none">Delete</button>
-            <button class="modal-save" id="group-save">Save</button>
-        </div>
-    </div>
-</div>
-
-<script>
-(function() {
-    'use strict';
-
-    // ===== ELEMENTS =====
-    const $ = id => document.getElementById(id);
-    const pickerView = $('picker-view'), viewer = $('viewer'), picker = $('picker');
-    const statusEl = $('status'), appFilter = $('app-filter');
-    const backBtn = $('back-btn'), viewerTitle = $('viewer-title');
-    const fpsDisplay = $('fps-display'), navCounter = $('nav-counter'), observerCount = $('observer-count');
-    const streamImg = $('stream-img'), streamContainer = $('stream-container');
-    const qualitySlider = $('quality-slider'), qualityVal = $('quality-val');
-    const fpsSlider = $('fps-slider'), fpsVal = $('fps-val');
-    const resolutionSelect = $('resolution-select');
-    const gearBtn = $('gear-btn'), settingsPanel = $('settings-panel');
-    const fitBtn = $('fit-btn'), fitvBtn = $('fitv-btn'), modeBtn = $('mode-btn');
-    const overviewBtn = $('overview-btn'), overviewEl = $('overview');
-    const overviewGrid = $('overview-grid'), overviewClose = $('overview-close');
-    const navPrev = $('nav-prev'), navNext = $('nav-next');
-    const thumbStrip = $('thumb-strip'), groupsBar = $('groups-bar');
-    const spacesBar = $('spaces-bar'), viewerSpaces = $('viewer-spaces'), overviewSpaces = $('overview-spaces');
-    const spacePrev = $('space-prev'), spaceNext = $('space-next'), spaceLabel = $('space-label');
-    const navModeSelect = $('nav-mode-select');
-    const groupModal = $('group-modal'), groupNameInput = $('group-name-input');
-    const groupSave = $('group-save'), groupCancel = $('group-cancel');
-    const groupDelete = $('group-delete'), groupModalTitle = $('group-modal-title');
-    const minimapEl = $('minimap'), minimapImg = $('minimap-img');
-    const minimapViewport = $('minimap-viewport'), minimapWrap = $('minimap-wrap');
-
-    // ===== STATE =====
-    let ws = null, currentConfig = null, refreshTimer = null;
-    let prevBlobUrl = null, frameCount = 0, fpsTimer = null;
-    let allWindows = [], navWindows = [], navIndex = 0;
-    let activeGroupName = null;
-    let navMode = 'all'; // 'all' | 'app' | group name
-    let scale = 1, tx = 0, ty = 0;
-    let fitMode = 'auto'; // 'auto' | 'vertical' | 'custom'
-    let activeMode = false; // true = interact with remote, false = viewer only
-    let imgNatW = 0, imgNatH = 0;
-
-    // Touch/gesture state
-    let lastDist = 0, lastMid = null;
-    let isPanning = false, panStartX = 0, panStartY = 0, panTxStart = 0, panTyStart = 0;
-    let lastTapTime = 0;
-    let swipeStartX = 0, swipeStartY = 0, swipeStartTime = 0;
-    let mousePanning = false, mousePanStartX = 0, mousePanStartY = 0, mousePanTxStart = 0, mousePanTyStart = 0;
-
-    const apiBase = window.location.origin;
-
-    // ===== PERSISTENCE (all client-side) =====
-    function loadGroups() { try { return JSON.parse(localStorage.getItem('llming-groups') || '{}'); } catch { return {}; } }
-    function saveGroups(g) { localStorage.setItem('llming-groups', JSON.stringify(g)); }
-
-    function saveWindowState(winId) {
-        if (!winId) return;
-        const states = loadAllWindowStates();
-        states[winId] = { scale, tx, ty, fitMode };
-        localStorage.setItem('llming-wstates', JSON.stringify(states));
-    }
-    function loadWindowState(winId) {
-        const states = loadAllWindowStates();
-        return states[winId] || null;
-    }
-    function loadAllWindowStates() {
-        try { return JSON.parse(localStorage.getItem('llming-wstates') || '{}'); } catch { return {}; }
-    }
-
-    // ===== API =====
-    async function fetchWindows(filter) {
-        const params = filter ? `?app_filter=${encodeURIComponent(filter)}` : '';
-        const resp = await fetch(`${apiBase}/api/windows${params}`);
-        return await resp.json();
-    }
-
-    // ===== WINDOW LIST =====
-    function currentWindow() { return navWindows[navIndex] || null; }
-
-    function computeNavWindows() {
-        if (navMode === 'all') {
-            navWindows = [...allWindows];
-        } else if (navMode === 'app') {
-            const cur = currentWindow();
-            const appName = cur ? cur.owner_name : '';
-            navWindows = allWindows.filter(w => w.owner_name === appName);
+      function toggleFullscreen() {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
         } else {
-            // group name
-            const groups = loadGroups();
-            const ids = groups[navMode] || [];
-            navWindows = ids.map(id => allWindows.find(w => w.window_id === id)).filter(Boolean);
+          document.documentElement.requestFullscreen().catch(() => {});
         }
-    }
+      }
 
-    // ===== SPACES =====
-    let spacesData = { spaces: [], current: 1, count: 0 };
+      return { state, onSettingChange, toggleFullscreen };
+    },
+  };
 
-    async function refreshSpaces() {
-        try {
-            const resp = await fetch(`${apiBase}/api/spaces`);
-            spacesData = await resp.json();
-        } catch { return; }
-        const hidden = spacesData.count <= 1;
 
-        // Picker bar
-        spacesBar.classList.toggle('visible', !hidden);
-        if (!hidden) {
-            spacesBar.innerHTML = '<span class="spaces-label"><i class="ph ph-monitor"></i></span>';
-            overviewSpaces.innerHTML = '';
-            spacesData.spaces.forEach(sp => {
-                const btn = document.createElement('button');
-                btn.className = 'space-btn' + (sp.is_current ? ' active' : '');
-                btn.textContent = sp.index;
-                btn.addEventListener('click', () => doSwitchSpace(sp.index));
-                spacesBar.appendChild(btn);
-                const btn2 = btn.cloneNode(true);
-                btn2.addEventListener('click', () => doSwitchSpace(sp.index));
-                overviewSpaces.appendChild(btn2);
-            });
+  // =============================================
+  // COMPONENT: hort-overview
+  // =============================================
+  const HortOverview = {
+    template: `
+      <div class="overview" :class="{ open: state.overviewOpen }">
+        <div class="overview-header">
+          <button class="back-btn" @click="close"><i class="ph ph-x"></i></button>
+          <span class="overview-spaces" v-if="state.spacesData.count > 1">
+            <button v-for="sp in state.spacesData.spaces" :key="sp.index"
+                    class="space-btn" :class="{ active: sp.is_current }"
+                    @click="doSwitchSpace(sp.index)">{{ sp.index }}</button>
+          </span>
+          <h2>All Windows</h2>
+        </div>
+        <div class="overview-grid">
+          <div v-for="win in state.allWindows" :key="win.window_id"
+               class="overview-card" :class="{ current: isCurrent(win) }"
+               @click="selectWindow(win)">
+            <img :src="getThumbnailSrc(win.window_id)" alt=""
+                 @error="onThumbError($event)">
+            <div>
+              <div class="ov-app">
+                <span v-if="win.space_index" style="color:#e94560;font-size:10px;float:right">S{{ win.space_index }}</span>
+                {{ win.owner_name }}
+              </div>
+              <div class="ov-name">{{ win.window_name || '(untitled)' }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `,
+    setup(props, { emit }) {
+      let overviewRefreshTimer = null;
+
+      watch(() => state.overviewOpen, (open) => {
+        if (open) {
+          state.thumbCounter++;
+          state.allWindows.forEach(w => requestThumbnail(w.window_id));
+          overviewRefreshTimer = setInterval(() => {
+            if (!state.overviewOpen) { clearInterval(overviewRefreshTimer); return; }
+            state.allWindows.forEach(w => requestThumbnail(w.window_id));
+          }, 5000);
+        } else {
+          clearInterval(overviewRefreshTimer);
         }
+      });
 
-        // Viewer header: prev/next
-        viewerSpaces.classList.toggle('visible', !hidden);
-        if (!hidden) {
-            spaceLabel.textContent = `${spacesData.current}/${spacesData.count}`;
-        }
-    }
-
-    async function doSwitchSpace(index) {
-        await fetch(`${apiBase}/api/spaces/${index}`, { method: 'POST' });
-        // Server waits for the switch to complete, so we can refresh immediately
-        await refreshSpaces();
-        const allData = await fetchWindows('');
-        allWindows = allData.windows;
-        computeNavWindows();
-        if (overviewEl.classList.contains('open')) showOverview();
-        renderThumbStrip();
-    }
-
-    spacePrev.addEventListener('click', () => {
-        const target = spacesData.current > 1 ? spacesData.current - 1 : spacesData.count;
-        doSwitchSpace(target);
-    });
-    spaceNext.addEventListener('click', () => {
-        const target = spacesData.current < spacesData.count ? spacesData.current + 1 : 1;
-        doSwitchSpace(target);
-    });
-
-    async function refreshWindowList() {
-        refreshSpaces();
-        try {
-            // Always fetch all windows (unfiltered) for overview/nav
-            const allData = await fetchWindows('');
-            allWindows = allData.windows;
-
-            // Fetch filtered list for picker display
-            const filter = appFilter.value;
-            const data = filter ? await fetchWindows(filter) : allData;
-
-            const currentVal = appFilter.value;
-            appFilter.innerHTML = '<option value="">All Apps</option>';
-            allData.app_names.forEach(name => {
-                const opt = document.createElement('option');
-                opt.value = name; opt.textContent = name;
-                if (name === currentVal) opt.selected = true;
-                appFilter.appendChild(opt);
-            });
-
-            computeNavWindows();
-            renderGroupsBar();
-            renderPicker();
-        } catch {
-            statusEl.style.display = 'block';
-            statusEl.textContent = 'Connection error. Retrying...';
-        }
-    }
-
-    function renderPicker() {
-        const groups = loadGroups();
-        if (navWindows.length === 0) {
-            statusEl.style.display = 'block';
-            statusEl.textContent = navMode !== 'all' ? 'Group is empty. Select "All" and add windows with +' : 'No windows found';
-            picker.innerHTML = '';
-            return;
-        }
-        statusEl.style.display = 'none';
-        picker.innerHTML = '';
-
-        navWindows.forEach((win, idx) => {
-            const inAnyGroup = Object.values(groups).some(ids => ids.includes(win.window_id));
-            const card = document.createElement('div');
-            card.className = 'win-card';
-            card.innerHTML = `
-                <img class="win-thumb" src="${apiBase}/api/windows/${win.window_id}/thumbnail"
-                     loading="lazy" alt="" onerror="this.style.display='none'">
-                <div class="win-info">
-                    <div class="win-app">${esc(win.owner_name)}</div>
-                    <div class="win-name">${esc(win.window_name || '(untitled)')}</div>
-                </div>`;
-            const addBtn = document.createElement('button');
-            addBtn.className = 'win-add-btn' + (inAnyGroup ? ' added' : '');
-            addBtn.innerHTML = inAnyGroup ? '<i class="ph-fill ph-star"></i>' : '<i class="ph ph-plus"></i>';
-            addBtn.addEventListener('click', e => { e.stopPropagation(); toggleGroupMembership(win); });
-            card.appendChild(addBtn);
-            card.addEventListener('click', () => { navIndex = idx; switchToWindow(navIndex); });
-            picker.appendChild(card);
-        });
-    }
-
-    function toggleGroupMembership(win) {
-        const groups = loadGroups();
-        const names = Object.keys(groups);
-        if (names.length === 0) {
-            openGroupModal(null, newName => { const g = loadGroups(); g[newName] = [win.window_id]; saveGroups(g); refreshWindowList(); });
-            return;
-        }
-        const target = (navMode !== 'all' && navMode !== 'app') ? navMode : names[0];
-        const g = loadGroups();
-        if (!g[target]) g[target] = [];
-        const idx = g[target].indexOf(win.window_id);
-        if (idx >= 0) g[target].splice(idx, 1); else g[target].push(win.window_id);
-        saveGroups(g);
-        if (navMode !== 'all' && navMode !== 'app') computeNavWindows();
-        renderPicker();
-        renderGroupsBar();
-    }
-
-    // ===== GROUPS BAR =====
-    function renderGroupsBar() {
-        const groups = loadGroups();
-        groupsBar.innerHTML = '';
-        const chip = (text, isActive, onClick) => {
-            const el = document.createElement('div');
-            el.className = 'group-chip' + (isActive ? ' active' : '');
-            el.textContent = text;
-            el.addEventListener('click', onClick);
-            return el;
-        };
-        groupsBar.appendChild(chip('All', navMode === 'all', () => { navMode = 'all'; activeGroupName = null; computeNavWindows(); renderGroupsBar(); renderPicker(); }));
-        Object.keys(groups).forEach(name => {
-            const c = chip(`${name} (${groups[name].length})`, navMode === name, () => {
-                navMode = (navMode === name) ? 'all' : name;
-                activeGroupName = navMode === 'all' ? null : name;
-                computeNavWindows(); renderGroupsBar(); renderPicker();
-            });
-            c.addEventListener('contextmenu', e => { e.preventDefault(); openGroupModal(name); });
-            c.addEventListener('dblclick', e => { e.preventDefault(); openGroupModal(name); });
-            groupsBar.appendChild(c);
-        });
-        const nc = document.createElement('div');
-        nc.className = 'group-chip new-group';
-        nc.innerHTML = '<i class="ph ph-plus"></i> Group';
-        nc.addEventListener('click', () => openGroupModal(null));
-        groupsBar.appendChild(nc);
-    }
-
-    // ===== GROUP MODAL =====
-    let editingGroupName = null, groupModalCallback = null;
-    function openGroupModal(existing, cb) {
-        editingGroupName = existing; groupModalCallback = cb || null;
-        groupModalTitle.textContent = existing ? 'Edit Group' : 'New Group';
-        groupNameInput.value = existing || '';
-        groupDelete.style.display = existing ? 'block' : 'none';
-        groupModal.classList.add('open');
-        setTimeout(() => groupNameInput.focus(), 50);
-    }
-    function closeGroupModal() { groupModal.classList.remove('open'); editingGroupName = null; groupModalCallback = null; }
-    groupSave.addEventListener('click', () => {
-        const n = groupNameInput.value.trim(); if (!n) return;
-        if (groupModalCallback) { groupModalCallback(n); closeGroupModal(); return; }
-        const g = loadGroups();
-        if (editingGroupName && editingGroupName !== n) {
-            g[n] = g[editingGroupName] || []; delete g[editingGroupName];
-            if (navMode === editingGroupName) navMode = n;
-        } else if (!editingGroupName) { g[n] = []; }
-        saveGroups(g); closeGroupModal(); computeNavWindows(); renderGroupsBar(); renderPicker();
-    });
-    groupDelete.addEventListener('click', () => {
-        if (!editingGroupName) return;
-        const g = loadGroups(); delete g[editingGroupName]; saveGroups(g);
-        if (navMode === editingGroupName) navMode = 'all';
-        closeGroupModal(); computeNavWindows(); renderGroupsBar(); renderPicker();
-    });
-    groupCancel.addEventListener('click', closeGroupModal);
-    groupNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') groupSave.click(); if (e.key === 'Escape') closeGroupModal(); });
-    groupModal.addEventListener('click', e => { if (e.target === groupModal) closeGroupModal(); });
-
-    // ===== STREAMING & NAVIGATION =====
-    function updateNavModeSelect() {
-        const groups = loadGroups();
+      function isCurrent(win) {
         const cur = currentWindow();
-        navModeSelect.innerHTML = '';
-        const add = (val, text) => { const o = document.createElement('option'); o.value = val; o.textContent = text; if (val === navMode) o.selected = true; navModeSelect.appendChild(o); };
-        add('all', 'All Windows');
-        if (cur) add('app', `App: ${cur.owner_name}`);
-        Object.keys(groups).forEach(n => add(n, `Group: ${n} (${groups[n].length})`));
-    }
+        return cur && cur.window_id === win.window_id;
+      }
 
-    function switchToWindow(index) {
-        if (navWindows.length === 0) return;
+      function selectWindow(win) {
+        state.overviewOpen = false;
+        let idx = state.navWindows.findIndex(w => w.window_id === win.window_id);
+        if (idx < 0) {
+          state.navMode = 'all';
+          computeNavWindows();
+          idx = state.navWindows.findIndex(w => w.window_id === win.window_id);
+        }
+        if (idx >= 0) emit('switch-window', idx);
+      }
+
+      function close() {
+        state.overviewOpen = false;
+      }
+
+      function doSwitchSpace(index) {
+        switchSpace(index);
+      }
+
+      return { state, isCurrent, selectWindow, close, doSwitchSpace, getThumbnailSrc, onThumbError };
+    },
+  };
+
+
+  // =============================================
+  // COMPONENT: hort-viewer
+  // =============================================
+  const HortViewer = {
+    template: `
+      <div class="viewer" :class="{ visible: state.view === 'viewer', 'active-mode': state.activeMode }"
+           ref="viewerEl">
+        <!-- Header -->
+        <div class="viewer-header">
+          <button class="back-btn" @click="goBack"><i class="ph ph-arrow-left"></i></button>
+          <span class="viewer-spaces" :class="{ visible: state.spacesData.count > 1 }">
+            <button class="space-nav-btn" @click="spacePrev" title="Previous Space"><i class="ph-bold ph-caret-left"></i></button>
+            <span class="space-label">{{ state.spacesData.current }}/{{ state.spacesData.count }}</span>
+            <button class="space-nav-btn" @click="spaceNext" title="Next Space"><i class="ph-bold ph-caret-right"></i></button>
+          </span>
+          <select class="nav-mode-select" :value="state.navMode" @change="onNavModeChange">
+            <option value="all">All Windows</option>
+            <option v-if="curWindow" value="app">App: {{ curWindow.owner_name }}</option>
+            <option v-for="(ids, name) in groups" :key="name" :value="name">Group: {{ name }} ({{ ids.length }})</option>
+          </select>
+          <span class="viewer-title">{{ viewerTitle }}</span>
+          <span class="nav-counter">{{ navCounterText }}</span>
+          <span class="observer-count" v-if="state.observerCount">{{ observerText }}</span>
+          <span class="fps-display">{{ state.fpsText }}</span>
+          <button class="hdr-btn" :class="{ active: state.activeMode }" @click="toggleActiveMode" title="Toggle active mode (I)">
+            <i :class="state.activeMode ? 'ph-fill ph-cursor-click' : 'ph ph-eye'"></i>
+          </button>
+          <button class="hdr-btn" @click="applyAutoFit" title="Auto-fit (F)"><i class="ph-bold ph-corners-out"></i></button>
+          <button class="hdr-btn" @click="applyFitVertical" title="Fit vertical (V)"><i class="ph-bold ph-arrows-out-line-vertical"></i></button>
+          <button class="hdr-btn" @click="state.overviewOpen = true" title="Overview (G)"><i class="ph ph-squares-four"></i></button>
+          <button class="hdr-btn" :class="{ active: state.settingsOpen }" @click.stop="toggleSettings"><i class="ph ph-gear-six"></i></button>
+        </div>
+
+        <!-- Nav arrows -->
+        <button class="nav-arrow prev" @click="navPrevWindow"><i class="ph-bold ph-caret-left"></i></button>
+        <button class="nav-arrow next" @click="navNextWindow"><i class="ph-bold ph-caret-right"></i></button>
+
+        <!-- Stream container -->
+        <div class="stream-container" ref="streamContainer"
+             @mousedown="onMouseDown" @dblclick="onDblClick"
+             @click="onStreamClick" @contextmenu="onContextMenu">
+          <img class="stream-img" ref="streamImg" alt=""
+               :src="state.streamBlobUrl"
+               @load="onImgLoad">
+          <div class="remote-cursor" ref="remoteCursor">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M4 4L10.5 20L13 13L20 10.5L4 4Z" fill="white" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="click-ripple" ref="clickRipple"></div>
+        </div>
+
+        <!-- Minimap -->
+        <div class="minimap" :class="{ visible: showMinimap }" ref="minimapEl">
+          <div class="minimap-wrap" ref="minimapWrap" @click="onMinimapClick">
+            <img class="minimap-img" ref="minimapImg" :src="state.streamBlobUrl" alt=""
+                 :style="{ height: minimapImgHeight + 'px' }">
+            <div class="minimap-viewport" :style="minimapViewportStyle"></div>
+          </div>
+          <div class="minimap-nav">
+            <button @click="jumpTo('left')">L</button>
+            <button @click="jumpTo('center')">M</button>
+            <button @click="jumpTo('right')">R</button>
+          </div>
+        </div>
+
+        <!-- Settings panel -->
+        <hort-settings></hort-settings>
+
+        <!-- Overview -->
+        <hort-overview @switch-window="doSwitchWindow"></hort-overview>
+      </div>
+    `,
+    setup() {
+      const viewerEl = ref(null);
+      const streamContainer = ref(null);
+      const streamImg = ref(null);
+      const remoteCursor = ref(null);
+      const clickRipple = ref(null);
+      const minimapEl = ref(null);
+      const minimapWrap = ref(null);
+      const minimapImg = ref(null);
+
+      // Touch/gesture state
+      let lastDist = 0, lastMid = null;
+      let isPanning = false, panStartX = 0, panStartY = 0, panTxStart = 0, panTyStart = 0;
+      let lastTapTime = 0;
+      let swipeStartX = 0, swipeStartY = 0, swipeStartTime = 0;
+      let mousePanning = false, mousePanStartX = 0, mousePanStartY = 0, mousePanTxStart = 0, mousePanTyStart = 0;
+      let touchMoved = false;
+      let isStreamWsConnected = false;
+
+      const groups = computed(() => loadGroups());
+
+      const curWindow = computed(() => currentWindow());
+
+      const viewerTitle = computed(() => {
+        const w = currentWindow();
+        return w ? `${w.owner_name} — ${w.window_name || '(untitled)'}` : '';
+      });
+
+      const navCounterText = computed(() => {
+        if (state.navWindows.length === 0) return '';
+        return `${state.navIndex + 1}/${state.navWindows.length}`;
+      });
+
+      const observerText = computed(() => {
+        return state.observerCount + (state.observerCount === 1 ? ' viewer' : ' viewers');
+      });
+
+      // Minimap computations
+      const showMinimap = computed(() => {
+        if (!state.imgNatW || !state.imgNatH) return false;
+        const cs = getContainerSize();
+        if (!cs.w || !cs.h) return false;
+        const autoScale = Math.min(cs.w / state.imgNatW, cs.h / state.imgNatH);
+        return state.scale > autoScale * 1.05;
+      });
+
+      const minimapImgHeight = computed(() => {
+        if (!minimapWrap.value || !state.imgNatW) return 0;
+        const mmW = 180;
+        return mmW * (state.imgNatH / state.imgNatW);
+      });
+
+      const minimapViewportStyle = computed(() => {
+        if (!minimapWrap.value || !state.imgNatW || !state.imgNatH) return {};
+        const mmW = 180;
+        const mmScale = mmW / state.imgNatW;
+        const cs = getContainerSize();
+
+        const vl = Math.max(0, -state.tx / state.scale);
+        const vt = Math.max(0, -state.ty / state.scale);
+        const vw = Math.min(state.imgNatW, cs.w / state.scale);
+        const vh = Math.min(state.imgNatH, cs.h / state.scale);
+
+        return {
+          left: (vl * mmScale) + 'px',
+          top: (vt * mmScale) + 'px',
+          width: (vw * mmScale) + 'px',
+          height: (vh * mmScale) + 'px',
+        };
+      });
+
+      function getContainerSize() {
+        if (!streamContainer.value) return { w: 0, h: 0 };
+        const r = streamContainer.value.getBoundingClientRect();
+        return { w: r.width, h: r.height };
+      }
+
+      function applyTransform() {
+        if (streamImg.value) {
+          streamImg.value.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
+        }
+      }
+
+      function applyAutoFit() {
+        if (!state.imgNatW || !state.imgNatH) return;
+        const { w: vw, h: vh } = getContainerSize();
+        state.scale = Math.min(vw / state.imgNatW, vh / state.imgNatH);
+        state.tx = (vw - state.imgNatW * state.scale) / 2;
+        state.ty = (vh - state.imgNatH * state.scale) / 2;
+        state.fitMode = 'auto';
+        applyTransform();
+      }
+
+      function applyFitVertical() {
+        if (!state.imgNatW || !state.imgNatH) return;
+        const { w: vw, h: vh } = getContainerSize();
+        state.scale = vh / state.imgNatH;
+        state.tx = (vw - state.imgNatW * state.scale) / 2;
+        state.ty = 0;
+        state.fitMode = 'vertical';
+        applyTransform();
+      }
+
+      function jumpTo(position) {
+        if (!state.imgNatW) return;
+        const vw = getContainerSize().w;
+        const totalW = state.imgNatW * state.scale;
+        if (position === 'left') state.tx = 0;
+        else if (position === 'right') state.tx = -(totalW - vw);
+        else state.tx = -(totalW - vw) / 2;
+        state.fitMode = 'custom';
+        applyTransform();
+      }
+
+      function onImgLoad() {
+        if (!streamImg.value) return;
+        const newW = streamImg.value.naturalWidth;
+        const newH = streamImg.value.naturalHeight;
+        if (state.prevBlobUrl) {
+          URL.revokeObjectURL(state.prevBlobUrl);
+          state.prevBlobUrl = null;
+        }
+        if (newW !== state.imgNatW || newH !== state.imgNatH) {
+          state.imgNatW = newW;
+          state.imgNatH = newH;
+          applyAutoFit();
+        }
+        // Update minimap src is handled by reactive binding
+      }
+
+      function doSwitchWindow(index) {
+        if (state.navWindows.length === 0) return;
         // Save state of previous window
-        if (currentConfig) saveWindowState(currentConfig.window_id);
+        const cur = currentWindow();
+        if (cur) saveWindowState(cur.window_id);
 
-        navIndex = ((index % navWindows.length) + navWindows.length) % navWindows.length;
-        const win = navWindows[navIndex];
+        state.navIndex = ((index % state.navWindows.length) + state.navWindows.length) % state.navWindows.length;
+        const win = state.navWindows[state.navIndex];
 
-        // Persist current window so it survives page reload
         localStorage.setItem('llming-current-window', JSON.stringify({
-            window_id: win.window_id, owner_name: win.owner_name,
-            window_name: win.window_name
+          window_id: win.window_id, owner_name: win.owner_name,
+          window_name: win.window_name,
         }));
 
-        pickerView.style.display = 'none';
-        viewer.style.display = 'block';
-        closeOverview();
-        viewerTitle.textContent = `${win.owner_name} — ${win.window_name || '(untitled)'}`;
-        navCounter.textContent = `${navIndex + 1}/${navWindows.length}`;
-        refreshSpaces();
-        clearInterval(refreshTimer);
-        updateNavModeSelect();
+        state.view = 'viewer';
+        state.overviewOpen = false;
+        state.fitMode = 'auto';
+        state.imgNatW = 0;
+        state.imgNatH = 0;
 
-        const quality = parseInt(qualitySlider.value, 10);
-        const fps = parseInt(fpsSlider.value, 10);
-        const maxWidth = parseInt(resolutionSelect.value, 10);
+        requestSpaces();
 
-        // Always auto-fit on window switch — apply once first new frame arrives
-        fitMode = 'auto';
-        imgNatW = 0; imgNatH = 0;
-
-        if (!currentConfig) {
-            currentConfig = {
-                window_id: win.window_id, fps, quality, max_width: maxWidth,
-                screen_width: window.innerWidth, screen_dpr: window.devicePixelRatio || 1
-            };
-            connectWebSocket();
-        } else {
-            currentConfig.window_id = win.window_id;
-            sendConfigUpdate();
+        if (!isStreamWsConnected) {
+          isStreamWsConnected = true;
+          connectStreamWs();
         }
+        sendStreamConfig(win.window_id, win.target_id);
 
-        renderThumbStrip();
-    }
+        startThumbRefresh();
+      }
 
-    function navPrevWindow() { switchToWindow(navIndex - 1); }
-    function navNextWindow() { switchToWindow(navIndex + 1); }
+      function navPrevWindow() { doSwitchWindow(state.navIndex - 1); }
+      function navNextWindow() { doSwitchWindow(state.navIndex + 1); }
 
-    let windowLostPending = false;
-    async function handleWindowLost() {
-        if (windowLostPending) return;
-        windowLostPending = true;
-        try {
-            // Refresh window list
-            const data = await fetchWindows('');
-            allWindows = data.windows;
-            computeNavWindows();
-            if (navWindows.length === 0) {
-                stopStream();
-                return;
-            }
-            // Clamp index and switch to next available window
-            if (navIndex >= navWindows.length) navIndex = 0;
-            switchToWindow(navIndex);
-        } finally {
-            windowLostPending = false;
-        }
-    }
-
-    function renderThumbStrip() {
-        thumbStrip.innerHTML = '';
-        navWindows.forEach((win, idx) => {
-            const item = document.createElement('div');
-            item.className = 'strip-item' + (idx === navIndex ? ' active' : '');
-            item.dataset.windowId = win.window_id;
-            const img = document.createElement('img');
-            img.src = thumbUrl(win.window_id);
-            img.alt = '';
-            const span = document.createElement('span');
-            span.textContent = win.window_name || win.owner_name;
-            item.appendChild(img); item.appendChild(span);
-            item.addEventListener('click', () => switchToWindow(idx));
-            thumbStrip.appendChild(item);
-        });
-        const active = thumbStrip.querySelector('.strip-item.active');
-        if (active) active.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-    }
-
-    // Refresh thumb strip thumbnails every 5s during streaming
-    setInterval(() => {
-        if (viewer.style.display !== 'block' || overviewEl.classList.contains('open')) return;
-        thumbCounter++;
-        thumbStrip.querySelectorAll('.strip-item').forEach(item => {
-            const img = item.querySelector('img');
-            const wid = item.dataset.windowId;
-            if (img && wid) img.src = thumbUrl(parseInt(wid, 10));
-        });
-    }, 5000);
-
-    function connectWebSocket() {
-        if (ws) { ws.close(); ws = null; }
-        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-        ws = new WebSocket(`${proto}://${location.host}/ws/stream`);
-        ws.binaryType = 'arraybuffer';
-        ws.onopen = () => { ws.send(JSON.stringify(currentConfig)); startFpsCounter(); };
-        ws.onmessage = e => {
-            if (e.data instanceof ArrayBuffer) {
-                const blob = new Blob([e.data], { type: 'image/jpeg' });
-                const url = URL.createObjectURL(blob);
-                streamImg.onload = () => {
-                    if (prevBlobUrl) URL.revokeObjectURL(prevBlobUrl);
-                    prevBlobUrl = url;
-                    const newW = streamImg.naturalWidth;
-                    const newH = streamImg.naturalHeight;
-                    if (newW !== imgNatW || newH !== imgNatH) {
-                        imgNatW = newW;
-                        imgNatH = newH;
-                        // Always auto-fit on first frame of a new window
-                        applyAutoFit();
-                    }
-                    updateMinimap();
-                };
-                streamImg.src = url;
-                minimapImg.src = url;
-                frameCount++;
-            } else {
-                try {
-                    const msg = JSON.parse(e.data);
-                    if (msg.error) {
-                        // Window likely closed — refresh list and switch to next
-                        handleWindowLost();
-                    }
-                } catch {}
-            }
-        };
-        ws.onclose = () => { if (viewer.style.display === 'block' && currentConfig) setTimeout(connectWebSocket, 1000); };
-    }
-
-    function stopStream() {
-        if (currentConfig) saveWindowState(currentConfig.window_id);
-        if (ws) { ws.close(); ws = null; }
-        currentConfig = null;
-        viewer.style.display = 'none';
-        pickerView.style.display = 'block';
-        closeOverview();
-        if (prevBlobUrl) { URL.revokeObjectURL(prevBlobUrl); prevBlobUrl = null; }
-        stopFpsCounter();
-        settingsPanel.classList.remove('open');
-        gearBtn.classList.remove('active');
-        localStorage.removeItem('llming-current-window');
-        startRefreshTimer();
-    }
-
-    function sendConfigUpdate() {
-        if (currentConfig && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(currentConfig));
-    }
-
-    // ===== FPS =====
-    let statusTimer = null;
-    function startFpsCounter() {
-        frameCount = 0;
-        fpsTimer = setInterval(() => { fpsDisplay.textContent = frameCount + ' fps'; frameCount = 0; }, 1000);
-        pollStatus();
-        statusTimer = setInterval(pollStatus, 5000);
-    }
-    function stopFpsCounter() {
-        clearInterval(fpsTimer); fpsDisplay.textContent = '';
-        clearInterval(statusTimer); observerCount.textContent = '';
-    }
-    async function pollStatus() {
-        try {
-            const resp = await fetch(`${apiBase}/api/status`);
-            const data = await resp.json();
-            observerCount.textContent = data.observers + (data.observers === 1 ? ' viewer' : ' viewers');
-        } catch {}
-    }
-
-    // ===== ZOOM / PAN / FIT =====
-    function applyTransform() {
-        streamImg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-    }
-
-    function containerSize() {
-        const r = streamContainer.getBoundingClientRect();
-        return { w: r.width, h: r.height };
-    }
-
-    function applyAutoFit() {
-        if (!imgNatW || !imgNatH) return;
-        const { w: vw, h: vh } = containerSize();
-        scale = Math.min(vw / imgNatW, vh / imgNatH);
-        tx = (vw - imgNatW * scale) / 2;
-        ty = (vh - imgNatH * scale) / 2;
-        fitMode = 'auto';
-        applyTransform();
-        updateMinimap();
-    }
-
-    function applyFitVertical() {
-        if (!imgNatW || !imgNatH) return;
-        const { w: vw, h: vh } = containerSize();
-        scale = vh / imgNatH;
-        tx = (vw - imgNatW * scale) / 2;
-        ty = 0;
-        fitMode = 'vertical';
-        applyTransform();
-        updateMinimap();
-    }
-
-    function jumpTo(position) {
-        // position: 'left' | 'center' | 'right'
-        if (!imgNatW) return;
-        const vw = containerSize().w;
-        const totalW = imgNatW * scale;
-        if (position === 'left') tx = 0;
-        else if (position === 'right') tx = -(totalW - vw);
-        else tx = -(totalW - vw) / 2;
-        fitMode = 'custom';
-        applyTransform();
-        updateMinimap();
-    }
-
-    // ===== MINIMAP =====
-    function updateMinimap() {
-        const cs = containerSize();
-        const isZoomed = scale > Math.min(cs.w / imgNatW, cs.h / imgNatH) * 1.05;
-        minimapEl.classList.toggle('visible', isZoomed && imgNatW > 0);
-        if (!isZoomed || !imgNatW) return;
-
-        const mmW = minimapWrap.clientWidth;
-        const mmH = mmW * (imgNatH / imgNatW);
-        minimapImg.style.height = mmH + 'px';
-        const mmScale = mmW / imgNatW;
-
-        const vl = Math.max(0, -tx / scale);
-        const vt = Math.max(0, -ty / scale);
-        const vw = Math.min(imgNatW, cs.w / scale);
-        const vh = Math.min(imgNatH, cs.h / scale);
-
-        minimapViewport.style.left = (vl * mmScale) + 'px';
-        minimapViewport.style.top = (vt * mmScale) + 'px';
-        minimapViewport.style.width = (vw * mmScale) + 'px';
-        minimapViewport.style.height = (vh * mmScale) + 'px';
-    }
-
-    minimapWrap.addEventListener('click', e => {
-        const rect = minimapWrap.getBoundingClientRect();
-        const mmScale = minimapWrap.clientWidth / imgNatW;
-        const imgX = (e.clientX - rect.left) / mmScale;
-        const imgY = (e.clientY - rect.top) / mmScale;
-        const cs = containerSize();
-        tx = cs.w / 2 - imgX * scale;
-        ty = cs.h / 2 - imgY * scale;
-        fitMode = 'custom';
-        applyTransform();
-        updateMinimap();
-    });
-
-    $('mm-left').addEventListener('click', () => jumpTo('left'));
-    $('mm-center').addEventListener('click', () => jumpTo('center'));
-    $('mm-right').addEventListener('click', () => jumpTo('right'));
-
-    // ===== OVERVIEW GRID =====
-    let overviewTimer = null;
-    let thumbCounter = 0;
-
-    function thumbUrl(windowId) {
-        return `${apiBase}/api/windows/${windowId}/thumbnail?v=${thumbCounter}`;
-    }
-
-    async function showOverview() {
-        overviewEl.classList.add('open');
-        thumbCounter++;
-        renderOverviewGrid();
-        clearInterval(overviewTimer);
-        overviewTimer = setInterval(() => {
-            if (!overviewEl.classList.contains('open')) { clearInterval(overviewTimer); return; }
-            thumbCounter++;
-            // Only update thumbnail src attributes, don't rebuild DOM
-            overviewGrid.querySelectorAll('.overview-card img').forEach(img => {
-                const wid = img.dataset.windowId;
-                if (wid) img.src = thumbUrl(parseInt(wid, 10));
-            });
-        }, 5000);
-    }
-
-    function renderOverviewGrid() {
-        overviewGrid.innerHTML = '';
+      function goBack() {
         const cur = currentWindow();
-        allWindows.forEach(win => {
-            const card = document.createElement('div');
-            card.className = 'overview-card' + (cur && cur.window_id === win.window_id ? ' current' : '');
-            const spaceTag = win.space_index ? `<span style="color:#e94560;font-size:10px;float:right">S${win.space_index}</span>` : '';
-            const img = document.createElement('img');
-            img.dataset.windowId = String(win.window_id);
-            img.src = thumbUrl(win.window_id);
-            img.alt = '';
-            img.onerror = () => { img.style.opacity = '0.2'; };
-            card.appendChild(img);
-            const info = document.createElement('div');
-            info.innerHTML = `<div class="ov-app">${spaceTag}${esc(win.owner_name)}</div><div class="ov-name">${esc(win.window_name || '(untitled)')}</div>`;
-            card.appendChild(info);
-            card.addEventListener('click', () => {
-                closeOverview();
-                let idx = navWindows.findIndex(w => w.window_id === win.window_id);
-                if (idx < 0) { navMode = 'all'; computeNavWindows(); idx = navWindows.findIndex(w => w.window_id === win.window_id); }
-                if (idx >= 0) switchToWindow(idx);
-            });
-            overviewGrid.appendChild(card);
-        });
-    }
-
-    function closeOverview() {
-        clearInterval(overviewTimer);
-        overviewEl.classList.remove('open');
-    }
-    overviewClose.addEventListener('click', closeOverview);
-    overviewEl.addEventListener('click', e => { if (e.target === overviewEl) closeOverview(); });
-
-    // ===== MOUSE ZOOM & PAN =====
-
-    streamContainer.addEventListener('mousedown', e => {
-        if (e.button !== 0 || fitMode === 'auto' || activeMode) return;
-        mousePanning = true;
-        mousePanStartX = e.clientX; mousePanStartY = e.clientY;
-        mousePanTxStart = tx; mousePanTyStart = ty;
-        streamContainer.style.cursor = 'grabbing';
-        e.preventDefault();
-    });
-    window.addEventListener('mousemove', e => {
-        if (!mousePanning) return;
-        const dx = e.clientX - mousePanStartX;
-        const dy = e.clientY - mousePanStartY;
-        if (fitMode === 'vertical') {
-            // Vertical panning only
-            ty = mousePanTyStart + dy;
-        } else {
-            tx = mousePanTxStart + dx;
-            ty = mousePanTyStart + dy;
+        if (cur) saveWindowState(cur.window_id);
+        disconnectStreamWs();
+        isStreamWsConnected = false;
+        state.view = 'picker';
+        state.overviewOpen = false;
+        if (state.streamBlobUrl) {
+          URL.revokeObjectURL(state.streamBlobUrl);
+          state.streamBlobUrl = null;
         }
-        applyTransform();
-        updateMinimap();
-    });
-    window.addEventListener('mouseup', () => { mousePanning = false; streamContainer.style.cursor = ''; });
-
-    streamContainer.addEventListener('dblclick', e => {
-        e.preventDefault();
-        if (activeMode && imgNatW) {
-            const { nx, ny } = imgCoordsFromEvent(e);
-            sendInput({ type: 'double_click', nx, ny });
-            return;
+        if (state.prevBlobUrl) {
+          URL.revokeObjectURL(state.prevBlobUrl);
+          state.prevBlobUrl = null;
         }
-        if (fitMode !== 'auto') applyAutoFit();
-        else {
-            scale = 2.5;
-            tx = window.innerWidth / 2 - ((e.clientX - tx) / (scale / 2.5)) * scale;
-            ty = window.innerHeight / 2 - ((e.clientY - ty) / (scale / 2.5)) * scale;
-            fitMode = 'custom';
-            applyTransform();
-            updateMinimap();
+        state.settingsOpen = false;
+        state.activeMode = false;
+        localStorage.removeItem('llming-current-window');
+        stopThumbRefresh();
+        startPickerRefresh();
+      }
+
+      function toggleActiveMode() {
+        state.activeMode = !state.activeMode;
+      }
+
+      function toggleSettings(e) {
+        state.settingsOpen = !state.settingsOpen;
+      }
+
+      function spacePrev() {
+        const target = state.spacesData.current > 1 ? state.spacesData.current - 1 : state.spacesData.count;
+        switchSpace(target);
+      }
+
+      function spaceNext() {
+        const target = state.spacesData.current < state.spacesData.count ? state.spacesData.current + 1 : 1;
+        switchSpace(target);
+      }
+
+      function onNavModeChange(e) {
+        state.navMode = e.target.value;
+        const cur = currentWindow();
+        computeNavWindows();
+        if (cur) {
+          const idx = state.navWindows.findIndex(w => w.window_id === cur.window_id);
+          if (idx >= 0) state.navIndex = idx;
+          else state.navIndex = 0;
         }
-    });
+        // Re-request thumbnails for the new set
+        state.navWindows.forEach(w => requestThumbnail(w.window_id));
+      }
 
-    // ===== TOUCH GESTURES =====
-    let touchMoved = false;
-
-    streamContainer.addEventListener('touchstart', e => {
-        if (e.touches.length === 2) {
-            e.preventDefault();
-            lastDist = dist(e.touches[0], e.touches[1]);
-            lastMid = midpoint(e.touches[0], e.touches[1]);
-            isPanning = false;
-            touchMoved = true; // multi-touch is not a tap
-        } else if (e.touches.length === 1) {
-            touchMoved = false;
-            swipeStartX = e.touches[0].clientX; swipeStartY = e.touches[0].clientY;
-            swipeStartTime = Date.now();
-
-            if (activeMode) return; // Active mode: handle tap in touchend
-
-            const now = Date.now();
-            if (now - lastTapTime < 300) {
-                e.preventDefault();
-                if (fitMode !== 'auto') applyAutoFit();
-                else {
-                    const prevScale = scale;
-                    scale = 2.5;
-                    const cs = containerSize();
-                    tx = cs.w / 2 - ((e.touches[0].clientX - streamContainer.getBoundingClientRect().left - tx) / prevScale) * scale;
-                    ty = cs.h / 2 - ((e.touches[0].clientY - streamContainer.getBoundingClientRect().top - ty) / prevScale) * scale;
-                    fitMode = 'custom';
-                    applyTransform(); updateMinimap();
-                }
-                lastTapTime = 0; return;
-            }
-            lastTapTime = now;
-            if (fitMode === 'custom' || fitMode === 'vertical') {
-                isPanning = true;
-                panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
-                panTxStart = tx; panTyStart = ty;
-            }
-        }
-    }, { passive: false });
-
-    streamContainer.addEventListener('touchmove', e => {
-        touchMoved = true;
-        if (activeMode) return; // Active mode: no pan/zoom via touch
-
-        if (e.touches.length === 2) {
-            e.preventDefault();
-            const d = dist(e.touches[0], e.touches[1]);
-            const mid = midpoint(e.touches[0], e.touches[1]);
-            const newScale = Math.max(0.1, Math.min(20, scale * (d / lastDist)));
-            if (lastMid) { tx += mid.x - lastMid.x; ty += mid.y - lastMid.y; }
-            tx = mid.x - (mid.x - tx) * (newScale / scale);
-            ty = mid.y - (mid.y - ty) * (newScale / scale);
-            scale = newScale;
-            lastDist = d; lastMid = mid;
-            fitMode = 'custom';
-            applyTransform(); updateMinimap();
-        } else if (e.touches.length === 1 && isPanning) {
-            e.preventDefault();
-            const dx = e.touches[0].clientX - panStartX;
-            const dy = e.touches[0].clientY - panStartY;
-            if (fitMode === 'vertical') {
-                ty = panTyStart + dy;
-            } else {
-                tx = panTxStart + dx;
-                ty = panTyStart + dy;
-            }
-            applyTransform(); updateMinimap();
-        }
-    }, { passive: false });
-
-    streamContainer.addEventListener('touchend', e => {
-        if (e.touches.length < 2) { lastDist = 0; lastMid = null; }
-        if (e.touches.length === 0) {
-            isPanning = false;
-
-            if (e.changedTouches.length === 0) return;
-            const endX = e.changedTouches[0].clientX;
-            const endY = e.changedTouches[0].clientY;
-            const dx = endX - swipeStartX;
-            const dy = endY - swipeStartY;
-            const dt = Date.now() - swipeStartTime;
-
-            // Active mode: tap = click, long-press = right-click
-            if (activeMode && !touchMoved && imgNatW) {
-                const rect = streamContainer.getBoundingClientRect();
-                const cx = endX - rect.left;
-                const cy = endY - rect.top;
-                const imgX = (cx - tx) / scale;
-                const imgY = (cy - ty) / scale;
-                const nx = Math.max(0, Math.min(1, imgX / imgNatW));
-                const ny = Math.max(0, Math.min(1, imgY / imgNatH));
-                showClickRipple(cx, cy);
-                if (dt > 500) {
-                    sendInput({ type: 'right_click', nx, ny });
-                } else {
-                    sendInput({ type: 'click', nx, ny });
-                }
-                return;
-            }
-
-            // Viewer mode: swipe to switch windows (auto-fit only)
-            if (!activeMode && fitMode === 'auto') {
-                if (dt < 400 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-                    if (dx < 0) navNextWindow(); else navPrevWindow();
-                }
-            }
-        }
-    });
-
-    function dist(a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); }
-    function midpoint(a, b) { return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }; }
-
-    // ===== KEYBOARD =====
-    // ===== ACTIVE MODE =====
-    function toggleActiveMode() {
-        activeMode = !activeMode;
-        viewer.classList.toggle('active-mode', activeMode);
-        modeBtn.classList.toggle('active', activeMode);
-        modeBtn.innerHTML = activeMode
-            ? '<i class="ph-fill ph-cursor-click"></i>'
-            : '<i class="ph ph-eye"></i>';
-    }
-
-    const remoteCursor = $('remote-cursor');
-    const clickRipple = $('click-ripple');
-
-    function imgCoordsFromEvent(e) {
-        // Convert a mouse/touch event to normalized image coordinates (0-1)
-        const rect = streamContainer.getBoundingClientRect();
+      // ===== COORDS =====
+      function imgCoordsFromEvent(e) {
+        const rect = streamContainer.value.getBoundingClientRect();
         const clientX = e.clientX !== undefined ? e.clientX : e.touches[0].clientX;
         const clientY = e.clientY !== undefined ? e.clientY : e.touches[0].clientY;
         const cx = clientX - rect.left;
         const cy = clientY - rect.top;
-        const imgX = (cx - tx) / scale;
-        const imgY = (cy - ty) / scale;
+        const imgX = (cx - state.tx) / state.scale;
+        const imgY = (cy - state.ty) / state.scale;
         return {
-            nx: Math.max(0, Math.min(1, imgX / imgNatW)),
-            ny: Math.max(0, Math.min(1, imgY / imgNatH)),
-            screenX: cx, screenY: cy
+          nx: Math.max(0, Math.min(1, imgX / state.imgNatW)),
+          ny: Math.max(0, Math.min(1, imgY / state.imgNatH)),
+          screenX: cx,
+          screenY: cy,
         };
-    }
+      }
 
-    function moveCursorTo(cx, cy) {
-        remoteCursor.style.left = cx + 'px';
-        remoteCursor.style.top = cy + 'px';
-    }
+      function moveCursorTo(cx, cy) {
+        if (remoteCursor.value) {
+          remoteCursor.value.style.left = cx + 'px';
+          remoteCursor.value.style.top = cy + 'px';
+        }
+      }
 
-    function showClickRipple(cx, cy) {
-        const el = clickRipple;
+      function showClickRipple(cx, cy) {
+        const el = clickRipple.value;
+        if (!el) return;
         el.style.display = 'block';
         el.style.left = cx + 'px';
         el.style.top = cy + 'px';
-        // Restart animation
         el.style.animation = 'none';
-        el.offsetHeight; // force reflow
+        el.offsetHeight;
         el.style.animation = '';
         setTimeout(() => { el.style.display = 'none'; }, 400);
-    }
+      }
 
-    function sendInput(data) {
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
-    }
+      // ===== MOUSE =====
+      function onMouseDown(e) {
+        if (e.button !== 0 || state.fitMode === 'auto' || state.activeMode) return;
+        mousePanning = true;
+        mousePanStartX = e.clientX;
+        mousePanStartY = e.clientY;
+        mousePanTxStart = state.tx;
+        mousePanTyStart = state.ty;
+        if (streamContainer.value) streamContainer.value.style.cursor = 'grabbing';
+        e.preventDefault();
+      }
 
-    // Active mode: track mouse position for cursor
-    streamContainer.addEventListener('mousemove', e => {
-        if (!activeMode) return;
-        const rect = streamContainer.getBoundingClientRect();
-        moveCursorTo(e.clientX - rect.left, e.clientY - rect.top);
-    });
+      function onWindowMouseMove(e) {
+        if (state.activeMode && streamContainer.value && state.view === 'viewer') {
+          const rect = streamContainer.value.getBoundingClientRect();
+          moveCursorTo(e.clientX - rect.left, e.clientY - rect.top);
+        }
+        if (!mousePanning) return;
+        const dx = e.clientX - mousePanStartX;
+        const dy = e.clientY - mousePanStartY;
+        if (state.fitMode === 'vertical') {
+          state.ty = mousePanTyStart + dy;
+        } else {
+          state.tx = mousePanTxStart + dx;
+          state.ty = mousePanTyStart + dy;
+        }
+        applyTransform();
+      }
 
-    // Active mode: mouse clicks
-    streamContainer.addEventListener('click', e => {
-        if (!activeMode || !imgNatW) return;
+      function onWindowMouseUp() {
+        mousePanning = false;
+        if (streamContainer.value) streamContainer.value.style.cursor = '';
+      }
+
+      function onDblClick(e) {
+        e.preventDefault();
+        if (state.activeMode && state.imgNatW) {
+          const { nx, ny } = imgCoordsFromEvent(e);
+          sendInput({ event_type: 'double_click', nx, ny });
+          return;
+        }
+        if (state.fitMode !== 'auto') {
+          applyAutoFit();
+        } else {
+          const prevScale = state.scale;
+          state.scale = 2.5;
+          state.tx = window.innerWidth / 2 - ((e.clientX - state.tx) / prevScale) * state.scale;
+          state.ty = window.innerHeight / 2 - ((e.clientY - state.ty) / prevScale) * state.scale;
+          state.fitMode = 'custom';
+          applyTransform();
+        }
+      }
+
+      function onStreamClick(e) {
+        if (!state.activeMode || !state.imgNatW) return;
         const { nx, ny, screenX, screenY } = imgCoordsFromEvent(e);
         showClickRipple(screenX, screenY);
-        sendInput({ type: 'click', nx, ny });
-    });
-    streamContainer.addEventListener('contextmenu', e => {
-        if (!activeMode || !imgNatW) return;
+        sendInput({ event_type: 'click', nx, ny });
+      }
+
+      function onContextMenu(e) {
+        if (!state.activeMode || !state.imgNatW) return;
         e.preventDefault();
         const { nx, ny, screenX, screenY } = imgCoordsFromEvent(e);
         showClickRipple(screenX, screenY);
-        sendInput({ type: 'right_click', nx, ny });
-    });
+        sendInput({ event_type: 'right_click', nx, ny });
+      }
 
-    // Wheel: active mode = remote scroll, viewer mode = zoom
-    streamContainer.addEventListener('wheel', e => {
+      function onWheel(e) {
         e.preventDefault();
-        if (activeMode && imgNatW) {
-            const { nx, ny } = imgCoordsFromEvent(e);
-            sendInput({ type: 'scroll', nx, ny, dx: Math.round(e.deltaX / 30), dy: Math.round(e.deltaY / 30) });
-            return;
+        if (state.activeMode && state.imgNatW) {
+          const { nx, ny } = imgCoordsFromEvent(e);
+          sendInput({ event_type: 'scroll', nx, ny, dx: Math.round(e.deltaX / 30), dy: Math.round(e.deltaY / 30) });
+          return;
         }
         const factor = e.deltaY < 0 ? 1.1 : 0.9;
-        const newScale = Math.max(0.1, Math.min(20, scale * factor));
+        const newScale = Math.max(0.1, Math.min(20, state.scale * factor));
         const mx = e.clientX, my = e.clientY;
-        tx = mx - (mx - tx) * (newScale / scale);
-        ty = my - (my - ty) * (newScale / scale);
-        scale = newScale;
-        fitMode = 'custom';
+        state.tx = mx - (mx - state.tx) * (newScale / state.scale);
+        state.ty = my - (my - state.ty) * (newScale / state.scale);
+        state.scale = newScale;
+        state.fitMode = 'custom';
         applyTransform();
-        updateMinimap();
-    }, { passive: false });
+      }
 
-    // Unified keyboard handler
-    document.addEventListener('keydown', e => {
-        if (groupModal.classList.contains('open')) return;
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-        if (viewer.style.display !== 'block') return;
+      // ===== TOUCH =====
+      function dist(a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); }
+      function midpoint(a, b) { return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }; }
 
-        // Toggle active mode with 'i'
-        if (e.key === 'i' && !activeMode) { toggleActiveMode(); e.preventDefault(); return; }
+      function onTouchStart(e) {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          lastDist = dist(e.touches[0], e.touches[1]);
+          lastMid = midpoint(e.touches[0], e.touches[1]);
+          isPanning = false;
+          touchMoved = true;
+        } else if (e.touches.length === 1) {
+          touchMoved = false;
+          swipeStartX = e.touches[0].clientX;
+          swipeStartY = e.touches[0].clientY;
+          swipeStartTime = Date.now();
 
-        // Active mode: forward keys to remote
-        if (activeMode) {
-            if (e.key === 'Escape') { toggleActiveMode(); e.preventDefault(); return; }
-            const modifiers = [];
-            if (e.shiftKey) modifiers.push('shift');
-            if (e.ctrlKey) modifiers.push('ctrl');
-            if (e.altKey) modifiers.push('alt');
-            if (e.metaKey) modifiers.push('cmd');
-            sendInput({ type: 'key', key: e.key, modifiers });
+          if (state.activeMode) return;
+
+          const now = Date.now();
+          if (now - lastTapTime < 300) {
             e.preventDefault();
-            return;
-        }
-
-        // Viewer mode shortcuts
-        if (overviewEl.classList.contains('open')) {
-            if (e.key === 'Escape' || e.key === 'g') closeOverview();
-            return;
-        }
-        switch (e.key) {
-            case 'ArrowLeft': case 'a': navPrevWindow(); e.preventDefault(); break;
-            case 'ArrowRight': case 'd': navNextWindow(); e.preventDefault(); break;
-            case 'Escape': stopStream(); e.preventDefault(); break;
-            case 'f': applyAutoFit(); e.preventDefault(); break;
-            case 'v': applyFitVertical(); e.preventDefault(); break;
-            case 'g': showOverview(); e.preventDefault(); break;
-            case '1': jumpTo('left'); e.preventDefault(); break;
-            case '2': jumpTo('center'); e.preventDefault(); break;
-            case '3': jumpTo('right'); e.preventDefault(); break;
-        }
-    });
-
-    // ===== EVENTS =====
-    backBtn.addEventListener('click', stopStream);
-    navPrev.addEventListener('click', navPrevWindow);
-    navNext.addEventListener('click', navNextWindow);
-    fitBtn.addEventListener('click', applyAutoFit);
-    fitvBtn.addEventListener('click', applyFitVertical);
-    modeBtn.addEventListener('click', toggleActiveMode);
-    overviewBtn.addEventListener('click', showOverview);
-    appFilter.addEventListener('change', () => { navMode = 'all'; refreshWindowList(); });
-
-    navModeSelect.addEventListener('change', () => {
-        navMode = navModeSelect.value;
-        const cur = currentWindow();
-        computeNavWindows();
-        // Try to stay on the same window
-        if (cur) {
-            const idx = navWindows.findIndex(w => w.window_id === cur.window_id);
-            if (idx >= 0) navIndex = idx;
-            else navIndex = 0;
-        }
-        navCounter.textContent = `${navIndex + 1}/${navWindows.length}`;
-        renderThumbStrip();
-        updateNavModeSelect();
-    });
-
-    gearBtn.addEventListener('click', e => { e.stopPropagation(); settingsPanel.classList.toggle('open'); gearBtn.classList.toggle('active'); });
-    document.addEventListener('click', e => {
-        if (!settingsPanel.contains(e.target) && e.target !== gearBtn && !gearBtn.contains(e.target)) {
-            settingsPanel.classList.remove('open'); gearBtn.classList.remove('active');
-        }
-    });
-
-    qualitySlider.addEventListener('input', () => { qualityVal.textContent = qualitySlider.value; });
-    qualitySlider.addEventListener('change', () => { if (currentConfig) { currentConfig.quality = parseInt(qualitySlider.value, 10); sendConfigUpdate(); } });
-    fpsSlider.addEventListener('input', () => { fpsVal.textContent = fpsSlider.value; });
-    fpsSlider.addEventListener('change', () => { if (currentConfig) { currentConfig.fps = parseInt(fpsSlider.value, 10); sendConfigUpdate(); } });
-    resolutionSelect.addEventListener('change', () => { if (currentConfig) { currentConfig.max_width = parseInt(resolutionSelect.value, 10); sendConfigUpdate(); } });
-
-    $('fullscreen-btn').addEventListener('click', () => {
-        if (document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {});
-        } else {
-            document.documentElement.requestFullscreen().catch(() => {});
-        }
-    });
-
-    // ===== UTILS =====
-    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-    // ===== INIT =====
-    function startRefreshTimer() { refreshWindowList(); refreshTimer = setInterval(refreshWindowList, 3000); }
-
-    // Restore last viewed window on page load (fail safely if window closed)
-    async function tryRestoreWindow() {
-        try {
-            const saved = localStorage.getItem('llming-current-window');
-            if (!saved) return;
-            const { window_id } = JSON.parse(saved);
-            // Wait for first window list to load
-            await refreshWindowList();
-            computeNavWindows();
-            const idx = navWindows.findIndex(w => w.window_id === window_id);
-            if (idx >= 0) {
-                switchToWindow(idx);
-                return;
+            if (state.fitMode !== 'auto') {
+              applyAutoFit();
+            } else {
+              const prevScale = state.scale;
+              state.scale = 2.5;
+              const cs = getContainerSize();
+              const rect = streamContainer.value.getBoundingClientRect();
+              state.tx = cs.w / 2 - ((e.touches[0].clientX - rect.left - state.tx) / prevScale) * state.scale;
+              state.ty = cs.h / 2 - ((e.touches[0].clientY - rect.top - state.ty) / prevScale) * state.scale;
+              state.fitMode = 'custom';
+              applyTransform();
             }
-            // Window was closed — clear stale reference
-            localStorage.removeItem('llming-current-window');
-        } catch {
-            localStorage.removeItem('llming-current-window');
+            lastTapTime = 0;
+            return;
+          }
+          lastTapTime = now;
+          if (state.fitMode === 'custom' || state.fitMode === 'vertical') {
+            isPanning = true;
+            panStartX = e.touches[0].clientX;
+            panStartY = e.touches[0].clientY;
+            panTxStart = state.tx;
+            panTyStart = state.ty;
+          }
         }
-    }
+      }
 
-    tryRestoreWindow().then(() => {
-        // Only start auto-refresh if we're not already streaming
-        if (!currentConfig) startRefreshTimer();
-    });
+      function onTouchMove(e) {
+        touchMoved = true;
+        if (state.activeMode) return;
 
-    // Register service worker for PWA installability
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').catch(() => {});
-    }
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          const d = dist(e.touches[0], e.touches[1]);
+          const mid = midpoint(e.touches[0], e.touches[1]);
+          const newScale = Math.max(0.1, Math.min(20, state.scale * (d / lastDist)));
+          if (lastMid) { state.tx += mid.x - lastMid.x; state.ty += mid.y - lastMid.y; }
+          state.tx = mid.x - (mid.x - state.tx) * (newScale / state.scale);
+          state.ty = mid.y - (mid.y - state.ty) * (newScale / state.scale);
+          state.scale = newScale;
+          lastDist = d;
+          lastMid = mid;
+          state.fitMode = 'custom';
+          applyTransform();
+        } else if (e.touches.length === 1 && isPanning) {
+          e.preventDefault();
+          const dx = e.touches[0].clientX - panStartX;
+          const dy = e.touches[0].clientY - panStartY;
+          if (state.fitMode === 'vertical') {
+            state.ty = panTyStart + dy;
+          } else {
+            state.tx = panTxStart + dx;
+            state.ty = panTyStart + dy;
+          }
+          applyTransform();
+        }
+      }
+
+      function onTouchEnd(e) {
+        if (e.touches.length < 2) { lastDist = 0; lastMid = null; }
+        if (e.touches.length === 0) {
+          isPanning = false;
+          if (e.changedTouches.length === 0) return;
+          const endX = e.changedTouches[0].clientX;
+          const endY = e.changedTouches[0].clientY;
+          const dx = endX - swipeStartX;
+          const dy = endY - swipeStartY;
+          const dt = Date.now() - swipeStartTime;
+
+          if (state.activeMode && !touchMoved && state.imgNatW) {
+            const rect = streamContainer.value.getBoundingClientRect();
+            const cx = endX - rect.left;
+            const cy = endY - rect.top;
+            const imgX = (cx - state.tx) / state.scale;
+            const imgY = (cy - state.ty) / state.scale;
+            const nx = Math.max(0, Math.min(1, imgX / state.imgNatW));
+            const ny = Math.max(0, Math.min(1, imgY / state.imgNatH));
+            showClickRipple(cx, cy);
+            if (dt > 500) {
+              sendInput({ event_type: 'right_click', nx, ny });
+            } else {
+              sendInput({ event_type: 'click', nx, ny });
+            }
+            return;
+          }
+
+          if (!state.activeMode && state.fitMode === 'auto') {
+            if (dt < 400 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+              if (dx < 0) navNextWindow();
+              else navPrevWindow();
+            }
+          }
+        }
+      }
+
+      // ===== MINIMAP =====
+      function onMinimapClick(e) {
+        if (!minimapWrap.value || !state.imgNatW) return;
+        const rect = minimapWrap.value.getBoundingClientRect();
+        const mmScale = minimapWrap.value.clientWidth / state.imgNatW;
+        const imgX = (e.clientX - rect.left) / mmScale;
+        const imgY = (e.clientY - rect.top) / mmScale;
+        const cs = getContainerSize();
+        state.tx = cs.w / 2 - imgX * state.scale;
+        state.ty = cs.h / 2 - imgY * state.scale;
+        state.fitMode = 'custom';
+        applyTransform();
+      }
+
+      // ===== KEYBOARD =====
+      function onKeyDown(e) {
+        if (state.groupModalOpen) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+        if (state.view !== 'viewer') return;
+
+        if (e.key === 'i' && !state.activeMode) {
+          toggleActiveMode();
+          e.preventDefault();
+          return;
+        }
+
+        if (state.activeMode) {
+          if (e.key === 'Escape') { toggleActiveMode(); e.preventDefault(); return; }
+          const modifiers = [];
+          if (e.shiftKey) modifiers.push('shift');
+          if (e.ctrlKey) modifiers.push('ctrl');
+          if (e.altKey) modifiers.push('alt');
+          if (e.metaKey) modifiers.push('cmd');
+          sendInput({ event_type: 'key', key: e.key, modifiers });
+          e.preventDefault();
+          return;
+        }
+
+        if (state.overviewOpen) {
+          if (e.key === 'Escape' || e.key === 'g') state.overviewOpen = false;
+          return;
+        }
+
+        switch (e.key) {
+          case 'ArrowLeft': case 'a': navPrevWindow(); e.preventDefault(); break;
+          case 'ArrowRight': case 'd': navNextWindow(); e.preventDefault(); break;
+          case 'Escape': goBack(); e.preventDefault(); break;
+          case 'f': applyAutoFit(); e.preventDefault(); break;
+          case 'v': applyFitVertical(); e.preventDefault(); break;
+          case 'g': state.overviewOpen = true; e.preventDefault(); break;
+          case '1': jumpTo('left'); e.preventDefault(); break;
+          case '2': jumpTo('center'); e.preventDefault(); break;
+          case '3': jumpTo('right'); e.preventDefault(); break;
+        }
+      }
+
+      // Close settings when clicking outside
+      function onDocClick(e) {
+        if (!state.settingsOpen) return;
+        // Let the gear button toggle handle itself
+        const settingsEl = viewerEl.value?.querySelector('.settings-panel');
+        const gearEl = viewerEl.value?.querySelector('.hdr-btn:last-child');
+        if (settingsEl && !settingsEl.contains(e.target) && gearEl && !gearEl.contains(e.target)) {
+          state.settingsOpen = false;
+        }
+      }
+
+      onMounted(() => {
+        window.addEventListener('mousemove', onWindowMouseMove);
+        window.addEventListener('mouseup', onWindowMouseUp);
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('click', onDocClick);
+        if (streamContainer.value) {
+          streamContainer.value.addEventListener('wheel', onWheel, { passive: false });
+          streamContainer.value.addEventListener('touchstart', onTouchStart, { passive: false });
+          streamContainer.value.addEventListener('touchmove', onTouchMove, { passive: false });
+          streamContainer.value.addEventListener('touchend', onTouchEnd);
+        }
+      });
+
+      onUnmounted(() => {
+        window.removeEventListener('mousemove', onWindowMouseMove);
+        window.removeEventListener('mouseup', onWindowMouseUp);
+        document.removeEventListener('keydown', onKeyDown);
+        document.removeEventListener('click', onDocClick);
+        if (streamContainer.value) {
+          streamContainer.value.removeEventListener('wheel', onWheel);
+          streamContainer.value.removeEventListener('touchstart', onTouchStart);
+          streamContainer.value.removeEventListener('touchmove', onTouchMove);
+          streamContainer.value.removeEventListener('touchend', onTouchEnd);
+        }
+      });
+
+      // Expose doSwitchWindow so hort-app can call it on restore
+      return {
+        state, groups, curWindow, viewerTitle, navCounterText, observerText,
+        showMinimap, minimapImgHeight, minimapViewportStyle,
+        viewerEl, streamContainer, streamImg, remoteCursor, clickRipple,
+        minimapEl, minimapWrap, minimapImg,
+        goBack, navPrevWindow, navNextWindow, doSwitchWindow,
+        toggleActiveMode, toggleSettings, applyAutoFit, applyFitVertical,
+        jumpTo, spacePrev, spaceNext, onNavModeChange,
+        onMouseDown, onDblClick, onStreamClick, onContextMenu,
+        onTouchStart, onTouchMove, onTouchEnd,
+        onMinimapClick, onImgLoad, getThumbnailSrc, onThumbError,
+      };
+    },
+  };
+
+
+  // =============================================
+  // COMPONENT: hort-picker
+  // =============================================
+  const HortPicker = {
+    template: `
+      <div v-show="state.view === 'picker'">
+        <div class="picker-header">
+          <h1>hort</h1>
+          <select :value="state.appFilter" @change="onAppFilterChange">
+            <option value="">All Apps</option>
+            <option v-for="name in state.appNames" :key="name" :value="name">{{ name }}</option>
+          </select>
+        </div>
+
+        <!-- Target bar -->
+        <div v-if="state.targets.length > 0" class="groups-bar">
+          <div class="group-chip" :class="{ active: state.activeTarget === 'all' }"
+               @click="onSetTarget('all')">
+            <i class="ph ph-globe"></i> All
+          </div>
+          <div v-for="t in state.targets" :key="t.id"
+               class="group-chip" :class="{ active: state.activeTarget === t.id }"
+               @click="onSetTarget(t.id)">
+            <i :class="t.provider_type === 'macos' ? 'ph ph-desktop' : t.provider_type === 'linux-docker' ? 'ph ph-linux-logo' : 'ph ph-monitor'"></i>
+            {{ t.name }}
+          </div>
+        </div>
+
+        <!-- Spaces bar (single-target only) -->
+        <div v-if="state.activeTarget !== 'all'" class="spaces-bar" :class="{ visible: state.spacesData.count > 1 }">
+          <span class="spaces-label"><i class="ph ph-monitor"></i></span>
+          <button v-for="sp in state.spacesData.spaces" :key="sp.index"
+                  class="space-btn" :class="{ active: sp.is_current }"
+                  @click="doSwitchSpace(sp.index)">{{ sp.index }}</button>
+        </div>
+
+        <!-- Groups bar -->
+        <div class="groups-bar">
+          <div class="group-chip" :class="{ active: state.navMode === 'all' }"
+               @click="setNavMode('all')">All</div>
+          <div v-for="(ids, name) in groupsList" :key="name"
+               class="group-chip" :class="{ active: state.navMode === name }"
+               @click="toggleGroup(name)"
+               @contextmenu.prevent="editGroup(name)"
+               @dblclick.prevent="editGroup(name)">{{ name }} ({{ ids.length }})</div>
+          <div class="group-chip new-group" @click="openNewGroup">
+            <i class="ph ph-plus"></i> Group
+          </div>
+        </div>
+
+        <!-- Window cards — grouped by target when "All" is active -->
+        <div class="picker-body">
+          <div v-if="state.navWindows.length === 0" class="picker-status">
+            {{ emptyMessage }}
+          </div>
+          <template v-if="state.activeTarget === 'all' && targetGroups.length > 1">
+            <template v-for="group in targetGroups" :key="group.targetId">
+              <div class="target-divider">
+                <i :class="group.icon"></i>
+                <span>{{ group.targetName }}</span>
+                <span class="target-count">{{ group.windows.length }}</span>
+              </div>
+              <div v-for="win in group.windows" :key="win.window_id"
+                   class="win-card" @click="$emit('select-window', navWindowIndex(win))">
+                <img class="win-thumb" :src="getThumbnailSrc(win.window_id)"
+                     loading="lazy" alt="" @error="onThumbError($event)">
+                <div class="win-info">
+                  <div class="win-app">{{ win.owner_name }}</div>
+                  <div class="win-name">{{ win.window_name || '(untitled)' }}</div>
+                </div>
+                <button class="win-add-btn" :class="{ added: isInAnyGroup(win) }"
+                        @click.stop="toggleGroupMembership(win)">
+                  <i :class="isInAnyGroup(win) ? 'ph-fill ph-star' : 'ph ph-plus'"></i>
+                </button>
+              </div>
+            </template>
+          </template>
+          <template v-else>
+            <div v-for="(win, idx) in state.navWindows" :key="win.window_id"
+                 class="win-card" @click="$emit('select-window', idx)">
+              <img class="win-thumb" :src="getThumbnailSrc(win.window_id)"
+                   loading="lazy" alt="" @error="onThumbError($event)">
+              <div class="win-info">
+                <div class="win-app">{{ win.owner_name }}</div>
+                <div class="win-name">{{ win.window_name || '(untitled)' }}</div>
+              </div>
+              <button class="win-add-btn" :class="{ added: isInAnyGroup(win) }"
+                      @click.stop="toggleGroupMembership(win)">
+                <i :class="isInAnyGroup(win) ? 'ph-fill ph-star' : 'ph ph-plus'"></i>
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+    `,
+    emits: ['select-window'],
+    setup() {
+      const groupsList = computed(() => loadGroups());
+
+      const emptyMessage = computed(() => {
+        return state.navMode !== 'all' ? 'Group is empty. Select "All" and add windows with +' : 'No windows found';
+      });
+
+      function isInAnyGroup(win) {
+        const groups = loadGroups();
+        return Object.values(groups).some(ids => ids.includes(win.window_id));
+      }
+
+      function onAppFilterChange(e) {
+        state.appFilter = e.target.value;
+        state.navMode = 'all';
+        requestWindows();
+      }
+
+      function setNavMode(mode) {
+        state.navMode = mode;
+        state.activeGroupName = null;
+        computeNavWindows();
+      }
+
+      function toggleGroup(name) {
+        state.navMode = (state.navMode === name) ? 'all' : name;
+        state.activeGroupName = state.navMode === 'all' ? null : name;
+        computeNavWindows();
+      }
+
+      function editGroup(name) {
+        state.groupModalEditing = name;
+        state.groupModalTitle = 'Edit Group';
+        state.groupModalName = name;
+        state.groupModalCallback = null;
+        state.groupModalOpen = true;
+      }
+
+      function openNewGroup() {
+        state.groupModalEditing = null;
+        state.groupModalTitle = 'New Group';
+        state.groupModalName = '';
+        state.groupModalCallback = null;
+        state.groupModalOpen = true;
+      }
+
+      function toggleGroupMembership(win) {
+        const groups = loadGroups();
+        const names = Object.keys(groups);
+        if (names.length === 0) {
+          state.groupModalEditing = null;
+          state.groupModalTitle = 'New Group';
+          state.groupModalName = '';
+          state.groupModalCallback = (newName) => {
+            const g = loadGroups();
+            g[newName] = [win.window_id];
+            saveGroups(g);
+            computeNavWindows();
+          };
+          state.groupModalOpen = true;
+          return;
+        }
+        const target = (state.navMode !== 'all' && state.navMode !== 'app') ? state.navMode : names[0];
+        const g = loadGroups();
+        if (!g[target]) g[target] = [];
+        const idx = g[target].indexOf(win.window_id);
+        if (idx >= 0) g[target].splice(idx, 1);
+        else g[target].push(win.window_id);
+        saveGroups(g);
+        if (state.navMode !== 'all' && state.navMode !== 'app') computeNavWindows();
+      }
+
+      function doSwitchSpace(index) {
+        switchSpace(index);
+      }
+
+      function onSetTarget(targetId) {
+        setTarget(targetId);
+      }
+
+      // Group windows by target for the flat "All" view
+      const targetGroups = computed(() => {
+        const groups = {};
+        for (const win of state.navWindows) {
+          const tid = win.target_id || 'unknown';
+          const tname = win.target_name || tid;
+          if (!groups[tid]) {
+            const provType = (state.targets.find(t => t.id === tid) || {}).provider_type || '';
+            groups[tid] = {
+              targetId: tid,
+              targetName: tname,
+              icon: provType === 'macos' ? 'ph ph-desktop' : provType === 'linux-docker' ? 'ph ph-linux-logo' : 'ph ph-monitor',
+              windows: [],
+            };
+          }
+          groups[tid].windows.push(win);
+        }
+        return Object.values(groups);
+      });
+
+      function navWindowIndex(win) {
+        return state.navWindows.findIndex(w => w.window_id === win.window_id && w.target_id === win.target_id);
+      }
+
+      return {
+        state, groupsList, emptyMessage, targetGroups,
+        isInAnyGroup, onAppFilterChange, setNavMode,
+        toggleGroup, editGroup, openNewGroup,
+        toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
+        onSetTarget, navWindowIndex,
+      };
+    },
+  };
+
+
+  // =============================================
+  // COMPONENT: hort-app (root)
+  // =============================================
+  const HortApp = {
+    template: `
+      <hort-picker @select-window="onSelectWindow"></hort-picker>
+      <hort-viewer ref="viewer"></hort-viewer>
+      <hort-group-modal></hort-group-modal>
+    `,
+    setup() {
+      const viewer = ref(null);
+
+      function onSelectWindow(idx) {
+        if (viewer.value) {
+          viewer.value.doSwitchWindow(idx);
+        }
+      }
+
+      onMounted(async () => {
+        // Init session and control WS
+        await initSession();
+
+        // Wait a moment for WS to connect
+        await new Promise(resolve => {
+          const check = setInterval(() => {
+            if (state.connected) { clearInterval(check); resolve(); }
+          }, 100);
+          // Timeout after 5s
+          setTimeout(() => { clearInterval(check); resolve(); }, 5000);
+        });
+
+        // Try to restore last viewed window
+        const saved = localStorage.getItem('llming-current-window');
+        if (saved) {
+          try {
+            const { window_id } = JSON.parse(saved);
+            // Request windows and wait for response
+            requestWindows();
+            requestSpaces();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            computeNavWindows();
+            const idx = state.navWindows.findIndex(w => w.window_id === window_id);
+            if (idx >= 0) {
+              if (viewer.value) viewer.value.doSwitchWindow(idx);
+              return;
+            }
+            localStorage.removeItem('llming-current-window');
+          } catch {
+            localStorage.removeItem('llming-current-window');
+          }
+        }
+
+        // Start picker refresh
+        startPickerRefresh();
+      });
+
+      return { viewer, onSelectWindow };
+    },
+  };
+
+
+  // ===== CREATE VUE APP =====
+  const app = createApp({});
+
+  app.component('hort-app', HortApp);
+  app.component('hort-picker', HortPicker);
+  app.component('hort-viewer', HortViewer);
+  app.component('hort-settings', HortSettings);
+  app.component('hort-overview', HortOverview);
+  app.component('hort-group-modal', HortGroupModal);
+
+  app.use(Quasar, {
+    config: {
+      dark: true,
+      brand: {
+        primary: '#e94560',
+        secondary: '#0f3460',
+        accent: '#0f3460',
+        dark: '#1a1a2e',
+        'dark-page': '#1a1a2e',
+      },
+    },
+  });
+
+  // Activate any registered HortExtensions
+  if (typeof HortExtension !== 'undefined') {
+    HortExtension.activateAll(app, Quasar, {});
+  }
+
+  app.mount('#q-app');
+
+  // Register service worker for PWA installability
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
 })();
 </script>
 </body>

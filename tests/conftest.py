@@ -123,11 +123,16 @@ def sample_jpeg_bytes() -> bytes:
 @pytest.fixture()
 def app_client(sample_raw_windows: list[dict[str, Any]], sample_jpeg_bytes: bytes) -> TestClient:
     """FastAPI TestClient with mocked Quartz layer."""
+    from hort.targets import TargetRegistry
+
+    TargetRegistry.reset()
+
     with (
         patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
         patch("hort.windows._get_space_index_map", return_value={1: 1}),
         patch("hort.windows._get_window_space", return_value=1),
-        patch("hort.app.capture_window", return_value=sample_jpeg_bytes),
+        patch("hort.screen._raw_capture", return_value=None),
+        patch("hort.app._register_docker_targets"),
     ):
         from hort.app import create_app
 

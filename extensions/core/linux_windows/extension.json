@@ -1,0 +1,29 @@
+{
+  "name": "linux-windows",
+  "version": "0.1.0",
+  "description": "Linux window management via X11 tools (xdotool, wmctrl, ImageMagick) inside Docker containers",
+  "provider": "core",
+  "platforms": ["darwin", "linux", "win32"],
+  "capabilities": [
+    "window.list",
+    "window.capture",
+    "input.simulate",
+    "workspace.manage"
+  ],
+  "entry_point": "provider:LinuxWindowsExtension",
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "container_name": {
+        "type": "string",
+        "description": "Name of the Docker container running the Linux desktop",
+        "default": "openhort-linux-desktop"
+      },
+      "image": {
+        "type": "string",
+        "description": "Docker image for the Linux desktop",
+        "default": "openhort-linux-desktop"
+      }
+    }
+  }
+}
