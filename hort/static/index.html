@@ -45,6 +45,12 @@ body {
     border-bottom: 1px solid var(--el-border);
 }
 .picker-header h1 { font-size: 15px; color: var(--el-primary); flex-shrink: 0; }
+.cloud-badge {
+    background: var(--el-success); color: #fff; font-size: 11px; font-weight: 600;
+    padding: 3px 10px; border-radius: 12px; display: flex; align-items: center; gap: 4px;
+    animation: cloud-pulse 2s ease-in-out infinite; flex-shrink: 0;
+}
+@keyframes cloud-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
 .picker-header select {
     flex: 1; min-width: 0; background: var(--el-border); color: var(--el-text);
     border: 1px solid var(--el-primary); border-radius: 6px; padding: 7px 10px; font-size: 13px;
@@ -488,6 +494,10 @@ body {
     terminals: [],        // [{terminal_id, target_id, title, alive}]
     activeTerminalId: null,
 
+    // Cloud connector
+    tunnelActive: false,
+    tunnelServerUrl: '',
+
     // Windows
     allWindows: [],
     navWindows: [],
@@ -647,6 +657,7 @@ body {
         state.serverVersion = msg.version || '';
         requestTargets();
         requestTerminalList();
+        sendControl({ type: 'tunnel_status' });
         break;
       case 'windows_list':
         handleWindowsList(msg);
@@ -698,6 +709,16 @@ body {
           state.activeTerminalId = null;
           if (state.view === 'terminal') state.view = 'picker';
         }
+        break;
+      case 'tunnel_status':
+        state.tunnelActive = msg.active || false;
+        state.tunnelServerUrl = msg.server_url || '';
+        break;
+      case 'token_created':
+      case 'token_list':
+      case 'token_verified':
+      case 'tokens_revoked':
+        // Handled by extension/plugin that requested them
         break;
       case 'heartbeat_ack':
         break;
@@ -1836,6 +1857,9 @@ body {
         <!-- Header -->
         <div class="picker-header">
           <h1>hort</h1>
+          <span v-if="state.tunnelActive" class="cloud-badge" title="Connected to cloud">
+            <i class="ph-fill ph-cloud-check"></i> Cloud
+          </span>
           <select :value="state.appFilter" @change="onAppFilterChange">
             <option value="">All Apps</option>
             <option v-for="name in state.appNames" :key="name" :value="name">{{ name }}</option>

@@ -204,6 +204,77 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             raise HTTPException(401, "Not authenticated")
         return JSONResponse({"username": username})
 
+    # ===== Token login (host-verified) =====
+
+    @app.get("/api/access/token/login")
+    async def token_login(request: Request) -> Response:
+        """Login via a token generated on the host.
+
+        Flow:
+        1. User scans QR code containing this URL + token + host_id
+        2. Access server applies rate limiting + artificial delay
+        3. Access server forwards token to the host via tunnel
+        4. Host verifies the token against its local TokenStore
+        5. If valid, access server creates a session
+        """
+        token = request.query_params.get("token", "")
+        host_id = request.query_params.get("host", "")
+        ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+            request.client.host if request.client else "unknown"
+        )
+
+        if not token or not host_id:
+            raise HTTPException(400, "Missing token or host parameter")
+
+        if not rate_limiter.check(ip):
+            raise HTTPException(429, "Too many attempts")
+
+        # Artificial delay (same as password auth)
+        delay = rate_limiter.get_delay(ip)
+        await asyncio.sleep(delay)
+        rate_limiter.record(ip)
+
+        # Find the tunnel for this host
+        tunnel = _tunnels.get(host_id)
+        if tunnel is None:
+            raise HTTPException(502, "Host not connected")
+
+        # Ask the host to verify the token
+        try:
+            resp = await tunnel.proxy_request(
+                "POST", "/_internal/verify-token",
+                {"content-type": "application/json"},
+                json.dumps({"token": token}).encode(),
+            )
+            if resp.get("status") != 200:
+                raise HTTPException(401, "Invalid or expired token")
+
+            body = json.loads(resp.get("body", "{}"))
+            if not body.get("valid"):
+                raise HTTPException(401, "Invalid or expired token")
+        except (ConnectionError, asyncio.TimeoutError):
+            raise HTTPException(502, "Host not responding")
+
+        # Token valid — find the host owner and create session
+        for h_record in store.get_hosts_for_user(""):
+            pass  # need to find owner from host_id
+        # Look up host record to find owner
+        owner_username = ""
+        for u in store.list_users():
+            for h in store.get_hosts_for_user(u.username):
+                if h.host_id == host_id:
+                    owner_username = u.username
+                    break
+            if owner_username:
+                break
+
+        if not owner_username:
+            raise HTTPException(401, "Host owner not found")
+
+        request.session["username"] = owner_username
+        # Redirect to the host's proxy viewer
+        return RedirectResponse(f"/proxy/{host_id}/viewer", status_code=302)
+
     # ===== Host management =====
 
     @app.get("/api/access/hosts")
@@ -240,11 +311,28 @@ def _register_routes(app: FastAPI, store: Store) -> None:
 
     @app.websocket("/api/access/tunnel")
     async def host_tunnel(websocket: WebSocket) -> None:
-        """WebSocket endpoint for openhort hosts to connect."""
+        """WebSocket endpoint for openhort hosts to connect.
+
+        Auth: connection key (required, like an API key).
+        Optional: username param for additional verification.
+        """
         key = websocket.query_params.get("key", "")
+        username = websocket.query_params.get("user", "")
+
         host_record = store.get_host_by_key(key)
         if host_record is None:
             await websocket.close(code=4003, reason="Invalid connection key")
+            return
+
+        # Verify owner still exists
+        owner = store.get_user(host_record.owner)
+        if owner is None:
+            await websocket.close(code=4003, reason="Host owner not found")
+            return
+
+        # If username provided, verify it matches the owner
+        if username and host_record.owner != username:
+            await websocket.close(code=4003, reason="User does not own this host")
             return
 
         await websocket.accept()

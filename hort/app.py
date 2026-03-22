@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -289,6 +289,29 @@ def _register_routes(app: FastAPI) -> None:
         from hort.termd_client import handle_terminal_ws
 
         await handle_terminal_ws(websocket, terminal_id)
+
+    # ----- Token verification (called by access server via tunnel) -----
+
+    @app.post("/_internal/verify-token")
+    async def verify_token(request: Request) -> Response:
+        """Verify an access token. Called by the access server through the tunnel."""
+        from hort.access.tokens import TokenStore
+
+        try:
+            data = await request.json()
+        except Exception:
+            return Response(
+                content='{"valid":false}',
+                media_type="application/json",
+                status_code=400,
+            )
+        token = data.get("token", "")
+        store = TokenStore()
+        valid = store.verify(token)
+        return Response(
+            content=json.dumps({"valid": valid}),
+            media_type="application/json",
+        )
 
     @app.websocket("/ws/devreload")
     async def dev_reload(websocket: WebSocket) -> None:

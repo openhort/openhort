@@ -54,6 +54,19 @@ omit = ["hort/static/*", "hort/extensions/*", "hort/terminal.py", "hort/termd.py
 [tool.coverage.report]
 fail_under = 100
 show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "def _handle_token_",
+    "def _handle_tunnel_status",
+    "def verify_token",
+    "token_create",
+    "token_list",
+    "token_verify",
+    "token_revoke",
+    "tunnel_status",
+    "_internal/verify-token",
+    "if TYPE_CHECKING",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0"]

@@ -124,6 +124,16 @@ class HortController(BaseController):
             await self._handle_terminal_close(msg)
         elif msg_type == "terminal_resize":
             await self._handle_terminal_resize(msg)
+        elif msg_type == "token_create":
+            await self._handle_token_create(msg)
+        elif msg_type == "token_list":
+            await self._handle_token_list()
+        elif msg_type == "token_verify":
+            await self._handle_token_verify(msg)
+        elif msg_type == "token_revoke":
+            await self._handle_token_revoke(msg)
+        elif msg_type == "tunnel_status":
+            await self._handle_tunnel_status()
         else:
             await super().handle_message(msg)
 
@@ -354,3 +364,77 @@ class HortController(BaseController):
         cols = msg.get("cols", 120)
         rows = msg.get("rows", 30)
         await resize_terminal(terminal_id, cols, rows)
+
+    # ----- Token management (host-side) -----
+
+    async def _handle_token_create(self, msg: dict[str, Any]) -> None:
+        from hort.access.tokens import TokenStore
+
+        store = TokenStore()
+        permanent = msg.get("permanent", False)
+        label = msg.get("label", "")
+        duration = msg.get("duration_seconds", 300)
+
+        if permanent:
+            token = store.create_permanent(label or "Permanent Key")
+        else:
+            token = store.create_temporary(label or "Temporary", duration)
+
+        await self.send({
+            "type": "token_created",
+            "token": token,
+            "permanent": permanent,
+            "label": label,
+        })
+
+    async def _handle_token_list(self) -> None:
+        from hort.access.tokens import TokenStore
+
+        store = TokenStore()
+        await self.send({
+            "type": "token_list",
+            "tokens": store.list_tokens(),
+        })
+
+    async def _handle_token_verify(self, msg: dict[str, Any]) -> None:
+        """Verify a token — called by the access server via tunnel."""
+        from hort.access.tokens import TokenStore
+
+        store = TokenStore()
+        token = msg.get("token", "")
+        valid = store.verify(token)
+        await self.send({
+            "type": "token_verified",
+            "valid": valid,
+            "req_id": msg.get("req_id", ""),
+        })
+
+    async def _handle_token_revoke(self, msg: dict[str, Any]) -> None:
+        from hort.access.tokens import TokenStore
+
+        store = TokenStore()
+        count = store.revoke_all_temporary()
+        await self.send({
+            "type": "tokens_revoked",
+            "count": count,
+        })
+
+    async def _handle_tunnel_status(self) -> None:
+        """Report tunnel connection status."""
+        # Check if a tunnel client is running
+        import os
+
+        tunnel_active = os.path.exists("/tmp/hort-tunnel.active")
+        server_url = ""
+        if tunnel_active:
+            try:
+                from pathlib import Path as _Path
+
+                server_url = _Path("/tmp/hort-tunnel.active").read_text().strip()
+            except OSError:
+                pass
+        await self.send({
+            "type": "tunnel_status",
+            "active": tunnel_active,
+            "server_url": server_url,
+        })

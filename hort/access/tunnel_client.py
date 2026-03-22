@@ -44,16 +44,24 @@ class TunnelClient:
         ws_url = self._server_url.replace("http://", "ws://").replace("https://", "wss://")
         tunnel_url = f"{ws_url}/api/access/tunnel?key={self._key}"
 
+        # Write status file so the openhort UI can show tunnel state
+        status_file = Path("/tmp/hort-tunnel.active")
+
         logger.info("Connecting to access server: %s", self._server_url)
 
         while True:
             try:
                 async with websockets.connect(tunnel_url) as ws:
                     self._ws = ws
+                    status_file.write_text(self._server_url)
                     logger.info("Connected to access server")
                     await self._message_loop(ws)
             except Exception as e:
                 logger.warning("Tunnel disconnected: %s. Reconnecting in 5s...", e)
+                try:
+                    status_file.unlink(missing_ok=True)
+                except OSError:
+                    pass
                 await asyncio.sleep(5)
 
     async def _message_loop(self, ws: Any) -> None:
