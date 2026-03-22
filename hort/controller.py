@@ -211,7 +211,7 @@ class HortController(BaseController):
         else:
             provider, _ = self._provider_for_window(window_id)
 
-        jpeg = (await _run_sync(provider.capture_window, window_id, 400, 50)) if provider else None
+        jpeg = (await _run_sync(provider.capture_window, window_id, 600, 50)) if provider else None
         if jpeg is not None:
             await self.send({
                 "type": "thumbnail",
@@ -307,47 +307,40 @@ class HortController(BaseController):
     # ----- Terminal management -----
 
     async def _handle_terminal_spawn(self, msg: dict[str, Any]) -> None:
-        from hort.terminal import TerminalManager
+        from hort.termd_client import ensure_daemon, spawn_terminal
 
-        manager = TerminalManager.get()
+        ensure_daemon()
         target_id = msg.get("target_id", "local-macos")
         cols = msg.get("cols", 120)
         rows = msg.get("rows", 30)
         command = msg.get("command")
-        cmd_list = command.split() if isinstance(command, str) else command
-        session = manager.spawn(target_id, command=cmd_list, cols=cols, rows=rows)
-        await self.send({
-            "type": "terminal_spawned",
-            "terminal_id": session.terminal_id,
-            "target_id": session.target_id,
-            "title": session.title,
-        })
+        cmd_list = command.split() if isinstance(command, str) else (command or None)
+        resp = await spawn_terminal(target_id, command=cmd_list, cols=cols, rows=rows)
+        if resp.get("ok"):
+            await self.send({
+                "type": "terminal_spawned",
+                "terminal_id": resp["terminal_id"],
+                "target_id": resp.get("target_id", target_id),
+                "title": resp.get("title", "shell"),
+            })
+        else:
+            await self.send({"type": "error", "message": resp.get("error", "Spawn failed")})
 
     async def _handle_terminal_list(self) -> None:
-        from hort.terminal import TerminalManager
+        from hort.termd_client import ensure_daemon, list_terminals
 
-        manager = TerminalManager.get()
-        terminals = manager.list_sessions()
+        ensure_daemon()
+        terminals = await list_terminals()
         await self.send({
             "type": "terminal_list",
-            "terminals": [
-                {
-                    "terminal_id": t.terminal_id,
-                    "target_id": t.target_id,
-                    "title": t.title,
-                    "cols": t.cols,
-                    "rows": t.rows,
-                    "alive": t.alive,
-                }
-                for t in terminals
-            ],
+            "terminals": terminals,
         })
 
     async def _handle_terminal_close(self, msg: dict[str, Any]) -> None:
-        from hort.terminal import TerminalManager
+        from hort.termd_client import close_terminal
 
         terminal_id = msg.get("terminal_id", "")
-        ok = TerminalManager.get().close_session(terminal_id)
+        ok = await close_terminal(terminal_id)
         await self.send({
             "type": "terminal_closed",
             "terminal_id": terminal_id,
@@ -355,9 +348,9 @@ class HortController(BaseController):
         })
 
     async def _handle_terminal_resize(self, msg: dict[str, Any]) -> None:
-        from hort.terminal import TerminalManager
+        from hort.termd_client import resize_terminal
 
         terminal_id = msg.get("terminal_id", "")
-        session = TerminalManager.get().get_session(terminal_id)
-        if session:
-            session.resize(msg.get("cols", session.cols), msg.get("rows", session.rows))
+        cols = msg.get("cols", 120)
+        rows = msg.get("rows", 30)
+        await resize_terminal(terminal_id, cols, rows)

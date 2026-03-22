@@ -59,7 +59,76 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     _register_targets()
     _register_routes(app)
+
+    @app.on_event("startup")
+    async def _start_target_scanner() -> None:
+        """Periodically re-scan for Docker containers in the background."""
+        async def _scan_loop() -> None:
+            while True:
+                await asyncio.sleep(10)
+                try:
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, _refresh_docker_targets)
+                except Exception:  # pragma: no cover
+                    pass
+
+        asyncio.create_task(_scan_loop())
+
     return app
+
+
+def _refresh_docker_targets() -> None:
+    """Re-scan for Docker Linux containers and update the target registry."""
+    from hort.targets import TargetRegistry
+
+    registry = TargetRegistry.get()
+
+    # Find currently running containers
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}", "--filter", "ancestor=openhort-linux-desktop"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return
+
+        running = set()
+        for name in result.stdout.strip().splitlines():
+            if not name:
+                continue
+            running.add(f"docker-{name}")
+
+        # Add new containers
+        for name in result.stdout.strip().splitlines():
+            if not name:
+                continue
+            target_id = f"docker-{name}"
+            if registry.get_provider(target_id) is None:
+                try:
+                    from hort.extensions.core.linux_windows.provider import (
+                        LinuxWindowsExtension,
+                    )
+                    from hort.targets import TargetInfo
+
+                    ext = LinuxWindowsExtension()
+                    ext.activate({"container_name": name})
+                    registry.register(
+                        target_id,
+                        TargetInfo(id=target_id, name=f"Linux ({name})", provider_type="linux-docker"),
+                        ext,
+                    )
+                except ImportError:
+                    pass
+
+        # Remove stopped containers
+        for info in registry.list_targets():
+            if info.id.startswith("docker-") and info.id not in running:
+                registry.remove(info.id)
+
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
 
 
 def _register_targets() -> None:
@@ -83,44 +152,9 @@ def _register_targets() -> None:
         except ImportError:
             pass  # Quartz not available
 
-    # Discover Docker-based Linux targets
-    _register_docker_targets(registry)
-
-
-def _register_docker_targets(registry: object) -> None:
-    """Check for running openhort Linux desktop containers."""
-    import subprocess
-
-    from hort.targets import TargetInfo, TargetRegistry
-
-    assert isinstance(registry, TargetRegistry)
-
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}", "--filter", "ancestor=openhort-linux-desktop"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            for name in result.stdout.strip().splitlines():
-                if not name:
-                    continue
-                try:
-                    from hort.extensions.core.linux_windows.provider import (
-                        LinuxWindowsExtension,
-                    )
-
-                    ext = LinuxWindowsExtension()
-                    ext.activate({"container_name": name})
-                    target_id = f"docker-{name}"
-                    registry.register(
-                        target_id,
-                        TargetInfo(id=target_id, name=f"Linux ({name})", provider_type="linux-docker"),
-                        ext,
-                    )
-                except ImportError:
-                    pass
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass  # Docker not installed or not responding
+    # Docker containers are discovered by the background scanner (_refresh_docker_targets)
+    # which runs every 10 seconds — no need to block startup
+    _refresh_docker_targets()
 
 
 def _register_routes(app: FastAPI) -> None:
@@ -160,8 +194,8 @@ def _register_routes(app: FastAPI) -> None:
             "start_url": "/viewer",
             "display": "fullscreen",
             "orientation": "any",
-            "background_color": "#1a1a2e",
-            "theme_color": "#e94560",
+            "background_color": "#0a0e1a",
+            "theme_color": "#3b82f6",
             "icons": [
                 {"src": "/api/icon/192", "sizes": "192x192", "type": "image/png"},
                 {"src": "/api/icon/512", "sizes": "512x512", "type": "image/png"},
@@ -251,8 +285,8 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.websocket("/ws/terminal/{terminal_id}")
     async def terminal_ws(websocket: WebSocket, terminal_id: str) -> None:
-        """Terminal I/O — binary PTY data over WebSocket."""
-        from hort.terminal import handle_terminal_ws
+        """Terminal I/O — bridges browser WS to the persistent termd daemon."""
+        from hort.termd_client import handle_terminal_ws
 
         await handle_terminal_ws(websocket, terminal_id)
 
@@ -277,23 +311,21 @@ def _generate_icon(size: int) -> bytes:
     """Generate a simple app icon as PNG bytes."""
     from PIL import Image, ImageDraw
 
-    img = Image.new("RGBA", (size, size), (26, 26, 46, 255))
+    img = Image.new("RGBA", (size, size), (10, 14, 26, 255))
     draw = ImageDraw.Draw(img)
     margin = size // 6
-    # Draw a rounded rectangle (screen shape)
     draw.rounded_rectangle(
         [margin, margin, size - margin, size - margin],
         radius=size // 10,
-        fill=(15, 52, 96, 255),
-        outline=(233, 69, 96, 255),
+        fill=(30, 58, 95, 255),
+        outline=(59, 130, 246, 255),
         width=max(2, size // 64),
     )
-    # Draw a play/eye triangle in center
     cx, cy = size // 2, size // 2
     s = size // 6
     draw.polygon(
         [(cx - s, cy - s), (cx + s, cy), (cx - s, cy + s)],
-        fill=(233, 69, 96, 255),
+        fill=(59, 130, 246, 255),
     )
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -340,19 +372,19 @@ def _render_landing(server_info: ServerInfo, qr_data_uri: str, static_hash: str 
 <style>
 body {{
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    background: #1a1a2e; color: #eee;
+    background: #0a0e1a; color: #f0f4ff;
     display: flex; flex-direction: column; align-items: center;
     justify-content: center; min-height: 100vh; margin: 0; padding: 20px;
     box-sizing: border-box;
 }}
-h1 {{ color: #e94560; margin-bottom: 8px; }}
+h1 {{ color: #3b82f6; margin-bottom: 8px; }}
 p {{ color: #aaa; margin: 4px 0; }}
 .qr {{ background: white; padding: 16px; border-radius: 12px; margin: 20px 0; }}
 .qr img {{ width: 220px; height: 220px; display: block; }}
-a {{ color: #0f3460; background: #e94560; padding: 12px 24px;
+a {{ color: #fff; background: #3b82f6; padding: 12px 24px;
     border-radius: 8px; text-decoration: none; font-weight: bold;
     display: inline-block; margin-top: 12px; }}
-code {{ background: #16213e; padding: 4px 10px; border-radius: 4px; color: #e94560; }}
+code {{ background: #111827; padding: 4px 10px; border-radius: 4px; color: #60a5fa; }}
 </style>
 </head>
 <body>

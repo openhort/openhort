@@ -132,7 +132,7 @@ def app_client(sample_raw_windows: list[dict[str, Any]], sample_jpeg_bytes: byte
         patch("hort.windows._get_space_index_map", return_value={1: 1}),
         patch("hort.windows._get_window_space", return_value=1),
         patch("hort.screen._raw_capture", return_value=None),
-        patch("hort.app._register_docker_targets"),
+        patch("hort.app._refresh_docker_targets"),
     ):
         from hort.app import create_app
 

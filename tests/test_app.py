@@ -358,34 +358,57 @@ class TestTargetDiscovery:
                 "hort.extensions.core.macos_windows.provider.MacOSWindowsExtension",
                 side_effect=ImportError("no quartz"),
             ),
-            patch("hort.app._register_docker_targets"),
+            patch("hort.app._refresh_docker_targets"),
         ):
             _register_targets()
         # Should not raise
 
     def test_register_docker_no_docker(self) -> None:
-        from hort.app import _register_docker_targets
+        from hort.app import _refresh_docker_targets
         from hort.targets import TargetRegistry
 
         TargetRegistry.reset()
         reg = TargetRegistry.get()
         with patch("subprocess.run", side_effect=FileNotFoundError):
-            _register_docker_targets(reg)
+            _refresh_docker_targets()
         assert reg.list_targets() == []
 
+    def test_register_docker_bad_returncode(self) -> None:
+        from hort.app import _refresh_docker_targets
+        from hort.targets import TargetRegistry
+
+        TargetRegistry.reset()
+        mock_result = type("R", (), {"returncode": 1, "stdout": ""})()
+        with patch("subprocess.run", return_value=mock_result):
+            _refresh_docker_targets()
+        assert TargetRegistry.get().list_targets() == []
+
+    def test_register_docker_removes_stopped(self) -> None:
+        from hort.app import _refresh_docker_targets
+        from hort.targets import TargetInfo, TargetRegistry
+        from tests.test_targets import StubProvider
+
+        TargetRegistry.reset()
+        reg = TargetRegistry.get()
+        reg.register("docker-old", TargetInfo(id="docker-old", name="Old", provider_type="linux-docker"), StubProvider())
+        mock_result = type("R", (), {"returncode": 0, "stdout": ""})()
+        with patch("subprocess.run", return_value=mock_result):
+            _refresh_docker_targets()
+        assert reg.get_provider("docker-old") is None
+
     def test_register_docker_empty(self) -> None:
-        from hort.app import _register_docker_targets
+        from hort.app import _refresh_docker_targets
         from hort.targets import TargetRegistry
 
         TargetRegistry.reset()
         reg = TargetRegistry.get()
         mock_result = type("R", (), {"returncode": 0, "stdout": ""})()
         with patch("subprocess.run", return_value=mock_result):
-            _register_docker_targets(reg)
+            _refresh_docker_targets()
         assert reg.list_targets() == []
 
     def test_register_docker_with_empty_name_in_list(self) -> None:
-        from hort.app import _register_docker_targets
+        from hort.app import _refresh_docker_targets
         from hort.targets import TargetRegistry
 
         TargetRegistry.reset()
@@ -399,18 +422,18 @@ class TestTargetDiscovery:
                 side_effect=ImportError("no docker"),
             ),
         ):
-            _register_docker_targets(reg)
+            _refresh_docker_targets()
         assert reg.list_targets() == []
 
     def test_register_docker_with_container(self) -> None:
-        from hort.app import _register_docker_targets
+        from hort.app import _refresh_docker_targets
         from hort.targets import TargetRegistry
 
         TargetRegistry.reset()
         reg = TargetRegistry.get()
         mock_result = type("R", (), {"returncode": 0, "stdout": "openhort-linux-desktop\n"})()
         with patch("subprocess.run", return_value=mock_result):
-            _register_docker_targets(reg)
+            _refresh_docker_targets()
         targets = reg.list_targets()
         assert len(targets) == 1
         assert targets[0].provider_type == "linux-docker"

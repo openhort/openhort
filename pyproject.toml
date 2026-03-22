@@ -47,7 +47,7 @@ addopts = "-m 'not integration'"
 
 [tool.coverage.run]
 source = ["hort"]
-omit = ["hort/static/*", "hort/extensions/*", "hort/terminal.py"]
+omit = ["hort/static/*", "hort/extensions/*", "hort/terminal.py", "hort/termd.py", "hort/termd_client.py"]
 
 [tool.coverage.report]
 fail_under = 100

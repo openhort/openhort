@@ -41,6 +41,12 @@
    * and `destroy()` to clean up.
    */
   class HortExtension {
+    /** Panel title shown in the "New Panel" dialog (set to enable panel mode). */
+    static panelTitle = '';
+
+    /** Phosphor icon class for the grid card (e.g. 'ph ph-chart-bar'). */
+    static panelIcon = 'ph ph-puzzle-piece';
+
     /** Unique extension identifier (kebab-case, must match server-side name). */
     static id = '';
 

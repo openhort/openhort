@@ -69,6 +69,11 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Extension System](docs/extensions.md) — plugin architecture, provider interfaces, creating extensions
 - [Container Environments](docs/containers.md) — Docker/Azure container management, preview panel
 
+## Critical Rules
+
+- **NEVER block the async event loop.** Every subprocess call, Docker exec, provider method, file I/O, and network call MUST run in a thread executor (`await _run_sync(fn)`) or use native async I/O (`add_reader`, `asyncio.open_unix_connection`). A single blocking call on the main thread can hang the entire server and prevent clean shutdown (uvicorn --reload). No exceptions.
+- **NEVER use `lsof -ti :PORT | xargs kill`** — this kills Docker containers. Always kill by process name: `pgrep -f "uvicorn hort.app" | xargs kill -9`
+
 ## Quality Standards
 
 - 100% test coverage (`pytest --cov=hort`, excludes `hort/extensions/` and `hort/terminal.py` which are integration-tested)
@@ -90,14 +95,15 @@ Dev mode (`--dev` or `LLMING_DEV=1`) enables:
 - HTTPS on port 8950 via nginx proxy (`tools/local-https/`, run once with `docker compose up -d`)
 - The proxy shows "Server restarting..." during reloads instead of connection errors
 
-**IMPORTANT:** Do NOT kill processes by port blindly (`lsof -ti :8940 | xargs kill -9`) — this can kill Docker containers that have connections to that port, tearing down the HTTPS proxy and Linux desktop containers.
+**NEVER use `lsof -ti :8940 | xargs kill -9`** — this kills Docker containers connected to that port, tearing down HTTPS proxy and Linux containers. ALWAYS kill by process name:
 
 ### Restarting the server
 ```bash
 pgrep -f "uvicorn hort.app" | xargs kill -9
-sleep 2
+sleep 3
 poetry run python run.py
 ```
+If the port is still busy after 3 seconds, wait longer — do NOT fall back to killing by port.
 
 ### If Docker was killed (HTTPS proxy / Linux container down)
 ```bash

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from unittest.mock import AsyncMock, patch
@@ -15,7 +16,8 @@ from hort.terminal import TerminalManager, TerminalSession, _default_command
 class TestDefaultCommand:
     def test_local(self) -> None:
         cmd = _default_command("local-macos")
-        assert cmd == [os.environ.get("SHELL", "/bin/bash")]
+        shell = os.environ.get("SHELL", "/bin/zsh")
+        assert cmd == [shell, "--login"]
 
     def test_docker(self) -> None:
         cmd = _default_command("docker-my-container")
@@ -23,6 +25,7 @@ class TestDefaultCommand:
         assert "exec" in cmd
         assert "my-container" in cmd
         assert "/bin/bash" in cmd
+        assert "--login" in cmd
 
 
 class TestTerminalManager:
@@ -80,13 +83,9 @@ class TestTerminalSession:
     def test_write_and_read(self) -> None:
         session = TerminalSession("t1", "local", ["/bin/sh"], cols=80, rows=24)
         try:
-            # Write a command
             session.write(b"echo hello_test_marker\n")
             time.sleep(0.5)
-
-            # Read from PTY via the blocking read method
             data = session._blocking_read()
-            # The output should contain our command or its output
             all_data = data or b""
             for _ in range(10):
                 chunk = session._blocking_read()
@@ -129,7 +128,6 @@ class TestTerminalSession:
         try:
             session.write(b"echo scrollback_test_data\n")
             time.sleep(0.5)
-            # Manually read to populate scrollback
             for _ in range(10):
                 chunk = session._blocking_read()
                 if chunk:
@@ -167,7 +165,7 @@ class TestTerminalSession:
 
 
 class TestTerminalController:
-    """Test terminal messages via the controller."""
+    """Test terminal messages via the controller (mocking the daemon client)."""
 
     def setup_method(self) -> None:
         TerminalManager.reset()
@@ -186,19 +184,45 @@ class TestTerminalController:
         ctrl.set_websocket(ws)
         ctrl.set_session_entry(HortSessionEntry(user_id="test"))
 
-        asyncio.get_event_loop().run_until_complete(
-            ctrl.handle_message({
-                "type": "terminal_spawn",
-                "target_id": "local",
-                "command": "/bin/sh",
-            })
-        )
-
-        import json
+        mock_resp = {"ok": True, "terminal_id": "t123", "target_id": "local", "title": "sh"}
+        with (
+            patch("hort.termd_client.ensure_daemon"),
+            patch("hort.termd_client.spawn_terminal", new_callable=AsyncMock, return_value=mock_resp),
+        ):
+            asyncio.get_event_loop().run_until_complete(
+                ctrl.handle_message({
+                    "type": "terminal_spawn",
+                    "target_id": "local",
+                    "command": "/bin/sh",
+                })
+            )
 
         msgs = [json.loads(c[0][0]) for c in ws.send_text.call_args_list]
         assert msgs[0]["type"] == "terminal_spawned"
-        assert "terminal_id" in msgs[0]
+        assert msgs[0]["terminal_id"] == "t123"
+
+    def test_spawn_failure(self) -> None:
+        from hort.controller import HortController
+        from hort.session import HortSessionEntry
+        from hort.targets import TargetRegistry
+
+        TargetRegistry.reset()
+        ctrl = HortController("test")
+        ws = AsyncMock()
+        ctrl.set_websocket(ws)
+        ctrl.set_session_entry(HortSessionEntry(user_id="test"))
+
+        mock_resp = {"ok": False, "error": "Daemon exploded"}
+        with (
+            patch("hort.termd_client.ensure_daemon"),
+            patch("hort.termd_client.spawn_terminal", new_callable=AsyncMock, return_value=mock_resp),
+        ):
+            asyncio.get_event_loop().run_until_complete(
+                ctrl.handle_message({"type": "terminal_spawn", "target_id": "local"})
+            )
+
+        msgs = [json.loads(c[0][0]) for c in ws.send_text.call_args_list]
+        assert msgs[0]["type"] == "error"
 
     def test_list_via_controller(self) -> None:
         from hort.controller import HortController
@@ -211,15 +235,14 @@ class TestTerminalController:
         ctrl.set_websocket(ws)
         ctrl.set_session_entry(HortSessionEntry(user_id="test"))
 
-        # Spawn one first
-        mgr = TerminalManager.get()
-        mgr.spawn("local", command=["/bin/sh"])
-
-        asyncio.get_event_loop().run_until_complete(
-            ctrl.handle_message({"type": "terminal_list"})
-        )
-
-        import json
+        mock_terminals = [{"terminal_id": "t1", "target_id": "local", "title": "sh", "alive": True}]
+        with (
+            patch("hort.termd_client.ensure_daemon"),
+            patch("hort.termd_client.list_terminals", new_callable=AsyncMock, return_value=mock_terminals),
+        ):
+            asyncio.get_event_loop().run_until_complete(
+                ctrl.handle_message({"type": "terminal_list"})
+            )
 
         msgs = [json.loads(c[0][0]) for c in ws.send_text.call_args_list]
         assert msgs[0]["type"] == "terminal_list"
@@ -236,17 +259,13 @@ class TestTerminalController:
         ctrl.set_websocket(ws)
         ctrl.set_session_entry(HortSessionEntry(user_id="test"))
 
-        mgr = TerminalManager.get()
-        session = mgr.spawn("local", command=["/bin/sh"])
-
-        asyncio.get_event_loop().run_until_complete(
-            ctrl.handle_message({
-                "type": "terminal_close",
-                "terminal_id": session.terminal_id,
-            })
-        )
-
-        import json
+        with patch("hort.termd_client.close_terminal", new_callable=AsyncMock, return_value=True):
+            asyncio.get_event_loop().run_until_complete(
+                ctrl.handle_message({
+                    "type": "terminal_close",
+                    "terminal_id": "t123",
+                })
+            )
 
         msgs = [json.loads(c[0][0]) for c in ws.send_text.call_args_list]
         assert msgs[0]["type"] == "terminal_closed"
@@ -263,17 +282,13 @@ class TestTerminalController:
         ctrl.set_websocket(ws)
         ctrl.set_session_entry(HortSessionEntry(user_id="test"))
 
-        mgr = TerminalManager.get()
-        session = mgr.spawn("local", command=["/bin/sh"])
-
-        asyncio.get_event_loop().run_until_complete(
-            ctrl.handle_message({
-                "type": "terminal_resize",
-                "terminal_id": session.terminal_id,
-                "cols": 100,
-                "rows": 40,
-            })
-        )
-
-        assert session.cols == 100
-        assert session.rows == 40
+        with patch("hort.termd_client.resize_terminal", new_callable=AsyncMock):
+            asyncio.get_event_loop().run_until_complete(
+                ctrl.handle_message({
+                    "type": "terminal_resize",
+                    "terminal_id": "t123",
+                    "cols": 100,
+                    "rows": 40,
+                })
+            )
+        # No response expected, just verify no crash

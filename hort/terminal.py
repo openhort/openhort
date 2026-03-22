@@ -58,6 +58,7 @@ class TerminalSession:
         command: list[str],
         cols: int = DEFAULT_COLS,
         rows: int = DEFAULT_ROWS,
+        cwd: str | None = None,
     ) -> None:
         self.terminal_id = terminal_id
         self.target_id = target_id
@@ -73,12 +74,15 @@ class TerminalSession:
         self._master_fd = master_fd
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
+        # Default cwd: user's home directory
+        work_dir = cwd or os.environ.get("HOME", os.getcwd())
         self._process = subprocess.Popen(
             command,
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
             env=env,
+            cwd=work_dir,
             preexec_fn=os.setsid,
             close_fds=True,
         )
@@ -217,13 +221,14 @@ class TerminalManager:
         command: list[str] | None = None,
         cols: int = DEFAULT_COLS,
         rows: int = DEFAULT_ROWS,
+        cwd: str | None = None,
     ) -> TerminalSession:
         """Spawn a new terminal session."""
         import secrets
 
         terminal_id = secrets.token_urlsafe(16)
         cmd = command or _default_command(target_id)
-        session = TerminalSession(terminal_id, target_id, cmd, cols, rows)
+        session = TerminalSession(terminal_id, target_id, cmd, cols, rows, cwd=cwd)
         self._sessions[terminal_id] = session
         return session
 
@@ -257,11 +262,11 @@ def _default_command(target_id: str) -> list[str]:
         return [
             "docker", "exec", "-it",
             "-e", "TERM=xterm-256color",
-            container_name, "/bin/bash",
+            container_name, "/bin/bash", "--login",
         ]
-    # Local target — use the user's default shell
-    shell = os.environ.get("SHELL", "/bin/bash")
-    return [shell]
+    # Local target — use the user's login shell so aliases/rc files are loaded
+    shell = os.environ.get("SHELL", "/bin/zsh")
+    return [shell, "--login"]
 
 
 async def handle_terminal_ws(

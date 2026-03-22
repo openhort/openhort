@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#e94560">
+<meta name="theme-color" content="#3b82f6">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/api/icon/192" type="image/png">
@@ -18,10 +18,21 @@
 <link rel="stylesheet" href="/static/vendor/quasar.prod.css">
 <link rel="stylesheet" href="/static/vendor/xterm.css">
 <style>
+:root {
+  --el-bg: #0a0e1a;
+  --el-surface: #111827;
+  --el-border: #1e3a5f;
+  --el-primary: #3b82f6;
+  --el-accent: #60a5fa;
+  --el-text: #f0f4ff;
+  --el-text-dim: #94a3b8;
+  --el-danger: #ef4444;
+  --el-success: #22c55e;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    background: #1a1a2e; color: #eee;
+    background: var(--el-bg); color: var(--el-text);
     overscroll-behavior: none;
     -webkit-user-select: none; user-select: none;
 }
@@ -29,73 +40,144 @@ body {
 /* ===== PICKER VIEW ===== */
 .picker-header {
     position: sticky; top: 0; z-index: 100;
-    background: #16213e; padding: 10px 12px;
+    background: var(--el-surface); padding: 10px 12px;
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-    border-bottom: 1px solid #0f3460;
+    border-bottom: 1px solid var(--el-border);
 }
-.picker-header h1 { font-size: 15px; color: #e94560; flex-shrink: 0; }
+.picker-header h1 { font-size: 15px; color: var(--el-primary); flex-shrink: 0; }
 .picker-header select {
-    flex: 1; min-width: 0; background: #0f3460; color: #eee;
-    border: 1px solid #e94560; border-radius: 6px; padding: 7px 10px; font-size: 13px;
+    flex: 1; min-width: 0; background: var(--el-border); color: var(--el-text);
+    border: 1px solid var(--el-primary); border-radius: 6px; padding: 7px 10px; font-size: 13px;
     -webkit-appearance: none; appearance: none;
 }
-.picker-body { padding: 8px; }
 .target-divider {
     display: flex; align-items: center; gap: 8px;
     padding: 10px 12px 4px; margin-top: 4px;
-    font-size: 12px; color: #e94560; font-weight: 600;
-    border-bottom: 1px solid #0f3460; margin-bottom: 6px;
+    font-size: 12px; color: var(--el-primary); font-weight: 600;
+    border-bottom: 1px solid var(--el-border); margin-bottom: 6px;
 }
 .target-divider i { font-size: 16px; }
 .target-count {
-    background: #0f3460; border-radius: 10px; padding: 1px 8px;
-    font-size: 11px; color: #aaa; font-weight: normal;
+    background: var(--el-border); border-radius: 10px; padding: 1px 8px;
+    font-size: 11px; color: var(--el-text-dim); font-weight: normal;
 }
-.win-card {
-    display: flex; align-items: center; gap: 10px;
-    background: #16213e; border-radius: 10px; padding: 8px 12px;
-    margin-bottom: 6px; cursor: pointer;
-    border: 1px solid transparent; transition: border-color 0.15s; min-height: 54px;
+
+/* Unified grid */
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  padding: 10px;
 }
-.win-card:active, .win-card:hover { border-color: #e94560; }
-.win-card.in-group { border-color: #0f3460; }
-.win-thumb { width: 80px; height: 50px; border-radius: 5px; object-fit: cover; background: #0f3460; flex-shrink: 0; }
-.win-info { flex: 1; overflow: hidden; }
-.win-app { font-size: 12px; color: #e94560; font-weight: 600; }
-.win-name { font-size: 11px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.win-add-btn {
-    background: none; border: 1px solid #333; color: #666; border-radius: 50%;
-    width: 28px; height: 28px; font-size: 16px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0;
+@media (max-width: 480px) {
+  .panel-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 }
-.win-add-btn:hover { border-color: #e94560; color: #e94560; }
-.win-add-btn.added { border-color: #e94560; color: #e94560; background: rgba(233,69,96,0.15); }
-.picker-status { text-align: center; padding: 40px 20px; color: #666; font-size: 14px; }
+.grid-card {
+  background: var(--el-surface);
+  border-radius: 10px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, transform 0.1s;
+  overflow: hidden;
+}
+.grid-card:hover { border-color: var(--el-primary); transform: translateY(-2px); }
+.grid-card-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  background: var(--el-border);
+  display: block;
+}
+.grid-card-info {
+  padding: 8px 10px;
+}
+.grid-card-info .card-app { font-size: 12px; color: var(--el-primary); font-weight: 600; }
+.grid-card-info .card-name { font-size: 11px; color: var(--el-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid-card.new-panel {
+  border: 2px dashed var(--el-border);
+  display: flex; align-items: center; justify-content: center;
+  min-height: 140px;
+  flex-direction: column; gap: 8px;
+  color: var(--el-text-dim); font-size: 14px;
+}
+.grid-card.new-panel:hover { border-color: var(--el-primary); color: var(--el-primary); }
+.grid-card.new-panel i { font-size: 36px; }
+.grid-card.terminal-card .card-thumb-icon {
+  width: 100%; aspect-ratio: 16 / 10;
+  background: var(--el-border);
+  display: flex; align-items: center; justify-content: center;
+}
+.grid-card.terminal-card .card-thumb-icon i { font-size: 40px; color: var(--el-primary); }
+
+/* Panel selector overlay */
+.panel-selector-overlay {
+    position: fixed; inset: 0; z-index: 500;
+    background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+}
+.panel-selector {
+    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 16px;
+    width: 100%; max-width: 700px; max-height: 80vh; display: flex; flex-direction: column;
+    overflow: hidden;
+}
+.panel-selector-header {
+    display: flex; align-items: center; gap: 10px; padding: 16px 20px;
+    border-bottom: 1px solid var(--el-border);
+}
+.panel-selector-header h3 { color: var(--el-primary); font-size: 16px; margin: 0; flex-shrink: 0; }
+.panel-search {
+    flex: 1; background: var(--el-bg); color: var(--el-text); border: 1px solid var(--el-border);
+    border-radius: 8px; padding: 8px 12px; font-size: 14px; outline: none;
+}
+.panel-search:focus { border-color: var(--el-primary); }
+.panel-selector-close {
+    background: none; border: none; color: var(--el-text-dim); font-size: 20px; cursor: pointer;
+    padding: 4px;
+}
+.panel-selector-close:hover { color: var(--el-text); }
+.panel-selector-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px; padding: 16px 20px; overflow-y: auto;
+}
+@media (min-width: 600px) {
+    .panel-selector-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+}
+.panel-option {
+    background: var(--el-bg); border: 1px solid var(--el-border); border-radius: 10px;
+    padding: 16px 10px; text-align: center; cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+}
+.panel-option:hover { border-color: var(--el-primary); transform: translateY(-2px); }
+.panel-option.disabled { opacity: 0.4; cursor: not-allowed; }
+.panel-option.disabled:hover { border-color: var(--el-border); transform: none; }
+.panel-option-icon { font-size: 32px; color: var(--el-primary); display: block; margin-bottom: 8px; }
+.panel-option-label { font-size: 13px; color: var(--el-text); font-weight: 600; }
+.panel-option-desc { font-size: 10px; color: var(--el-text-dim); margin-top: 4px; }
 
 /* Spaces bar */
 .spaces-bar {
     display: none; gap: 6px; padding: 8px 12px 4px; align-items: center;
 }
 .spaces-bar.visible { display: flex; }
-.spaces-bar .spaces-label { font-size: 11px; color: #666; margin-right: 2px; }
+.spaces-bar .spaces-label { font-size: 11px; color: var(--el-text-dim); margin-right: 2px; }
 .space-btn {
-    width: 32px; height: 24px; border-radius: 6px; border: 1px solid #333;
-    background: #0f3460; color: #aaa; font-size: 12px; font-weight: 600;
+    width: 32px; height: 24px; border-radius: 6px; border: 1px solid var(--el-border);
+    background: var(--el-border); color: var(--el-text-dim); font-size: 12px; font-weight: 600;
     cursor: pointer; transition: all 0.15s;
 }
-.space-btn:hover { border-color: #e94560; color: #eee; }
-.space-btn.active { background: #e94560; color: #fff; border-color: #e94560; }
+.space-btn:hover { border-color: var(--el-primary); color: var(--el-text); }
+.space-btn.active { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
 .viewer-spaces {
     display: none; align-items: center; gap: 2px; flex-shrink: 0;
-    background: #0f3460; border-radius: 6px; padding: 2px 4px;
+    background: var(--el-border); border-radius: 6px; padding: 2px 4px;
 }
 .viewer-spaces.visible { display: inline-flex; }
-.space-label { font-size: 11px; color: #e94560; min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
+.space-label { font-size: 11px; color: var(--el-primary); min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
 .space-nav-btn {
-    background: none; border: none; color: #aaa; font-size: 14px;
+    background: none; border: none; color: var(--el-text-dim); font-size: 14px;
     cursor: pointer; padding: 2px 4px; display: flex; align-items: center;
 }
-.space-nav-btn:hover { color: #e94560; }
+.space-nav-btn:hover { color: var(--el-primary); }
 
 /* Groups bar */
 .groups-bar {
@@ -104,13 +186,13 @@ body {
 .groups-bar::-webkit-scrollbar { display: none; }
 .group-chip {
     flex-shrink: 0; padding: 6px 14px; border-radius: 16px;
-    background: #0f3460; border: 1px solid #333; color: #aaa;
+    background: var(--el-border); border: 1px solid var(--el-border); color: var(--el-text-dim);
     font-size: 12px; cursor: pointer; white-space: nowrap; transition: all 0.15s;
 }
-.group-chip:hover { border-color: #e94560; color: #eee; }
-.group-chip.active { background: #e94560; color: #fff; border-color: #e94560; }
-.group-chip.new-group { border-style: dashed; border-color: #666; color: #666; }
-.group-chip.new-group:hover { border-color: #e94560; color: #e94560; }
+.group-chip:hover { border-color: var(--el-primary); color: var(--el-text); }
+.group-chip.active { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
+.group-chip.new-group { border-style: dashed; border-color: var(--el-text-dim); color: var(--el-text-dim); }
+.group-chip.new-group:hover { border-color: var(--el-primary); color: var(--el-primary); }
 
 /* ===== VIEWER ===== */
 .viewer {
@@ -145,7 +227,7 @@ body {
 .click-ripple {
     display: none; position: absolute; z-index: 179; pointer-events: none;
     width: 40px; height: 40px; transform: translate(-20px, -20px);
-    border: 2px solid #e94560; border-radius: 50%;
+    border: 2px solid var(--el-primary); border-radius: 50%;
     animation: ripple 0.4s ease-out forwards;
 }
 @keyframes ripple {
@@ -156,44 +238,44 @@ body {
 /* Viewer header */
 .viewer-header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 200;
-    background: rgba(22, 33, 62, 0.9);
+    background: rgba(17, 24, 39, 0.9);
     padding: calc(6px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 6px calc(10px + env(safe-area-inset-left, 0px));
     display: flex; align-items: center; gap: 6px;
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 .back-btn {
-    background: #e94560; color: white; border: none; border-radius: 6px;
+    background: var(--el-primary); color: white; border: none; border-radius: 6px;
     padding: 6px 10px; font-size: 13px; cursor: pointer; font-weight: 600; flex-shrink: 0;
 }
 .nav-mode-select {
-    background: #0f3460; color: #eee; border: 1px solid #333; border-radius: 6px;
+    background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border); border-radius: 6px;
     padding: 5px 8px; font-size: 12px; flex-shrink: 0; max-width: 140px;
     -webkit-appearance: none; appearance: none;
 }
 .viewer-title {
-    flex: 1; font-size: 12px; color: #aaa; min-width: 0;
+    flex: 1; font-size: 12px; color: var(--el-text-dim); min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.nav-counter { font-size: 11px; color: #e94560; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.nav-counter { font-size: 11px; color: var(--el-primary); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .fps-display { font-size: 10px; color: #555; flex-shrink: 0; }
 .observer-count { font-size: 10px; color: #555; flex-shrink: 0; }
 .hdr-btn {
-    background: rgba(22, 33, 62, 0.7); border: 1px solid #0f3460;
-    color: #aaa; font-size: 16px; width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(17, 24, 39, 0.7); border: 1px solid var(--el-border);
+    color: var(--el-text-dim); font-size: 16px; width: 32px; height: 32px; border-radius: 50%;
     cursor: pointer; display: flex; align-items: center; justify-content: center;
     transition: background 0.15s, color 0.15s; flex-shrink: 0;
 }
-.hdr-btn:hover, .hdr-btn.active { background: #e94560; color: #fff; border-color: #e94560; }
+.hdr-btn:hover, .hdr-btn.active { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
 
 /* Nav arrows */
 .nav-arrow {
     position: fixed; top: 50%; z-index: 250; transform: translateY(-50%);
-    background: rgba(22,33,62,0.6); border: 1px solid rgba(15,52,96,0.5);
-    color: #aaa; font-size: 26px; width: 40px; height: 72px;
+    background: rgba(17,24,39,0.6); border: 1px solid rgba(30,58,95,0.5);
+    color: var(--el-text-dim); font-size: 26px; width: 40px; height: 72px;
     cursor: pointer; display: flex; align-items: center; justify-content: center;
     transition: background 0.15s, color 0.15s;
 }
-.nav-arrow:hover { background: #e94560; color: #fff; }
+.nav-arrow:hover { background: var(--el-primary); color: #fff; }
 .nav-arrow.prev { left: env(safe-area-inset-left, 0px); border-radius: 0 8px 8px 0; }
 .nav-arrow.next { right: env(safe-area-inset-right, 0px); border-radius: 8px 0 0 8px; }
 
@@ -204,20 +286,20 @@ body {
     top: calc(44px + env(safe-area-inset-top, 0px));
     right: calc(12px + env(safe-area-inset-right, 0px));
     z-index: 300;
-    background: rgba(22,33,62,0.95); border: 1px solid #0f3460;
+    background: rgba(17,24,39,0.95); border: 1px solid var(--el-border);
     border-radius: 12px; padding: 14px 18px; min-width: 240px;
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 .settings-panel.open { display: block; }
-.settings-panel h3 { font-size: 11px; color: #e94560; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 1px; }
+.settings-panel h3 { font-size: 11px; color: var(--el-primary); margin: 0 0 10px; text-transform: uppercase; letter-spacing: 1px; }
 .setting-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .setting-row:last-child { margin-bottom: 0; }
-.setting-row label { font-size: 12px; color: #999; min-width: 65px; flex-shrink: 0; }
-.setting-row input[type=range] { flex: 1; accent-color: #e94560; }
-.setting-val { font-size: 12px; color: #e94560; min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
+.setting-row label { font-size: 12px; color: var(--el-text-dim); min-width: 65px; flex-shrink: 0; }
+.setting-row input[type=range] { flex: 1; accent-color: var(--el-primary); }
+.setting-val { font-size: 12px; color: var(--el-primary); min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
 .setting-row select {
-    flex: 1; background: #0f3460; color: #eee; border: 1px solid #333;
+    flex: 1; background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border);
     border-radius: 6px; padding: 5px 8px; font-size: 12px;
 }
 
@@ -227,26 +309,26 @@ body {
     bottom: calc(70px + env(safe-area-inset-bottom, 0px));
     right: calc(12px + env(safe-area-inset-right, 0px));
     z-index: 250;
-    background: rgba(22,33,62,0.9); border: 1px solid #0f3460; border-radius: 8px;
+    background: rgba(17,24,39,0.9); border: 1px solid var(--el-border); border-radius: 8px;
     padding: 6px; backdrop-filter: blur(8px);
 }
 .minimap.visible { display: block; }
 .minimap-wrap {
     position: relative; width: 180px; cursor: crosshair; overflow: hidden; border-radius: 4px;
 }
-.minimap-img { width: 100%; display: block; background: #0f3460; }
+.minimap-img { width: 100%; display: block; background: var(--el-border); }
 .minimap-viewport {
-    position: absolute; border: 2px solid #e94560; background: rgba(233,69,96,0.1);
+    position: absolute; border: 2px solid var(--el-primary); background: rgba(59,130,246,0.1);
     pointer-events: none; border-radius: 2px;
 }
 .minimap-nav {
     display: flex; gap: 4px; margin-top: 6px;
 }
 .minimap-nav button {
-    flex: 1; background: #0f3460; border: 1px solid #333; color: #aaa;
+    flex: 1; background: var(--el-border); border: 1px solid var(--el-border); color: var(--el-text-dim);
     border-radius: 4px; padding: 4px; font-size: 11px; cursor: pointer; font-weight: 600;
 }
-.minimap-nav button:hover { background: #e94560; color: #fff; border-color: #e94560; }
+.minimap-nav button:hover { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
 
 /* Overview grid */
 .overview {
@@ -256,27 +338,27 @@ body {
 .overview.open { display: block; }
 .overview-header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 360;
-    background: rgba(22,33,62,0.95); padding: 10px 16px;
+    background: rgba(17,24,39,0.95); padding: 10px 16px;
     display: flex; align-items: center; gap: 10px;
     backdrop-filter: blur(8px);
 }
 .overview-spaces { display: inline-flex; gap: 3px; flex-shrink: 0; }
-.overview-header h2 { flex: 1; font-size: 15px; color: #e94560; }
+.overview-header h2 { flex: 1; font-size: 15px; color: var(--el-primary); }
 .overview-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 10px;
 }
 .overview-card {
-    background: #16213e; border-radius: 8px; padding: 8px; cursor: pointer;
+    background: var(--el-surface); border-radius: 8px; padding: 8px; cursor: pointer;
     border: 1px solid transparent; transition: border-color 0.15s;
 }
-.overview-card:hover { border-color: #e94560; }
-.overview-card.current { border-color: #e94560; }
+.overview-card:hover { border-color: var(--el-primary); }
+.overview-card.current { border-color: var(--el-primary); }
 .overview-card img {
     width: 100%; aspect-ratio: 16/10; object-fit: cover; border-radius: 5px;
-    background: #0f3460;
+    background: var(--el-border);
 }
-.overview-card .ov-app { font-size: 11px; color: #e94560; margin-top: 6px; font-weight: 600; }
+.overview-card .ov-app { font-size: 11px; color: var(--el-primary); margin-top: 6px; font-weight: 600; }
 .overview-card .ov-name { font-size: 10px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Group modal */
@@ -286,44 +368,44 @@ body {
 }
 .group-modal-overlay.open { display: flex; }
 .group-modal-content {
-    background: #16213e; border: 1px solid #0f3460; border-radius: 12px;
+    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 12px;
     padding: 20px; width: 90%; max-width: 360px;
 }
-.group-modal-content h3 { color: #e94560; margin-bottom: 12px; font-size: 15px; }
+.group-modal-content h3 { color: var(--el-primary); margin-bottom: 12px; font-size: 15px; }
 .group-modal-content input {
-    width: 100%; background: #0f3460; color: #eee; border: 1px solid #333;
+    width: 100%; background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border);
     border-radius: 6px; padding: 10px; font-size: 14px; margin-bottom: 12px;
 }
-.group-modal-content input:focus { outline: none; border-color: #e94560; }
+.group-modal-content input:focus { outline: none; border-color: var(--el-primary); }
 .modal-btns { display: flex; gap: 8px; }
 .modal-btns button {
     flex: 1; padding: 10px; border: none; border-radius: 6px;
     font-size: 14px; cursor: pointer; font-weight: 600;
 }
-.modal-save { background: #e94560; color: #fff; }
-.modal-cancel { background: #0f3460; color: #aaa; }
-.modal-delete { background: #333; color: #e94560; flex: 0; padding: 10px 16px; }
+.modal-save { background: var(--el-primary); color: #fff; }
+.modal-cancel { background: var(--el-border); color: var(--el-text-dim); }
+.modal-delete { background: var(--el-border); color: var(--el-danger); flex: 0; padding: 10px 16px; }
 
 /* Quasar overrides for dark theme */
-.q-dark { background: #1a1a2e !important; }
+.q-dark { background: var(--el-bg) !important; }
 
 /* ===== TERMINAL VIEW ===== */
 .terminal-view {
     position: fixed; inset: 0; background: #000; display: flex; flex-direction: column;
 }
 .terminal-header {
-    background: #16213e; padding: 6px 10px; display: flex; align-items: center; gap: 6px;
-    border-bottom: 1px solid #0f3460; flex-shrink: 0;
+    background: var(--el-surface); padding: 6px 10px; display: flex; align-items: center; gap: 6px;
+    border-bottom: 1px solid var(--el-border); flex-shrink: 0;
 }
 .terminal-header .back-btn {
-    background: #e94560; color: white; border: none; border-radius: 6px;
+    background: var(--el-primary); color: white; border: none; border-radius: 6px;
     padding: 6px 10px; font-size: 13px; cursor: pointer; font-weight: 600;
 }
 .terminal-header .term-title {
-    flex: 1; font-size: 12px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; font-size: 12px; color: var(--el-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .terminal-header .close-btn {
-    background: #333; color: #e94560; border: none; border-radius: 6px;
+    background: var(--el-border); color: var(--el-danger); border: none; border-radius: 6px;
     padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600;
 }
 .terminal-body {
@@ -332,36 +414,29 @@ body {
 .terminal-body .xterm { height: 100%; }
 /* Mobile toolbar */
 .term-toolbar {
-    background: #16213e; padding: 4px 6px; display: flex; gap: 4px;
+    background: var(--el-surface); padding: 4px 6px; display: flex; gap: 4px;
     overflow-x: auto; scrollbar-width: none; flex-shrink: 0;
-    border-top: 1px solid #0f3460;
+    border-top: 1px solid var(--el-border);
 }
 .term-toolbar::-webkit-scrollbar { display: none; }
 .term-toolbar button {
-    flex-shrink: 0; background: #0f3460; color: #aaa; border: 1px solid #333;
+    flex-shrink: 0; background: var(--el-border); color: var(--el-text-dim); border: 1px solid var(--el-border);
     border-radius: 6px; padding: 8px 12px; font-size: 13px; cursor: pointer;
     font-family: monospace; min-width: 40px;
 }
-.term-toolbar button:active { background: #e94560; color: #fff; }
+.term-toolbar button:active { background: var(--el-primary); color: #fff; }
 /* Plugin action buttons */
 .term-actions {
-    background: rgba(22,33,62,0.95); padding: 6px 10px; display: flex; gap: 6px;
-    flex-shrink: 0; border-top: 1px solid #0f3460;
+    background: rgba(17,24,39,0.95); padding: 6px 10px; display: flex; gap: 6px;
+    flex-shrink: 0; border-top: 1px solid var(--el-border);
 }
 .term-actions button {
     padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px;
     cursor: pointer; font-weight: 600;
 }
-.term-actions .action-accept { background: #27ae60; color: #fff; }
-.term-actions .action-decline { background: #e94560; color: #fff; }
-.term-actions .action-choice { background: #0f3460; color: #eee; border: 1px solid #333; }
-/* Spawn button in picker */
-.spawn-term-btn {
-    background: #0f3460; border: 1px dashed #e94560; color: #e94560; border-radius: 10px;
-    padding: 12px; margin: 6px 8px; cursor: pointer; text-align: center;
-    font-size: 13px; font-weight: 600; transition: background 0.15s;
-}
-.spawn-term-btn:hover { background: #16213e; }
+.term-actions .action-accept { background: var(--el-success); color: #fff; }
+.term-actions .action-decline { background: var(--el-danger); color: #fff; }
+.term-actions .action-choice { background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border); }
 </style>
 </head>
 <body>
@@ -560,6 +635,7 @@ body {
       case 'connected':
         state.serverVersion = msg.version || '';
         requestTargets();
+        requestTerminalList();
         break;
       case 'windows_list':
         handleWindowsList(msg);
@@ -690,7 +766,7 @@ body {
   }
 
   function onThumbError(event) {
-    // Hide broken image — CSS background (#0f3460) shows through
+    // Hide broken image — CSS background shows through
     event.target.style.visibility = 'hidden';
   }
 
@@ -847,8 +923,10 @@ body {
   function refreshPicker() {
     // Only refresh when picker is visible — don't waste bandwidth/CPU during viewer/terminal
     if (state.view !== 'picker') return;
+    requestTargets();
     requestWindows();
     requestSpaces();
+    requestTerminalList();
     // Request thumbnails for current nav windows after a short delay for windows_list to arrive
     setTimeout(() => {
       if (state.view === 'picker') {
@@ -1016,7 +1094,7 @@ body {
                  @error="onThumbError($event)">
             <div>
               <div class="ov-app">
-                <span v-if="win.space_index" style="color:#e94560;font-size:10px;float:right">S{{ win.space_index }}</span>
+                <span v-if="win.space_index" style="color:var(--el-primary);font-size:10px;float:right">S{{ win.space_index }}</span>
                 {{ win.owner_name }}
               </div>
               <div class="ov-name">{{ win.window_name || '(untitled)' }}</div>
@@ -1713,6 +1791,7 @@ body {
   const HortPicker = {
     template: `
       <div v-show="state.view === 'picker'">
+        <!-- Header -->
         <div class="picker-header">
           <h1>hort</h1>
           <select :value="state.appFilter" @change="onAppFilterChange">
@@ -1723,8 +1802,7 @@ body {
 
         <!-- Target bar -->
         <div v-if="state.targets.length > 0" class="groups-bar">
-          <div class="group-chip" :class="{ active: state.activeTarget === 'all' }"
-               @click="onSetTarget('all')">
+          <div class="group-chip" :class="{ active: state.activeTarget === 'all' }" @click="onSetTarget('all')">
             <i class="ph ph-globe"></i> All
           </div>
           <div v-for="t in state.targets" :key="t.id"
@@ -1745,8 +1823,7 @@ body {
 
         <!-- Groups bar -->
         <div class="groups-bar">
-          <div class="group-chip" :class="{ active: state.navMode === 'all' }"
-               @click="setNavMode('all')">All</div>
+          <div class="group-chip" :class="{ active: state.navMode === 'all' }" @click="setNavMode('all')">All</div>
           <div v-for="(ids, name) in groupsList" :key="name"
                class="group-chip" :class="{ active: state.navMode === name }"
                @click="toggleGroup(name)"
@@ -1757,72 +1834,95 @@ body {
           </div>
         </div>
 
-        <!-- Window cards — grouped by target when "All" is active -->
-        <div class="picker-body">
-          <div v-if="state.navWindows.length === 0" class="picker-status">
-            {{ emptyMessage }}
-          </div>
-          <!-- Active terminals -->
-          <div v-if="state.terminals.length > 0" style="padding: 0 0 4px">
-            <div class="target-divider"><i class="ph ph-terminal-window"></i><span>Terminals</span><span class="target-count">{{ state.terminals.length }}</span></div>
-            <div v-for="t in state.terminals" :key="t.terminal_id"
-                 class="win-card" @click="openTerminal(t.terminal_id)">
-              <div style="width:80px;height:50px;background:#0f3460;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-                <i class="ph ph-terminal-window" style="font-size:24px;color:#e94560"></i>
-              </div>
-              <div class="win-info">
-                <div class="win-app">{{ t.title }}</div>
-                <div class="win-name">{{ t.target_id }}</div>
-              </div>
-            </div>
-          </div>
-
+        <!-- Unified grid — "+" and terminals live alongside windows in each target group -->
+        <div class="panel-grid">
+          <!-- Grouped by target ("all" mode with multiple targets) -->
           <template v-if="state.activeTarget === 'all' && targetGroups.length > 1">
             <template v-for="group in targetGroups" :key="group.targetId">
-              <div class="target-divider">
+              <div class="target-divider" style="grid-column: 1 / -1">
                 <i :class="group.icon"></i>
                 <span>{{ group.targetName }}</span>
-                <span class="target-count">{{ group.windows.length }}</span>
-                <button class="spawn-term-btn" style="margin:0;padding:4px 10px;font-size:11px;border-radius:6px"
-                        @click.stop="onSpawnTerminal(group.targetId)"><i class="ph ph-terminal-window"></i> Terminal</button>
+                <span class="target-count">{{ group.windows.length + terminalsForTarget(group.targetId).length }}</span>
               </div>
-              <div v-for="win in group.windows" :key="win.window_id"
-                   class="win-card" @click="$emit('select-window', navWindowIndex(win))">
-                <img class="win-thumb" :src="getThumbnailSrc(win.window_id)"
-                     loading="lazy" alt="" @error="onThumbError($event)">
-                <div class="win-info">
-                  <div class="win-app">{{ win.owner_name }}</div>
-                  <div class="win-name">{{ win.window_name || '(untitled)' }}</div>
+              <!-- "+" card for this target -->
+              <div class="grid-card new-panel" @click="onNewPanel(group.targetId)">
+                <i class="ph ph-plus-circle"></i>
+                <span>New Panel</span>
+              </div>
+              <!-- Terminals for this target -->
+              <div v-for="t in terminalsForTarget(group.targetId)" :key="'term-' + t.terminal_id"
+                   class="grid-card terminal-card" @click="openTerminal(t.terminal_id)">
+                <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
+                <div class="grid-card-info">
+                  <div class="card-app">Terminal</div>
+                  <div class="card-name">{{ t.title }}</div>
                 </div>
-                <button class="win-add-btn" :class="{ added: isInAnyGroup(win) }"
-                        @click.stop="toggleGroupMembership(win)">
-                  <i :class="isInAnyGroup(win) ? 'ph-fill ph-star' : 'ph ph-plus'"></i>
-                </button>
+              </div>
+              <!-- Windows for this target -->
+              <div v-for="win in group.windows" :key="win.window_id"
+                   class="grid-card" @click="$emit('select-window', navWindowIndex(win))">
+                <img class="grid-card-thumb" :src="getThumbnailSrc(win.window_id)"
+                     loading="lazy" alt="" @error="onThumbError($event)">
+                <div class="grid-card-info">
+                  <div class="card-app">{{ win.owner_name }}</div>
+                  <div class="card-name">{{ win.window_name || '(untitled)' }}</div>
+                </div>
               </div>
             </template>
           </template>
+
+          <!-- Single target / no grouping -->
           <template v-else>
-            <div v-for="(win, idx) in state.navWindows" :key="win.window_id"
-                 class="win-card" @click="$emit('select-window', idx)">
-              <img class="win-thumb" :src="getThumbnailSrc(win.window_id)"
-                   loading="lazy" alt="" @error="onThumbError($event)">
-              <div class="win-info">
-                <div class="win-app">{{ win.owner_name }}</div>
-                <div class="win-name">{{ win.window_name || '(untitled)' }}</div>
+            <!-- "+" card -->
+            <div class="grid-card new-panel" @click="onNewPanel(state.activeTarget !== 'all' ? state.activeTarget : (state.targets[0] ? state.targets[0].id : ''))">
+              <i class="ph ph-plus-circle"></i>
+              <span>New Panel</span>
+            </div>
+            <!-- Terminals for active target -->
+            <div v-for="t in terminalsForTarget(state.activeTarget)" :key="'term-' + t.terminal_id"
+                 class="grid-card terminal-card" @click="openTerminal(t.terminal_id)">
+              <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
+              <div class="grid-card-info">
+                <div class="card-app">Terminal</div>
+                <div class="card-name">{{ t.title }}</div>
               </div>
-              <button class="win-add-btn" :class="{ added: isInAnyGroup(win) }"
-                      @click.stop="toggleGroupMembership(win)">
-                <i :class="isInAnyGroup(win) ? 'ph-fill ph-star' : 'ph ph-plus'"></i>
-              </button>
+            </div>
+            <!-- Windows -->
+            <div v-for="(win, idx) in state.navWindows" :key="win.window_id"
+                 class="grid-card" @click="$emit('select-window', idx)">
+              <img class="grid-card-thumb" :src="getThumbnailSrc(win.window_id)"
+                   loading="lazy" alt="" @error="onThumbError($event)">
+              <div class="grid-card-info">
+                <div class="card-app">{{ win.owner_name }}</div>
+                <div class="card-name">{{ win.window_name || '(untitled)' }}</div>
+              </div>
             </div>
           </template>
 
-          <!-- Spawn terminal button (always visible) -->
-          <div v-if="state.activeTarget !== 'all'" class="spawn-term-btn" @click="onSpawnTerminal(state.activeTarget)">
-            <i class="ph ph-terminal-window"></i> Open Terminal on {{ currentTargetName }}
+          <!-- Empty state -->
+          <div v-if="state.navWindows.length === 0 && state.terminals.length === 0"
+               style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--el-text-dim)">
+            No windows found
           </div>
-          <div v-else-if="state.targets.length === 1" class="spawn-term-btn" @click="onSpawnTerminal(state.targets[0].id)">
-            <i class="ph ph-terminal-window"></i> Open Terminal
+        </div>
+
+        <!-- Panel selector dialog -->
+        <div v-if="newPanelOpen" class="panel-selector-overlay" @click.self="newPanelOpen = false">
+          <div class="panel-selector">
+            <div class="panel-selector-header">
+              <h3>Launch Panel</h3>
+              <input v-model="newPanelSearch" placeholder="Search panels..." class="panel-search" autofocus>
+              <button class="panel-selector-close" @click="newPanelOpen = false"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="panel-selector-grid">
+              <div v-for="p in availablePanels" :key="p.id"
+                   class="panel-option" :class="{ disabled: p.disabled }"
+                   @click="launchPanel(p)">
+                <i :class="p.icon" class="panel-option-icon"></i>
+                <div class="panel-option-label">{{ p.label }}</div>
+                <div v-if="p.desc" class="panel-option-desc">{{ p.desc }}</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1830,10 +1930,6 @@ body {
     emits: ['select-window'],
     setup() {
       const groupsList = computed(() => loadGroups());
-
-      const emptyMessage = computed(() => {
-        return state.navMode !== 'all' ? 'Group is empty. Select "All" and add windows with +' : 'No windows found';
-      });
 
       function isInAnyGroup(win) {
         const groups = loadGroups();
@@ -1937,8 +2033,61 @@ body {
         return state.navWindows.findIndex(w => w.window_id === win.window_id && w.target_id === win.target_id);
       }
 
-      function onSpawnTerminal(targetId) {
-        spawnTerminal(targetId);
+      function terminalsForTarget(targetId) {
+        if (targetId === 'all') return state.terminals;
+        return state.terminals.filter(t => t.target_id === targetId);
+      }
+
+      const newPanelOpen = ref(false);
+      const newPanelTargetId = ref('');
+      const newPanelSearch = ref('');
+
+      const availablePanels = computed(() => {
+        // Built-in panels
+        const panels = [
+          { id: 'terminal', label: 'Terminal', icon: 'ph ph-terminal-window', desc: 'Interactive shell session' },
+          { id: 'playwright', label: 'Playwright', icon: 'ph ph-browser', desc: 'Browser automation & testing (coming soon)', disabled: true },
+        ];
+        // Extension panels
+        if (typeof HortExtension !== 'undefined') {
+          for (const [id, ExtClass] of HortExtension.getRegistry()) {
+            if (ExtClass.panelTitle) {
+              panels.push({
+                id: 'ext-' + id,
+                label: ExtClass.panelTitle,
+                icon: ExtClass.panelIcon || 'ph ph-puzzle-piece',
+                desc: '',
+                disabled: false,
+              });
+            }
+          }
+        }
+        // Filter by search
+        const q = newPanelSearch.value.toLowerCase();
+        if (!q) return panels;
+        return panels.filter(p => p.label.toLowerCase().includes(q) || (p.desc || '').toLowerCase().includes(q));
+      });
+
+      function onNewPanel(targetId) {
+        newPanelTargetId.value = targetId;
+        newPanelSearch.value = '';
+        newPanelOpen.value = true;
+      }
+
+      function launchPanel(panel) {
+        if (panel.disabled) return;
+        newPanelOpen.value = false;
+        if (panel.id === 'terminal') {
+          spawnTerminal(newPanelTargetId.value);
+        } else if (panel.id.startsWith('ext-')) {
+          handleNewPanelChoice({ type: 'extension', id: panel.id.slice(4), target_id: newPanelTargetId.value });
+        }
+      }
+
+      function handleNewPanelChoice(choice) {
+        if (choice.type === 'terminal') {
+          spawnTerminal(choice.target_id);
+        }
       }
 
       function openTerminal(terminalId) {
@@ -1947,11 +2096,12 @@ body {
       }
 
       return {
-        state, groupsList, emptyMessage, targetGroups, currentTargetName,
+        state, groupsList, targetGroups, currentTargetName,
         isInAnyGroup, onAppFilterChange, setNavMode,
         toggleGroup, editGroup, openNewGroup,
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
-        onSetTarget, navWindowIndex, onSpawnTerminal, openTerminal,
+        onSetTarget, navWindowIndex, terminalsForTarget, onNewPanel, openTerminal,
+        newPanelOpen, newPanelSearch, availablePanels, launchPanel,
       };
     },
   };
@@ -2100,13 +2250,19 @@ body {
       }
 
       function confirmClose() {
-        if (confirm('Close this terminal?')) {
+        Quasar.Dialog.create({
+          title: 'Close Terminal',
+          message: 'Close this terminal session?',
+          dark: true,
+          ok: { label: 'Close', color: 'negative' },
+          cancel: { label: 'Cancel', flat: true },
+        }).onOk(() => {
           const tid = state.activeTerminalId;
           disconnectTerminal();
           if (tid) closeTerminal(tid);
           state.view = 'picker';
           state.activeTerminalId = null;
-        }
+        });
       }
 
       function setupXterm() {
@@ -2118,10 +2274,10 @@ body {
           fontSize: 14,
           fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
           theme: {
-            background: '#1a1a2e',
-            foreground: '#eee',
-            cursor: '#e94560',
-            selectionBackground: 'rgba(233,69,96,0.3)',
+            background: '#0a0e1a',
+            foreground: '#f0f4ff',
+            cursor: '#3b82f6',
+            selectionBackground: 'rgba(59,130,246,0.3)',
           },
           scrollback: 10000,
           convertEol: true,
@@ -2269,11 +2425,11 @@ body {
     config: {
       dark: true,
       brand: {
-        primary: '#e94560',
-        secondary: '#0f3460',
-        accent: '#0f3460',
-        dark: '#1a1a2e',
-        'dark-page': '#1a1a2e',
+        primary: '#3b82f6',
+        secondary: '#1e3a5f',
+        accent: '#60a5fa',
+        dark: '#0a0e1a',
+        'dark-page': '#0a0e1a',
       },
     },
   });
