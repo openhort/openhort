@@ -63,14 +63,14 @@ body {
 }
 
 /* Unified grid */
-.panel-grid {
+.llming-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 10px;
   padding: 10px;
 }
 @media (max-width: 480px) {
-  .panel-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .llming-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 }
 .grid-card {
   background: var(--el-surface);
@@ -93,15 +93,15 @@ body {
 }
 .grid-card-info .card-app { font-size: 12px; color: var(--el-primary); font-weight: 600; }
 .grid-card-info .card-name { font-size: 11px; color: var(--el-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.grid-card.new-panel {
+.grid-card.new-llming {
   border: 2px dashed var(--el-border);
   display: flex; align-items: center; justify-content: center;
   min-height: 140px;
   flex-direction: column; gap: 8px;
   color: var(--el-text-dim); font-size: 14px;
 }
-.grid-card.new-panel:hover { border-color: var(--el-primary); color: var(--el-primary); }
-.grid-card.new-panel i { font-size: 36px; }
+.grid-card.new-llming:hover { border-color: var(--el-primary); color: var(--el-primary); }
+.grid-card.new-llming i { font-size: 36px; }
 .grid-card.terminal-card .card-thumb-icon {
   width: 100%; aspect-ratio: 16 / 10;
   background: var(--el-border);
@@ -109,50 +109,50 @@ body {
 }
 .grid-card.terminal-card .card-thumb-icon i { font-size: 40px; color: var(--el-primary); }
 
-/* Panel selector overlay */
-.panel-selector-overlay {
+/* Llming launcher overlay */
+.llming-launcher-overlay {
     position: fixed; inset: 0; z-index: 500;
     background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center;
     padding: 20px;
 }
-.panel-selector {
+.llming-launcher {
     background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 16px;
     width: 100%; max-width: 700px; max-height: 80vh; display: flex; flex-direction: column;
     overflow: hidden;
 }
-.panel-selector-header {
+.llming-launcher-header {
     display: flex; align-items: center; gap: 10px; padding: 16px 20px;
     border-bottom: 1px solid var(--el-border);
 }
-.panel-selector-header h3 { color: var(--el-primary); font-size: 16px; margin: 0; flex-shrink: 0; }
-.panel-search {
+.llming-launcher-header h3 { color: var(--el-primary); font-size: 16px; margin: 0; flex-shrink: 0; }
+.llming-launcher-search {
     flex: 1; background: var(--el-bg); color: var(--el-text); border: 1px solid var(--el-border);
     border-radius: 8px; padding: 8px 12px; font-size: 14px; outline: none;
 }
-.panel-search:focus { border-color: var(--el-primary); }
-.panel-selector-close {
+.llming-launcher-search:focus { border-color: var(--el-primary); }
+.llming-launcher-close {
     background: none; border: none; color: var(--el-text-dim); font-size: 20px; cursor: pointer;
     padding: 4px;
 }
-.panel-selector-close:hover { color: var(--el-text); }
-.panel-selector-grid {
+.llming-launcher-close:hover { color: var(--el-text); }
+.llming-launcher-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 10px; padding: 16px 20px; overflow-y: auto;
 }
 @media (min-width: 600px) {
-    .panel-selector-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+    .llming-launcher-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
-.panel-option {
+.llming-option {
     background: var(--el-bg); border: 1px solid var(--el-border); border-radius: 10px;
     padding: 16px 10px; text-align: center; cursor: pointer;
     transition: border-color 0.15s, transform 0.1s;
 }
-.panel-option:hover { border-color: var(--el-primary); transform: translateY(-2px); }
-.panel-option.disabled { opacity: 0.4; cursor: not-allowed; }
-.panel-option.disabled:hover { border-color: var(--el-border); transform: none; }
-.panel-option-icon { font-size: 32px; color: var(--el-primary); display: block; margin-bottom: 8px; }
-.panel-option-label { font-size: 13px; color: var(--el-text); font-weight: 600; }
-.panel-option-desc { font-size: 10px; color: var(--el-text-dim); margin-top: 4px; }
+.llming-option:hover { border-color: var(--el-primary); transform: translateY(-2px); }
+.llming-option.disabled { opacity: 0.4; cursor: not-allowed; }
+.llming-option.disabled:hover { border-color: var(--el-border); transform: none; }
+.llming-option-icon { font-size: 32px; color: var(--el-primary); display: block; margin-bottom: 8px; }
+.llming-option-label { font-size: 13px; color: var(--el-text); font-weight: 600; }
+.llming-option-desc { font-size: 10px; color: var(--el-text-dim); margin-top: 4px; }
 
 /* Spaces bar */
 .spaces-bar {
@@ -194,13 +194,90 @@ body {
 .group-chip.new-group { border-style: dashed; border-color: var(--el-text-dim); color: var(--el-text-dim); }
 .group-chip.new-group:hover { border-color: var(--el-primary); color: var(--el-primary); }
 
-/* ===== VIEWER ===== */
-.viewer {
-    display: none; position: fixed; top: 0; left: 0;
-    width: 100vw; height: 100vh; background: #000;
-    touch-action: none; overflow: hidden;
+/* ===== SHARED LLMING LAYOUT ===== */
+.llming-view {
+    position: fixed; inset: 0; background: var(--el-bg);
+    display: none; flex-direction: column;
 }
-.viewer.visible { display: block; }
+.llming-view.visible { display: flex; }
+.llming-content { flex: 1; overflow: hidden; position: relative; }
+
+/* Shared toolbar */
+.llming-toolbar {
+    background: var(--el-surface); padding: 6px 10px; display: flex; align-items: center; gap: 6px;
+    border-bottom: 1px solid var(--el-border); flex-shrink: 0;
+    position: sticky; top: 0; z-index: 200;
+}
+.llming-back, .llming-close {
+    background: none; border: 1px solid var(--el-border); color: var(--el-text-dim); border-radius: 6px;
+    padding: 6px 10px; font-size: 13px; cursor: pointer; flex-shrink: 0;
+}
+.llming-back:hover, .llming-close:hover { border-color: var(--el-primary); color: var(--el-text); }
+.llming-close { color: var(--el-danger); }
+.llming-close:hover { border-color: var(--el-danger); }
+.llming-title { flex: 1; font-size: 12px; color: var(--el-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.llming-action {
+    background: none; border: 1px solid var(--el-border); color: var(--el-text-dim); border-radius: 50%;
+    width: 32px; height: 32px; font-size: 16px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.llming-action:hover, .llming-action.active { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
+
+/* Shared bottom bar */
+.llming-bottom-bar {
+    background: var(--el-surface); padding: 4px 6px; display: flex; gap: 4px;
+    overflow-x: auto; scrollbar-width: none; flex-shrink: 0;
+    border-top: 1px solid var(--el-border);
+}
+.llming-bottom-bar::-webkit-scrollbar { display: none; }
+.llming-bottom-bar button {
+    flex-shrink: 0; background: var(--el-border); color: var(--el-text-dim); border: 1px solid var(--el-border);
+    border-radius: 6px; padding: 8px 12px; font-size: 13px; cursor: pointer;
+    font-family: monospace; min-width: 40px;
+}
+.llming-bottom-bar button:active { background: var(--el-primary); color: #fff; }
+
+/* Shared floating soft keys */
+.llming-floating-keys {
+    position: fixed; bottom: 60px; left: 10px; z-index: 300;
+    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 12px;
+    padding: 8px; display: flex; flex-wrap: wrap; gap: 4px;
+    max-width: 280px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    touch-action: none;
+}
+.llming-floating-keys.hidden { display: none; }
+.llming-floating-keys button {
+    background: var(--el-border); color: var(--el-text); border: none;
+    border-radius: 6px; padding: 10px 14px; font-size: 14px; cursor: pointer;
+    font-family: monospace; min-width: 44px; min-height: 44px;
+    display: flex; align-items: center; justify-content: center;
+}
+.llming-floating-keys button:active { background: var(--el-primary); }
+.llming-floating-keys .drag-handle {
+    width: 100%; text-align: center; color: var(--el-text-dim); font-size: 10px;
+    cursor: grab; padding: 2px; user-select: none;
+}
+
+/* ===== VIEWER (llming-view variant) ===== */
+.llming-view.viewer-llming { background: #000; }
+.llming-view.viewer-llming .llming-toolbar {
+    background: rgba(17, 24, 39, 0.9);
+    padding: calc(6px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 6px calc(10px + env(safe-area-inset-left, 0px));
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    position: fixed; top: 0; left: 0; right: 0;
+}
+.llming-view.viewer-llming .llming-back {
+    background: var(--el-primary); color: white; border: none; font-weight: 600;
+}
+.nav-mode-select {
+    background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border); border-radius: 6px;
+    padding: 5px 8px; font-size: 12px; flex-shrink: 0; max-width: 140px;
+    -webkit-appearance: none; appearance: none;
+}
+.nav-counter { font-size: 11px; color: var(--el-primary); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.fps-display { font-size: 10px; color: #555; flex-shrink: 0; }
+.observer-count { font-size: 10px; color: #555; flex-shrink: 0; }
+
 .stream-container {
     position: absolute;
     top: calc(44px + env(safe-area-inset-top, 0px));
@@ -214,8 +291,8 @@ body {
 }
 
 /* Active mode */
-.viewer.active-mode .stream-container { cursor: none; }
-.viewer.active-mode .nav-arrow { display: none; }
+.llming-view.active-mode .stream-container { cursor: none; }
+.llming-view.active-mode .nav-arrow { display: none; }
 
 /* Remote cursor indicator */
 .remote-cursor {
@@ -223,7 +300,7 @@ body {
     width: 24px; height: 24px; transform: translate(-2px, -2px);
 }
 .remote-cursor svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8)); }
-.viewer.active-mode .remote-cursor { display: block; }
+.llming-view.active-mode .remote-cursor { display: block; }
 .click-ripple {
     display: none; position: absolute; z-index: 179; pointer-events: none;
     width: 40px; height: 40px; transform: translate(-20px, -20px);
@@ -234,38 +311,6 @@ body {
     0% { transform: translate(-20px,-20px) scale(0.3); opacity: 1; }
     100% { transform: translate(-20px,-20px) scale(1.5); opacity: 0; }
 }
-
-/* Viewer header */
-.viewer-header {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 200;
-    background: rgba(17, 24, 39, 0.9);
-    padding: calc(6px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 6px calc(10px + env(safe-area-inset-left, 0px));
-    display: flex; align-items: center; gap: 6px;
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-}
-.back-btn {
-    background: var(--el-primary); color: white; border: none; border-radius: 6px;
-    padding: 6px 10px; font-size: 13px; cursor: pointer; font-weight: 600; flex-shrink: 0;
-}
-.nav-mode-select {
-    background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border); border-radius: 6px;
-    padding: 5px 8px; font-size: 12px; flex-shrink: 0; max-width: 140px;
-    -webkit-appearance: none; appearance: none;
-}
-.viewer-title {
-    flex: 1; font-size: 12px; color: var(--el-text-dim); min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.nav-counter { font-size: 11px; color: var(--el-primary); flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.fps-display { font-size: 10px; color: #555; flex-shrink: 0; }
-.observer-count { font-size: 10px; color: #555; flex-shrink: 0; }
-.hdr-btn {
-    background: rgba(17, 24, 39, 0.7); border: 1px solid var(--el-border);
-    color: var(--el-text-dim); font-size: 16px; width: 32px; height: 32px; border-radius: 50%;
-    cursor: pointer; display: flex; align-items: center; justify-content: center;
-    transition: background 0.15s, color 0.15s; flex-shrink: 0;
-}
-.hdr-btn:hover, .hdr-btn.active { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
 
 /* Nav arrows */
 .nav-arrow {
@@ -278,7 +323,6 @@ body {
 .nav-arrow:hover { background: var(--el-primary); color: #fff; }
 .nav-arrow.prev { left: env(safe-area-inset-left, 0px); border-radius: 0 8px 8px 0; }
 .nav-arrow.next { right: env(safe-area-inset-right, 0px); border-radius: 8px 0 0 8px; }
-
 
 /* Settings panel */
 .settings-panel {
@@ -389,42 +433,9 @@ body {
 /* Quasar overrides for dark theme */
 .q-dark { background: var(--el-bg) !important; }
 
-/* ===== TERMINAL VIEW ===== */
-.terminal-view {
-    position: fixed; inset: 0; background: #000; display: flex; flex-direction: column;
-}
-.terminal-header {
-    background: var(--el-surface); padding: 6px 10px; display: flex; align-items: center; gap: 6px;
-    border-bottom: 1px solid var(--el-border); flex-shrink: 0;
-}
-.terminal-header .back-btn {
-    background: var(--el-primary); color: white; border: none; border-radius: 6px;
-    padding: 6px 10px; font-size: 13px; cursor: pointer; font-weight: 600;
-}
-.terminal-header .term-title {
-    flex: 1; font-size: 12px; color: var(--el-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.terminal-header .close-btn {
-    background: var(--el-border); color: var(--el-danger); border: none; border-radius: 6px;
-    padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600;
-}
-.terminal-body {
-    flex: 1; overflow: hidden;
-}
-.terminal-body .xterm { height: 100%; }
-/* Mobile toolbar */
-.term-toolbar {
-    background: var(--el-surface); padding: 4px 6px; display: flex; gap: 4px;
-    overflow-x: auto; scrollbar-width: none; flex-shrink: 0;
-    border-top: 1px solid var(--el-border);
-}
-.term-toolbar::-webkit-scrollbar { display: none; }
-.term-toolbar button {
-    flex-shrink: 0; background: var(--el-border); color: var(--el-text-dim); border: 1px solid var(--el-border);
-    border-radius: 6px; padding: 8px 12px; font-size: 13px; cursor: pointer;
-    font-family: monospace; min-width: 40px;
-}
-.term-toolbar button:active { background: var(--el-primary); color: #fff; }
+/* ===== TERMINAL (llming-view variant) ===== */
+.llming-view.terminal-llming { background: #000; }
+.llming-view.terminal-llming .llming-content .xterm { height: 100%; }
 /* Plugin action buttons */
 .term-actions {
     background: rgba(17,24,39,0.95); padding: 6px 10px; display: flex; gap: 6px;
@@ -466,7 +477,7 @@ body {
     connected: false,
     serverVersion: '',
 
-    // View: 'picker' | 'viewer'
+    // View: 'picker' | 'viewer' | 'terminal'
     view: 'picker',
 
     // Targets
@@ -942,6 +953,37 @@ body {
     return d.innerHTML;
   }
 
+  // ===== DRAG HELPER for floating keys =====
+  function setupDrag(el) {
+    let startX, startY, origX, origY;
+    const handle = el.querySelector('.drag-handle');
+    if (!handle) return;
+    const onStart = (e) => {
+      const touch = e.touches ? e.touches[0] : e;
+      startX = touch.clientX; startY = touch.clientY;
+      const rect = el.getBoundingClientRect();
+      origX = rect.left; origY = rect.top;
+      const onMove = (e2) => {
+        const t = e2.touches ? e2.touches[0] : e2;
+        el.style.left = (origX + t.clientX - startX) + 'px';
+        el.style.top = (origY + t.clientY - startY) + 'px';
+        el.style.bottom = 'auto';
+      };
+      const onEnd = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onEnd);
+        document.removeEventListener('touchmove', onMove);
+        document.removeEventListener('touchend', onEnd);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onEnd);
+      document.addEventListener('touchmove', onMove, { passive: false });
+      document.addEventListener('touchend', onEnd);
+    };
+    handle.addEventListener('mousedown', onStart);
+    handle.addEventListener('touchstart', onStart, { passive: false });
+  }
+
 
   // =============================================
   // COMPONENT: hort-group-modal
@@ -1046,7 +1088,7 @@ body {
         </div>
         <div class="setting-row">
           <label>Fullscreen</label>
-          <button class="hdr-btn" style="width:auto;border-radius:6px;padding:4px 12px;font-size:12px" @click="toggleFullscreen">
+          <button class="llming-action" style="width:auto;border-radius:6px;padding:4px 12px;font-size:12px" @click="toggleFullscreen">
             <i class="ph ph-arrows-out"></i> Toggle
           </button>
         </div>
@@ -1078,7 +1120,7 @@ body {
     template: `
       <div class="overview" :class="{ open: state.overviewOpen }">
         <div class="overview-header">
-          <button class="back-btn" @click="close"><i class="ph ph-x"></i></button>
+          <button class="llming-back" @click="close"><i class="ph ph-x"></i></button>
           <span class="overview-spaces" v-if="state.spacesData.count > 1">
             <button v-for="sp in state.spacesData.spaces" :key="sp.index"
                     class="space-btn" :class="{ active: sp.is_current }"
@@ -1153,11 +1195,11 @@ body {
   // =============================================
   const HortViewer = {
     template: `
-      <div class="viewer" :class="{ visible: state.view === 'viewer', 'active-mode': state.activeMode }"
+      <div class="llming-view viewer-llming" :class="{ visible: state.view === 'viewer', 'active-mode': state.activeMode }"
            ref="viewerEl">
-        <!-- Header -->
-        <div class="viewer-header">
-          <button class="back-btn" @click="goBack"><i class="ph ph-arrow-left"></i></button>
+        <!-- Toolbar -->
+        <div class="llming-toolbar">
+          <button class="llming-back" @click="goBack"><i class="ph ph-arrow-left"></i></button>
           <span class="viewer-spaces" :class="{ visible: state.spacesData.count > 1 }">
             <button class="space-nav-btn" @click="spacePrev" title="Previous Space"><i class="ph-bold ph-caret-left"></i></button>
             <span class="space-label">{{ state.spacesData.current }}/{{ state.spacesData.count }}</span>
@@ -1168,17 +1210,17 @@ body {
             <option v-if="curWindow" value="app">App: {{ curWindow.owner_name }}</option>
             <option v-for="(ids, name) in groups" :key="name" :value="name">Group: {{ name }} ({{ ids.length }})</option>
           </select>
-          <span class="viewer-title">{{ viewerTitle }}</span>
+          <span class="llming-title">{{ viewerTitle }}</span>
           <span class="nav-counter">{{ navCounterText }}</span>
           <span class="observer-count" v-if="state.observerCount">{{ observerText }}</span>
           <span class="fps-display">{{ state.fpsText }}</span>
-          <button class="hdr-btn" :class="{ active: state.activeMode }" @click="toggleActiveMode" title="Toggle active mode (I)">
+          <button class="llming-action" :class="{ active: state.activeMode }" @click="toggleActiveMode" title="Toggle active mode (I)">
             <i :class="state.activeMode ? 'ph-fill ph-cursor-click' : 'ph ph-eye'"></i>
           </button>
-          <button class="hdr-btn" @click="applyAutoFit" title="Auto-fit (F)"><i class="ph-bold ph-corners-out"></i></button>
-          <button class="hdr-btn" @click="applyFitVertical" title="Fit vertical (V)"><i class="ph-bold ph-arrows-out-line-vertical"></i></button>
-          <button class="hdr-btn" @click="state.overviewOpen = true" title="Overview (G)"><i class="ph ph-squares-four"></i></button>
-          <button class="hdr-btn" :class="{ active: state.settingsOpen }" @click.stop="toggleSettings"><i class="ph ph-gear-six"></i></button>
+          <button class="llming-action" @click="applyAutoFit" title="Auto-fit (F)"><i class="ph-bold ph-corners-out"></i></button>
+          <button class="llming-action" @click="applyFitVertical" title="Fit vertical (V)"><i class="ph-bold ph-arrows-out-line-vertical"></i></button>
+          <button class="llming-action" @click="state.overviewOpen = true" title="Overview (G)"><i class="ph ph-squares-four"></i></button>
+          <button class="llming-action" :class="{ active: state.settingsOpen }" @click.stop="toggleSettings" title="Settings"><i class="ph ph-gear-six"></i></button>
         </div>
 
         <!-- Nav arrows -->
@@ -1736,7 +1778,7 @@ body {
         if (!state.settingsOpen) return;
         // Let the gear button toggle handle itself
         const settingsEl = viewerEl.value?.querySelector('.settings-panel');
-        const gearEl = viewerEl.value?.querySelector('.hdr-btn:last-child');
+        const gearEl = viewerEl.value?.querySelector('.llming-action:last-child');
         if (settingsEl && !settingsEl.contains(e.target) && gearEl && !gearEl.contains(e.target)) {
           state.settingsOpen = false;
         }
@@ -1834,8 +1876,8 @@ body {
           </div>
         </div>
 
-        <!-- Unified grid — "+" and terminals live alongside windows in each target group -->
-        <div class="panel-grid">
+        <!-- Unified grid -->
+        <div class="llming-grid">
           <!-- Grouped by target ("all" mode with multiple targets) -->
           <template v-if="state.activeTarget === 'all' && targetGroups.length > 1">
             <template v-for="group in targetGroups" :key="group.targetId">
@@ -1845,9 +1887,9 @@ body {
                 <span class="target-count">{{ group.windows.length + terminalsForTarget(group.targetId).length }}</span>
               </div>
               <!-- "+" card for this target -->
-              <div class="grid-card new-panel" @click="onNewPanel(group.targetId)">
+              <div class="grid-card new-llming" @click="onNewLlming(group.targetId)">
                 <i class="ph ph-plus-circle"></i>
-                <span>New Panel</span>
+                <span>New Llming</span>
               </div>
               <!-- Terminals for this target -->
               <div v-for="t in terminalsForTarget(group.targetId)" :key="'term-' + t.terminal_id"
@@ -1874,9 +1916,9 @@ body {
           <!-- Single target / no grouping -->
           <template v-else>
             <!-- "+" card -->
-            <div class="grid-card new-panel" @click="onNewPanel(state.activeTarget !== 'all' ? state.activeTarget : (state.targets[0] ? state.targets[0].id : ''))">
+            <div class="grid-card new-llming" @click="onNewLlming(state.activeTarget !== 'all' ? state.activeTarget : (state.targets[0] ? state.targets[0].id : ''))">
               <i class="ph ph-plus-circle"></i>
-              <span>New Panel</span>
+              <span>New Llming</span>
             </div>
             <!-- Terminals for active target -->
             <div v-for="t in terminalsForTarget(state.activeTarget)" :key="'term-' + t.terminal_id"
@@ -1906,21 +1948,21 @@ body {
           </div>
         </div>
 
-        <!-- Panel selector dialog -->
-        <div v-if="newPanelOpen" class="panel-selector-overlay" @click.self="newPanelOpen = false">
-          <div class="panel-selector">
-            <div class="panel-selector-header">
-              <h3>Launch Panel</h3>
-              <input v-model="newPanelSearch" placeholder="Search panels..." class="panel-search" autofocus>
-              <button class="panel-selector-close" @click="newPanelOpen = false"><i class="ph ph-x"></i></button>
+        <!-- Llming launcher dialog -->
+        <div v-if="launcherOpen" class="llming-launcher-overlay" @click.self="launcherOpen = false">
+          <div class="llming-launcher">
+            <div class="llming-launcher-header">
+              <h3>Launch Llming</h3>
+              <input v-model="launcherSearch" placeholder="Search llmings..." class="llming-launcher-search" autofocus>
+              <button class="llming-launcher-close" @click="launcherOpen = false"><i class="ph ph-x"></i></button>
             </div>
-            <div class="panel-selector-grid">
-              <div v-for="p in availablePanels" :key="p.id"
-                   class="panel-option" :class="{ disabled: p.disabled }"
-                   @click="launchPanel(p)">
-                <i :class="p.icon" class="panel-option-icon"></i>
-                <div class="panel-option-label">{{ p.label }}</div>
-                <div v-if="p.desc" class="panel-option-desc">{{ p.desc }}</div>
+            <div class="llming-launcher-grid">
+              <div v-for="p in availableLlmings" :key="p.id"
+                   class="llming-option" :class="{ disabled: p.disabled }"
+                   @click="launchLlming(p)">
+                <i :class="p.icon" class="llming-option-icon"></i>
+                <div class="llming-option-label">{{ p.label }}</div>
+                <div v-if="p.desc" class="llming-option-desc">{{ p.desc }}</div>
               </div>
             </div>
           </div>
@@ -2038,53 +2080,53 @@ body {
         return state.terminals.filter(t => t.target_id === targetId);
       }
 
-      const newPanelOpen = ref(false);
-      const newPanelTargetId = ref('');
-      const newPanelSearch = ref('');
+      const launcherOpen = ref(false);
+      const launcherTargetId = ref('');
+      const launcherSearch = ref('');
 
-      const availablePanels = computed(() => {
-        // Built-in panels
-        const panels = [
+      const availableLlmings = computed(() => {
+        // Built-in llmings
+        const llmings = [
           { id: 'terminal', label: 'Terminal', icon: 'ph ph-terminal-window', desc: 'Interactive shell session' },
           { id: 'playwright', label: 'Playwright', icon: 'ph ph-browser', desc: 'Browser automation & testing (coming soon)', disabled: true },
         ];
-        // Extension panels
+        // Extension llmings
         if (typeof HortExtension !== 'undefined') {
           for (const [id, ExtClass] of HortExtension.getRegistry()) {
-            if (ExtClass.panelTitle) {
-              panels.push({
+            if (ExtClass.llmingTitle) {
+              llmings.push({
                 id: 'ext-' + id,
-                label: ExtClass.panelTitle,
-                icon: ExtClass.panelIcon || 'ph ph-puzzle-piece',
-                desc: '',
+                label: ExtClass.llmingTitle,
+                icon: ExtClass.llmingIcon || 'ph ph-puzzle-piece',
+                desc: ExtClass.llmingDescription || '',
                 disabled: false,
               });
             }
           }
         }
         // Filter by search
-        const q = newPanelSearch.value.toLowerCase();
-        if (!q) return panels;
-        return panels.filter(p => p.label.toLowerCase().includes(q) || (p.desc || '').toLowerCase().includes(q));
+        const q = launcherSearch.value.toLowerCase();
+        if (!q) return llmings;
+        return llmings.filter(p => p.label.toLowerCase().includes(q) || (p.desc || '').toLowerCase().includes(q));
       });
 
-      function onNewPanel(targetId) {
-        newPanelTargetId.value = targetId;
-        newPanelSearch.value = '';
-        newPanelOpen.value = true;
+      function onNewLlming(targetId) {
+        launcherTargetId.value = targetId;
+        launcherSearch.value = '';
+        launcherOpen.value = true;
       }
 
-      function launchPanel(panel) {
-        if (panel.disabled) return;
-        newPanelOpen.value = false;
-        if (panel.id === 'terminal') {
-          spawnTerminal(newPanelTargetId.value);
-        } else if (panel.id.startsWith('ext-')) {
-          handleNewPanelChoice({ type: 'extension', id: panel.id.slice(4), target_id: newPanelTargetId.value });
+      function launchLlming(llming) {
+        if (llming.disabled) return;
+        launcherOpen.value = false;
+        if (llming.id === 'terminal') {
+          spawnTerminal(launcherTargetId.value);
+        } else if (llming.id.startsWith('ext-')) {
+          handleLlmingChoice({ type: 'extension', id: llming.id.slice(4), target_id: launcherTargetId.value });
         }
       }
 
-      function handleNewPanelChoice(choice) {
+      function handleLlmingChoice(choice) {
         if (choice.type === 'terminal') {
           spawnTerminal(choice.target_id);
         }
@@ -2100,8 +2142,8 @@ body {
         isInAnyGroup, onAppFilterChange, setNavMode,
         toggleGroup, editGroup, openNewGroup,
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
-        onSetTarget, navWindowIndex, terminalsForTarget, onNewPanel, openTerminal,
-        newPanelOpen, newPanelSearch, availablePanels, launchPanel,
+        onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal,
+        launcherOpen, launcherSearch, availableLlmings, launchLlming,
       };
     },
   };
@@ -2140,33 +2182,41 @@ body {
 
   const HortTerminal = {
     template: `
-      <div v-if="state.view === 'terminal' && activeTerminal" class="terminal-view">
-        <div class="terminal-header">
-          <button class="back-btn" @click="goBack"><i class="ph ph-arrow-left"></i></button>
-          <span class="term-title">{{ activeTerminal.title }} ({{ activeTerminal.target_id }})</span>
-          <button class="close-btn" @click="confirmClose">Close</button>
+      <div v-if="state.view === 'terminal' && activeTerminal" class="llming-view terminal-llming" style="display:flex">
+        <div class="llming-toolbar">
+          <button class="llming-back" @click="goBack"><i class="ph ph-arrow-left"></i></button>
+          <span class="llming-title">{{ activeTerminal.title }} ({{ activeTerminal.target_id }})</span>
+          <button class="llming-close" @click="confirmClose"><i class="ph ph-x"></i> Close</button>
         </div>
-        <div class="terminal-body" ref="termContainer"></div>
+        <div class="llming-content" ref="termContainer"></div>
         <div v-if="detectedActions.length" class="term-actions">
           <button v-for="btn in detectedActions" :key="btn.label"
                   :class="btn.cls" @click="sendAction(btn.input)">{{ btn.label }}</button>
         </div>
-        <div class="term-toolbar">
+        <div class="llming-bottom-bar">
+          <button @click="softKeysVisible = !softKeysVisible">
+            <i class="ph ph-keyboard"></i> {{ softKeysVisible ? 'Hide' : 'Keys' }}
+          </button>
+        </div>
+        <div class="llming-floating-keys" :class="{ hidden: !softKeysVisible }" ref="floatingKeysEl">
+          <div class="drag-handle">&#8943; drag &#8943;</div>
           <button @click="sendKey(KEYS.ESC)">Esc</button>
           <button @click="sendKey(KEYS.TAB)">Tab</button>
-          <button @click="sendKey(KEYS.CTRL_C)">Ctrl+C</button>
-          <button @click="sendKey(KEYS.CTRL_D)">Ctrl+D</button>
-          <button @click="sendKey(KEYS.CTRL_Z)">Ctrl+Z</button>
-          <button @click="sendKey(KEYS.UP)">↑</button>
-          <button @click="sendKey(KEYS.DOWN)">↓</button>
-          <button @click="sendKey(KEYS.LEFT)">←</button>
-          <button @click="sendKey(KEYS.RIGHT)">→</button>
-          <button @click="sendKey(KEYS.BACKSPACE)">⌫</button>
+          <button @click="sendKey(KEYS.CTRL_C)">^C</button>
+          <button @click="sendKey(KEYS.CTRL_D)">^D</button>
+          <button @click="sendKey(KEYS.CTRL_Z)">^Z</button>
+          <button @click="sendKey(KEYS.UP)">&uarr;</button>
+          <button @click="sendKey(KEYS.DOWN)">&darr;</button>
+          <button @click="sendKey(KEYS.LEFT)">&larr;</button>
+          <button @click="sendKey(KEYS.RIGHT)">&rarr;</button>
+          <button @click="sendKey(KEYS.BACKSPACE)">&lArr;</button>
+          <button @click="sendKey(KEYS.ENTER)">&crarr;</button>
         </div>
       </div>
     `,
     setup() {
       const termContainer = ref(null);
+      const floatingKeysEl = ref(null);
       let xterm = null;
       let fitAddon = null;
       let termWs = null;
@@ -2178,6 +2228,7 @@ body {
         BACKSPACE: '\x7f', ENTER: '\r',
       };
 
+      const softKeysVisible = ref(true);
       const detectedActions = ref([]);
 
       const activeTerminal = computed(() => {
@@ -2328,6 +2379,10 @@ body {
                 rows: xterm.rows,
               });
             }
+            // Setup drag for floating keys
+            if (floatingKeysEl.value) {
+              setupDrag(floatingKeysEl.value);
+            }
           });
         }
       });
@@ -2341,8 +2396,8 @@ body {
       });
 
       return {
-        state, termContainer, activeTerminal, detectedActions, KEYS,
-        goBack, confirmClose, sendKey, sendAction,
+        state, termContainer, floatingKeysEl, activeTerminal, detectedActions, KEYS,
+        softKeysVisible, goBack, confirmClose, sendKey, sendAction,
       };
     },
   };

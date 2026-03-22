@@ -41,11 +41,14 @@
    * and `destroy()` to clean up.
    */
   class HortExtension {
-    /** Panel title shown in the "New Panel" dialog (set to enable panel mode). */
-    static panelTitle = '';
+    /** Llming title shown in the launcher (set to enable llming mode). */
+    static llmingTitle = '';
 
     /** Phosphor icon class for the grid card (e.g. 'ph ph-chart-bar'). */
-    static panelIcon = 'ph ph-puzzle-piece';
+    static llmingIcon = 'ph ph-puzzle-piece';
+
+    /** Description shown in the launcher. */
+    static llmingDescription = '';
 
     /** Unique extension identifier (kebab-case, must match server-side name). */
     static id = '';
