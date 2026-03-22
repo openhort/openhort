@@ -687,8 +687,7 @@ body {
         state.activeTarget = msg.active || 'all';
         break;
       case 'target_changed':
-        state.activeTarget = msg.target_id;
-        requestWindows();
+        // Server acknowledges target change — already handled client-side
         break;
       case 'terminal_spawned':
         state.terminals.push({
@@ -743,7 +742,10 @@ body {
   }
 
   function setTarget(targetId) {
-    sendControl({ type: 'set_target', target_id: targetId });
+    // Target switching is client-side only — no server round-trip needed.
+    // We already have all windows from all targets in allWindows.
+    state.activeTarget = targetId;
+    computeNavWindows();
   }
 
   // ===== TERMINAL =====
@@ -768,9 +770,16 @@ body {
   }
 
   function handleWindowsList(msg) {
-    state.allWindows = msg.windows || [];
-    state.appNames = msg.app_names || [];
-    computeNavWindows();
+    const newWindows = msg.windows || [];
+    const newNames = msg.app_names || [];
+    // Only update if data actually changed — prevents unnecessary re-renders
+    const oldIds = state.allWindows.map(w => w.window_id).join(',');
+    const newIds = newWindows.map(w => w.window_id).join(',');
+    if (oldIds !== newIds || JSON.stringify(state.appNames) !== JSON.stringify(newNames)) {
+      state.allWindows = newWindows;
+      state.appNames = newNames;
+      computeNavWindows();
+    }
   }
 
   function requestThumbnail(windowId, targetId) {
@@ -828,16 +837,22 @@ body {
   }
 
   function computeNavWindows() {
+    // First filter by active target (client-side, instant)
+    let base = state.allWindows;
+    if (state.activeTarget !== 'all') {
+      base = base.filter(w => w.target_id === state.activeTarget);
+    }
+
     if (state.navMode === 'all') {
-      state.navWindows = [...state.allWindows];
+      state.navWindows = [...base];
     } else if (state.navMode === 'app') {
       const cur = currentWindow();
       const appName = cur ? cur.owner_name : '';
-      state.navWindows = state.allWindows.filter(w => w.owner_name === appName);
+      state.navWindows = base.filter(w => w.owner_name === appName);
     } else {
       const groups = loadGroups();
       const ids = groups[state.navMode] || [];
-      state.navWindows = ids.map(id => state.allWindows.find(w => w.window_id === id)).filter(Boolean);
+      state.navWindows = ids.map(id => base.find(w => w.window_id === id)).filter(Boolean);
     }
   }
 
@@ -945,7 +960,7 @@ body {
   function startPickerRefresh() {
     stopPickerRefresh();
     refreshPicker();
-    pickerRefreshTimer = setInterval(refreshPicker, 3000);
+    pickerRefreshTimer = setInterval(refreshPicker, 10000);
   }
 
   function stopPickerRefresh() {
@@ -2520,8 +2535,18 @@ body {
 
   app.mount('#q-app');
 
-  // Register service worker for PWA installability
-  if ('serviceWorker' in navigator) {
+  // Reconnect on tab visibility change (macOS Space switching suspends tabs)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && state.sessionId) {
+      // Check if WS is dead
+      if (!state.controlWs || state.controlWs.readyState !== WebSocket.OPEN) {
+        connectControlWs();
+      }
+    }
+  });
+
+  // Register service worker for PWA installability (skip on localhost/self-signed)
+  if ('serviceWorker' in navigator && location.hostname !== 'localhost' && !location.hostname.match(/^(\d+\.){3}\d+$/)) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 })();

@@ -66,6 +66,8 @@ exclude_lines = [
     "tunnel_status",
     "_internal/verify-token",
     "if TYPE_CHECKING",
+    "logger\\.warning",
+    "logger\\.info",
 ]
 
 [build-system]

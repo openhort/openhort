@@ -93,6 +93,7 @@ Requires Screen Recording permission for the terminal app in System Settings (ma
 
 Dev mode (`--dev` or `LLMING_DEV=1`) enables:
 - `uvicorn --reload` on HTTP port 8940 — auto-restarts on Python changes in `hort/`
+- `--timeout-graceful-shutdown 5` — force-kills worker after 5s on reload (prevents deadlocks)
 - Client-side hot-reload — browser refreshes on `index.html` changes
 - HTTPS on port 8950 via nginx proxy (`tools/local-https/`, run once with `docker compose up -d`)
 - The proxy shows "Server restarting..." during reloads instead of connection errors
@@ -114,6 +115,13 @@ open -a "Docker"                                          # Start Docker Desktop
 cd tools/local-https && docker compose up -d && cd -      # HTTPS proxy
 docker start openhort-linux-desktop                       # Linux container
 pkill -f "uvicorn hort.app" && sleep 2 && poetry run python run.py  # Restart server to rediscover targets
+```
+
+## Logging
+
+Rotating log file at `logs/openhort.log` (5 MB, 3 backups). Captures startup, shutdown, and any deadlocks during hot-reload. Check this file when the server hangs:
+```bash
+tail -50 logs/openhort.log
 ```
 
 ## Environment

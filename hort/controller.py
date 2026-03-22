@@ -17,7 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
+import time as _time
 from typing import Any
+
+logger = logging.getLogger("hort.controller")
 
 from llming_com import BaseController
 
@@ -97,6 +101,7 @@ class HortController(BaseController):
     async def handle_message(self, msg: dict[str, Any]) -> None:  # noqa: C901
         """Route an incoming message to the appropriate handler."""
         msg_type = msg.get("type", "")
+        t0 = _time.monotonic()
 
         if msg_type == "list_targets":
             await self._handle_list_targets()
@@ -137,6 +142,10 @@ class HortController(BaseController):
         else:
             await super().handle_message(msg)
 
+        elapsed = (_time.monotonic() - t0) * 1000
+        if elapsed > 200:
+            logger.warning("Slow message: %s took %.0fms", msg_type, elapsed)
+
     # ----- Target management -----
 
     async def _handle_list_targets(self) -> None:
@@ -172,20 +181,36 @@ class HortController(BaseController):
         app_filter = msg.get("app_filter")
 
         if self._target_id == "all":
-            all_win: list[dict[str, Any]] = []
-            all_names: set[str] = set()
-            for info in registry.list_targets():
-                p = registry.get_provider(info.id)
-                if p is None:
-                    continue
+            # Fetch from all providers in PARALLEL — never sequential
+            targets = [
+                (info, registry.get_provider(info.id))
+                for info in registry.list_targets()
+            ]
+            targets = [(info, p) for info, p in targets if p is not None]
+
+            async def _fetch(info: Any, p: Any) -> tuple[Any, list[Any], list[Any]]:
                 windows = await _run_sync(p.list_windows, app_filter)
                 unfiltered = (await _run_sync(p.list_windows)) if app_filter else windows
+                return info, windows, unfiltered
+
+            results = await asyncio.gather(
+                *[_fetch(info, p) for info, p in targets],
+                return_exceptions=True,
+            )
+
+            all_win: list[dict[str, Any]] = []
+            all_names: set[str] = set()
+            for result in results:
+                if isinstance(result, Exception):  # pragma: no cover
+                    continue
+                info, windows, unfiltered = result
                 all_names.update(w.owner_name for w in unfiltered)
                 for w in windows:
                     d = w.model_dump()
                     d["target_id"] = info.id
                     d["target_name"] = info.name
                     all_win.append(d)
+
             await self.send({
                 "type": "windows_list",
                 "windows": all_win,

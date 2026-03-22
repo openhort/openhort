@@ -77,34 +77,49 @@ async def run_stream(
     entry.observer_id = registry.next_observer_id()
 
     prev_window_id: int = 0
+    frame_count = 0
+    import time as _time
 
     try:
         while True:
             config = entry.stream_config
             if config is None:
-                # Wait for control WS to set config
                 await asyncio.sleep(0.1)
                 continue
 
             provider = _get_provider(entry.active_target_id)
             if provider is None:
+                logger.warning("No provider for target %s", entry.active_target_id)
                 await asyncio.sleep(1.0)
                 continue
 
-            # Raise window when it changes
+            # Raise window when it changes (blocking — can take 1-2s with osascript)
             if config.window_id != prev_window_id:
+                logger.info("Switching to window %d (target=%s)", config.window_id, entry.active_target_id)
                 _raise_window(config.window_id, provider)
                 prev_window_id = config.window_id
 
             effective_width = _effective_max_width(
                 config.screen_width, config.screen_dpr, config.max_width
             )
+
+            # Capture (synchronous — typically < 50ms for local, acceptable for stream FPS)
+            t0 = _time.monotonic()
             frame = provider.capture_window(
                 config.window_id, effective_width, config.quality
             )
+            capture_ms = (_time.monotonic() - t0) * 1000
+
+            # Log performance every 100 frames
+            frame_count += 1
+            if frame_count % 100 == 0:
+                logger.info("Stream: %d frames, last capture %.0fms, window=%d", frame_count, capture_ms, config.window_id)
+
+            if capture_ms > 500:
+                logger.warning("Slow capture: %.0fms for window %d", capture_ms, config.window_id)
 
             if frame is None:
-                # Notify control WS that window is lost
+                logger.warning("Capture failed for window %d", config.window_id)
                 if entry.websocket is not None:
                     try:
                         await entry.websocket.send_text(
@@ -131,8 +146,17 @@ async def run_stream(
 
 def _raise_window(window_id: int, provider: PlatformProvider) -> None:
     """Bring a window to front using the active provider."""
+    import time as _t
+
+    t0 = _t.monotonic()
     windows = provider.list_windows()
+    list_ms = (_t.monotonic() - t0) * 1000
     win = next((w for w in windows if w.window_id == window_id), None)
     if not win or not win.owner_pid:
+        logger.warning("_raise_window: window %d not found (list took %.0fms)", window_id, list_ms)
         return
+    t1 = _t.monotonic()
     provider.activate_app(win.owner_pid, bounds=win.bounds)
+    activate_ms = (_t.monotonic() - t1) * 1000
+    logger.info("_raise_window: %s/%s pid=%d list=%.0fms activate=%.0fms",
+                win.owner_name, win.window_name[:30], win.owner_pid, list_ms, activate_ms)

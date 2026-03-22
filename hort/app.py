@@ -6,10 +6,29 @@ import asyncio
 import hashlib
 import io
 import json
+import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
+
+# ===== Rotating log file — captures startup, shutdown, and deadlocks =====
+_LOG_DIR = Path(__file__).parent.parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+_log_handler = RotatingFileHandler(
+    str(_LOG_DIR / "openhort.log"),
+    maxBytes=5 * 1024 * 1024,  # 5 MB per file
+    backupCount=3,
+)
+_log_handler.setFormatter(logging.Formatter(
+    "%(asctime)s %(levelname)s %(name)s: %(message)s"
+))
+logging.getLogger().addHandler(_log_handler)
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger("hort").setLevel(logging.DEBUG)
+
+logger = logging.getLogger("hort.app")
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -53,12 +72,21 @@ def _static_hash() -> str:
 
 def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
+    logger.info("Creating app (dev_mode=%s, pid=%d)", dev_mode, os.getpid())
     is_dev = dev_mode if dev_mode is not None else DEV_MODE
     app = FastAPI(title="openhort", version="0.1.0")
     app.state.dev_mode = is_dev
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     _register_targets()
     _register_routes(app)
+
+    @app.on_event("startup")
+    async def _on_startup() -> None:
+        logger.info("App startup complete (pid=%d)", os.getpid())
+
+    @app.on_event("shutdown")
+    async def _on_shutdown() -> None:
+        logger.info("App shutdown initiated (pid=%d)", os.getpid())
 
     @app.on_event("startup")
     async def _start_target_scanner() -> None:
@@ -464,6 +492,9 @@ def _run_dev(cert_path: Path, key_path: Path) -> None:  # pragma: no cover
     by the nginx proxy in ``tools/local-https/`` (run it once with
     ``docker compose up -d``).  The proxy shows a "Server restarting..."
     page during reloads instead of a connection error.
+
+    Uses --timeout-graceful-shutdown to force-kill after 5 seconds on
+    reload (prevents deadlocks from background tasks that don't exit cleanly).
     """
     import subprocess
 
@@ -475,6 +506,7 @@ def _run_dev(cert_path: Path, key_path: Path) -> None:  # pragma: no cover
         "--reload",
         "--reload-dir", str(Path(__file__).parent),
         "--log-level", "info",
+        "--timeout-graceful-shutdown", "5",
     ])
 
 
