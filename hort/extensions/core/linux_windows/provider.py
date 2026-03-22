@@ -121,7 +121,7 @@ class LinuxWindowsExtension(ExtensionBase, PlatformProvider):
         img = Image.open(io.BytesIO(raw))
         if img.width > max_width:
             ratio = max_width / img.width
-            img = img.resize(
+            img = img.resize(  # type: ignore[assignment]
                 (max_width, int(img.height * ratio)), Image.Resampling.LANCZOS
             )
             buf = io.BytesIO()

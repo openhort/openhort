@@ -347,30 +347,17 @@ class TestTargetDiscovery:
             msg = json.loads(ws.receive_text())
             assert msg["type"] == "space_switched"
 
-    def test_load_extension_provider_missing(self) -> None:
-        from hort.app import _load_extension_provider
-
-        assert _load_extension_provider("nonexistent_dir", "Cls") is None
-
-    def test_load_extension_provider_bad_spec(self) -> None:
-        from hort.app import _load_extension_provider
-
-        with patch("importlib.util.spec_from_file_location", return_value=None):
-            assert _load_extension_provider("macos_windows", "MacOSWindowsExtension") is None
-
-    def test_load_extension_provider_missing_class(self) -> None:
-        from hort.app import _load_extension_provider
-
-        assert _load_extension_provider("macos_windows", "NonexistentClass") is None
-
     def test_register_targets_import_error(self) -> None:
-        """Covers the except Exception: pass branch in _register_targets."""
+        """Covers the except ImportError branch in _register_targets."""
         from hort.app import _register_targets
         from hort.targets import TargetRegistry
 
         TargetRegistry.reset()
         with (
-            patch("hort.app._load_extension_provider", side_effect=ImportError("no quartz")),
+            patch(
+                "hort.extensions.core.macos_windows.provider.MacOSWindowsExtension",
+                side_effect=ImportError("no quartz"),
+            ),
             patch("hort.app._register_docker_targets"),
         ):
             _register_targets()
@@ -403,13 +390,14 @@ class TestTargetDiscovery:
 
         TargetRegistry.reset()
         reg = TargetRegistry.get()
-        # "container1\n\ncontainer2" → splitlines gives ["container1", "", "container2"]
-        # The empty string should be skipped
         # "a\n\nb" → strip().splitlines() = ['a', '', 'b'] — empty string in middle
         mock_result = type("R", (), {"returncode": 0, "stdout": "c1\n\nc2"})()
         with (
             patch("subprocess.run", return_value=mock_result),
-            patch("hort.app._load_extension_provider", return_value=None),
+            patch(
+                "hort.extensions.core.linux_windows.provider.LinuxWindowsExtension",
+                side_effect=ImportError("no docker"),
+            ),
         ):
             _register_docker_targets(reg)
         assert reg.list_targets() == []

@@ -32,7 +32,7 @@ pytest-playwright = "^0.7.2"
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
-exclude = ["tests/", "extensions/"]
+exclude = ["tests/"]
 
 [[tool.mypy.overrides]]
 module = "llming_com.*"
@@ -47,7 +47,7 @@ addopts = "-m 'not integration'"
 
 [tool.coverage.run]
 source = ["hort"]
-omit = ["hort/static/*"]
+omit = ["hort/static/*", "hort/extensions/*"]
 
 [tool.coverage.report]
 fail_under = 100

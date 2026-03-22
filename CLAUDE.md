@@ -28,7 +28,8 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/containers/` — Container management (base ABC, Docker provider, registry)
 - `hort/static/index.html` — Quasar/Vue 3 mobile-first UI
 - `hort/static/vendor/` — Pre-compiled Vue 3, Quasar, Plotly.js, Material Icons, hort-ext.js
-- `extensions/core/macos_windows/` — macOS platform extension (reference implementation)
+- `hort/extensions/core/macos_windows/` — macOS platform extension
+- `hort/extensions/core/linux_windows/` — Linux container platform extension
 
 ## Communication Protocol
 
@@ -60,7 +61,7 @@ poetry run python run.py
 Requires Screen Recording permission for the terminal app in System Settings (macOS).
 
 Dev mode (`--dev` or `LLMING_DEV=1`) enables:
-- `uvicorn --reload` — auto-restarts on Python changes in `hort/`
+- `uvicorn --reload` on HTTP port 8940 — auto-restarts on Python changes in `hort/`
 - Client-side hot-reload — browser refreshes on `index.html` changes
-
-Note: dev mode runs a single uvicorn process (HTTPS only on the main port) instead of the dual HTTP+HTTPS production setup.
+- HTTPS on port 8950 via nginx proxy (`tools/local-https/`, run once with `docker compose up -d`)
+- The proxy shows "Server restarting..." during reloads instead of connection errors

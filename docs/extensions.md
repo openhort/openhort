@@ -15,15 +15,19 @@ The openhort extension system makes every platform-specific capability replaceab
 ## Directory Layout
 
 ```
-extensions/
-  <provider>/                       # Namespace (e.g. "core", "community", org name)
-    <extension_name>/               # One directory per extension
-      extension.json                # Manifest (required)
+hort/extensions/                    # Built-in extensions (shipped with the package)
+  core/
+    <extension_name>/
+      extension.json                # Manifest
       __init__.py                   # Python package marker
-      provider.py                   # Entry point module (name matches manifest)
+      provider.py                   # Entry point module
       static/                       # Optional client-side assets
-        panel.html
-        panel.js
+
+~/.hort/extensions/                 # Third-party extensions (future, separate repo)
+  <provider>/
+    <extension_name>/
+      extension.json
+      provider.py
 ```
 
 The `provider` directory is a namespace that identifies who maintains the extension. Built-in extensions use `core`. Third-party extensions use their org name or handle.
@@ -31,12 +35,18 @@ The `provider` directory is a namespace that identifies who maintains the extens
 **Current layout:**
 
 ```
-extensions/
+hort/extensions/
   core/
     macos_windows/                  # macOS window management (Quartz + SkyLight)
       extension.json
       __init__.py
       provider.py
+    linux_windows/                  # Linux via Docker (Xvfb + xdotool)
+      extension.json
+      __init__.py
+      provider.py
+      Dockerfile
+      entrypoint.sh
 ```
 
 ## Manifest (`extension.json`)
@@ -753,5 +763,6 @@ The reference platform extension. Provides all four platform capabilities on mac
 | `PlatformProvider` | `hort/ext/types.py` | Unified ABC combining all platform capabilities |
 | Manifest model | `hort/ext/manifest.py` | Pydantic model for `extension.json` |
 | Registry | `hort/ext/registry.py` | Discovery, loading, capability resolution |
-| Extensions dir | `extensions/<provider>/<name>/` | Extension packages |
-| Core macOS ext | `extensions/core/macos_windows/` | Reference platform implementation |
+| Built-in extensions | `hort/extensions/core/<name>/` | Shipped with the package |
+| Core macOS ext | `hort/extensions/core/macos_windows/` | macOS platform implementation |
+| Core Linux ext | `hort/extensions/core/linux_windows/` | Linux container platform implementation |

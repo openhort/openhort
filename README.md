@@ -135,10 +135,16 @@ poetry run python run.py --dev
 ```
 
 In dev mode:
-- **Python changes** — uvicorn runs with `--reload`, automatically restarts the server when any `.py` file in `hort/` changes.
+- **Python changes** — uvicorn runs with `--reload` on HTTP port 8940, auto-restarts on any `.py` change in `hort/`.
 - **HTML/CSS/JS changes** — the client-side hot-reload WebSocket (`/ws/devreload`) detects changes to `index.html` and refreshes the browser automatically.
+- **HTTPS proxy** — an nginx container in `tools/local-https/` terminates TLS on port 8950 and proxies to the app. During uvicorn restarts it shows a "Server restarting..." page instead of a connection error.
 
-Zero overhead in production (no reload watcher, no dev script injected).
+```bash
+# One-time setup for HTTPS proxy:
+cd tools/local-https && docker compose up -d
+```
+
+Zero overhead in production (no reload watcher, no dev script injected, dual HTTP+HTTPS served directly).
 
 ## Communication Protocol
 
@@ -194,13 +200,13 @@ hort/
 ├── network.py      LAN IP detection, QR code generation
 ├── cert.py         Self-signed TLS certificate generation
 ├── ext/            Extension system (types, manifest, registry)
+├── extensions/     Built-in platform extensions
+│   └── core/
+│       ├── macos_windows/   macOS (Quartz + SkyLight)
+│       └── linux_windows/   Linux via Docker (Xvfb + xdotool)
 └── static/
     ├── index.html  Quasar/Vue 3 mobile-first UI
     └── vendor/     Pre-compiled Vue, Quasar, Plotly.js, Material Icons
-
-extensions/
-└── core/
-    └── macos_windows/   macOS platform extension (reference implementation)
 ```
 
 All client state (groups, per-window zoom, settings) is stored in the browser's localStorage. Multiple clients can connect independently with their own state.
@@ -213,7 +219,7 @@ Key concepts:
 - **`PlatformProvider`** — unified ABC for window listing, capture, input, workspaces
 - **`ExtensionBase`** — lifecycle hooks (`activate`/`deactivate`) for all extensions
 - **`HortExtension`** (JS) — client-side extension base for Quasar UI panels
-- Extensions are discovered from `extensions/<provider>/<name>/extension.json`
+- Built-in extensions live in `hort/extensions/core/`
 
 ## Quality
 

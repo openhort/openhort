@@ -71,51 +71,20 @@ def _register_targets() -> None:
     # Register local macOS target (only on macOS)
     if sys.platform == "darwin":
         try:
-            mac_provider = _load_extension_provider(
-                "macos_windows", "MacOSWindowsExtension"
+            from hort.extensions.core.macos_windows.provider import (
+                MacOSWindowsExtension,
             )
-            if mac_provider is not None:
-                registry.register(
-                    "local-macos",
-                    TargetInfo(id="local-macos", name="This Mac", provider_type="macos"),
-                    mac_provider,
-                )
-        except Exception:
+
+            registry.register(
+                "local-macos",
+                TargetInfo(id="local-macos", name="This Mac", provider_type="macos"),
+                MacOSWindowsExtension(),
+            )
+        except ImportError:
             pass  # Quartz not available
 
     # Discover Docker-based Linux targets
     _register_docker_targets(registry)
-
-
-def _load_extension_provider(
-    ext_dir_name: str, class_name: str, config: dict[str, Any] | None = None
-) -> Any:
-    """Load a provider class from an extension directory."""
-    import importlib.util
-
-    module_path = (
-        Path(__file__).parent.parent
-        / "extensions"
-        / "core"
-        / ext_dir_name
-        / "provider.py"
-    )
-    if not module_path.exists():
-        return None
-    spec = importlib.util.spec_from_file_location(
-        f"_ext_{ext_dir_name}_provider", module_path
-    )
-    if spec is None or spec.loader is None:
-        return None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    cls = getattr(module, class_name, None)
-    if cls is None:
-        return None
-    instance = cls()
-    if config is not None and hasattr(instance, "activate"):
-        instance.activate(config)
-    return instance
 
 
 def _register_docker_targets(registry: object) -> None:
@@ -135,17 +104,21 @@ def _register_docker_targets(registry: object) -> None:
             for name in result.stdout.strip().splitlines():
                 if not name:
                     continue
-                provider = _load_extension_provider(
-                    "linux_windows", "LinuxWindowsExtension",
-                    config={"container_name": name},
-                )
-                if provider is not None:
+                try:
+                    from hort.extensions.core.linux_windows.provider import (
+                        LinuxWindowsExtension,
+                    )
+
+                    ext = LinuxWindowsExtension()
+                    ext.activate({"container_name": name})
                     target_id = f"docker-{name}"
                     registry.register(
                         target_id,
                         TargetInfo(id=target_id, name=f"Linux ({name})", provider_type="linux-docker"),
-                        provider,
+                        ext,
                     )
+                except ImportError:
+                    pass
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass  # Docker not installed or not responding
 
@@ -425,46 +398,22 @@ def main() -> None:  # pragma: no cover
 def _run_dev(cert_path: Path, key_path: Path) -> None:  # pragma: no cover
     """Run with uvicorn --reload for auto-restart on Python file changes.
 
-    Spawns two uvicorn processes: HTTP on 8940, HTTPS on 8950.
-    Both watch ``hort/`` for changes and auto-restart.
+    Runs a single HTTP server on port 8940. HTTPS on port 8950 is handled
+    by the nginx proxy in ``tools/local-https/`` (run it once with
+    ``docker compose up -d``).  The proxy shows a "Server restarting..."
+    page during reloads instead of a connection error.
     """
     import subprocess
-    import signal
 
-    reload_dir = str(Path(__file__).parent)
-    http_proc = subprocess.Popen([
+    subprocess.run([
         sys.executable, "-m", "uvicorn",
         "hort.app:app",
         "--host", "0.0.0.0",
         "--port", str(HTTP_PORT),
         "--reload",
-        "--reload-dir", reload_dir,
+        "--reload-dir", str(Path(__file__).parent),
         "--log-level", "info",
     ])
-    https_proc = subprocess.Popen([
-        sys.executable, "-m", "uvicorn",
-        "hort.app:app",
-        "--host", "0.0.0.0",
-        "--port", str(HTTPS_PORT),
-        "--reload",
-        "--reload-dir", reload_dir,
-        "--ssl-certfile", str(cert_path),
-        "--ssl-keyfile", str(key_path),
-        "--log-level", "info",
-    ])
-
-    def shutdown(signum: int, frame: object) -> None:
-        http_proc.terminate()
-        https_proc.terminate()
-
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
-
-    try:
-        http_proc.wait()
-    finally:
-        https_proc.terminate()
-        https_proc.wait()
 
 
 async def _run_servers(cert_path: Path, key_path: Path) -> None:  # pragma: no cover
