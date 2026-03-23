@@ -4,7 +4,8 @@
 
 - **Source:** https://github.com/phosphor-icons/web
 - **License:** MIT
-- **Used via:** jsDelivr CDN (`@phosphor-icons/web@2.1.2`)
+- **Version:** 2.1.2
+- **Bundled at:** `hort/static/vendor/phosphor/` (CSS + woff2 fonts)
 
 ```
 MIT License

@@ -65,9 +65,29 @@ def _file_hash(path: Path) -> str:
 
 
 def _static_hash() -> str:
-    """Compute a combined hash of all static files for cache busting."""
+    """Compute a combined hash of static files + extension scripts for cache busting."""
+    h = hashlib.sha256()
+    # Main UI
     index_path = STATIC_DIR / "index.html"
-    return _file_hash(index_path)
+    if index_path.exists():
+        h.update(index_path.read_bytes())
+    # hort-ext.js
+    ext_js = STATIC_DIR / "vendor" / "hort-ext.js"
+    if ext_js.exists():
+        h.update(ext_js.read_bytes())
+    # Extension assets (js, css, html)
+    ext_dir = Path(__file__).parent / "extensions" / "core"
+    if ext_dir.exists():
+        for f in sorted(ext_dir.rglob("*")):
+            if f.suffix in (".js", ".css", ".html") and f.is_file():
+                h.update(f.read_bytes())
+    # Vendor assets (hort-ext.js already covered above, catch css changes)
+    vendor_dir = STATIC_DIR / "vendor"
+    if vendor_dir.exists():
+        for f in sorted(vendor_dir.iterdir()):
+            if f.suffix in (".js", ".css") and f.is_file() and f.name != "hort-ext.js":
+                h.update(f.read_bytes())
+    return h.hexdigest()[:12]
 
 
 def create_app(*, dev_mode: bool | None = None) -> FastAPI:

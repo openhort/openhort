@@ -67,7 +67,14 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ permanent: false }),
               });
-              if ((await resp.json()).ok) emit('save', true);
+              if ((await resp.json()).ok) {
+                // Refresh connectors to get new token (don't close panel)
+                const cr = await fetch(bp + '/api/connectors');
+                if (cr.ok) {
+                  const d = await cr.json();
+                  Object.assign(props.connectors, d);
+                }
+              }
             } finally { loading.value = false; }
           }
 
@@ -83,7 +90,12 @@
               const data = await resp.json();
               if (data.ok) {
                 permToken.value = data.token;
-                emit('save', true);
+                // Refresh connectors to update has_permanent (don't close panel)
+                const cr = await fetch(bp + '/api/connectors');
+                if (cr.ok) {
+                  const d = await cr.json();
+                  Object.assign(props.connectors, d);
+                }
               }
             } finally { loading.value = false; }
           }

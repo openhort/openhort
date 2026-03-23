@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 import sys
 import types as pytypes
 from pathlib import Path
@@ -12,10 +13,11 @@ from typing import Any, TypeVar
 from hort.ext.manifest import ExtensionManifest
 
 T = TypeVar("T")
+logger = logging.getLogger("hort.ext.registry")
 
 
 class ExtensionRegistry:
-    """Discovers, loads, and manages extensions.
+    """Discovers, loads, and manages extensions and plugins.
 
     Typical lifecycle::
 
@@ -23,12 +25,25 @@ class ExtensionRegistry:
         registry.discover(extensions_dir)
         registry.load_compatible()
         provider = registry.get_provider("window.list", WindowProvider)
+
+    Enhanced plugin support::
+
+        registry.set_app(app)              # enable router mounting
+        registry.load_compatible(config)   # injects PluginContext for PluginBase instances
+        registry.unload_extension("name")  # hot-unload
+        registry.list_plugins()            # metadata for admin API
     """
 
     def __init__(self) -> None:
         self._manifests: list[ExtensionManifest] = []
         self._instances: dict[str, object] = {}  # ext name -> instance
         self._capability_map: dict[str, str] = {}  # capability -> ext name
+        self._contexts: dict[str, Any] = {}  # plugin_id -> PluginContext
+        self._app: Any = None  # FastAPI app (set via set_app)
+
+    def set_app(self, app: Any) -> None:
+        """Set the FastAPI app for router mounting."""
+        self._app = app
 
     # ----- Discovery -----
 
@@ -80,8 +95,8 @@ class ExtensionRegistry:
     ) -> object | None:
         """Load and instantiate an extension from its manifest.
 
-        If *config* is not ``None`` and the instance has an ``activate``
-        method, it will be called with the config dict.
+        For ``PluginBase`` instances, injects a full ``PluginContext``
+        (store, files, config, scheduler, logger) before calling activate.
 
         Returns the instance or ``None`` on failure.
         """
@@ -110,6 +125,14 @@ class ExtensionRegistry:
 
         instance: object = ext_class()
 
+        # Inject PluginContext for PluginBase instances
+        from hort.ext.plugin import PluginBase
+
+        if isinstance(instance, PluginBase):
+            context = self._create_plugin_context(manifest, config or {})
+            instance._ctx = context
+            self._contexts[manifest.name] = context
+
         if config is not None and hasattr(instance, "activate"):
             instance.activate(config)
 
@@ -118,7 +141,48 @@ class ExtensionRegistry:
             if cap not in self._capability_map:
                 self._capability_map[cap] = manifest.name
 
+        # Mount router if available
+        if self._app is not None and hasattr(instance, "get_router"):
+            router = instance.get_router()
+            if router:
+                try:
+                    self._app.include_router(
+                        router, prefix=f"/api/plugins/{manifest.name}"
+                    )
+                    logger.info("Mounted router for %s", manifest.name)
+                except Exception as e:
+                    logger.warning("Failed to mount router for %s: %s", manifest.name, e)
+
         return instance
+
+    def _create_plugin_context(
+        self, manifest: ExtensionManifest, config: dict[str, Any]
+    ) -> Any:
+        """Create a PluginContext for a PluginBase instance."""
+        from hort.ext.file_store import LocalFileStore
+        from hort.ext.plugin import PluginConfig, PluginContext
+        from hort.ext.scheduler import PluginScheduler
+        from hort.ext.store import FilePluginStore
+
+        plugin_id = manifest.name
+        base_dir = Path("~/.hort/plugins").expanduser()
+
+        feature_defaults = {
+            name: ft.default for name, ft in manifest.features.items()
+        }
+
+        return PluginContext(
+            plugin_id=plugin_id,
+            store=FilePluginStore(plugin_id, base_dir=base_dir),
+            files=LocalFileStore(plugin_id, base_dir=base_dir),
+            config=PluginConfig(
+                plugin_id=plugin_id,
+                _raw=dict(config),
+                _feature_defaults=feature_defaults,
+            ),
+            scheduler=PluginScheduler(plugin_id),
+            logger=logging.getLogger(f"hort.plugin.{plugin_id}"),
+        )
 
     def load_compatible(
         self, config: dict[str, dict[str, Any]] | None = None
@@ -132,6 +196,45 @@ class ExtensionRegistry:
             if not self.is_compatible(manifest):
                 continue
             self.load_extension(manifest, cfg.get(manifest.name))
+
+    # ----- Unloading -----
+
+    def unload_extension(self, name: str) -> bool:
+        """Hot-unload a plugin. Stops scheduler, calls deactivate, removes routes.
+
+        Returns True if the extension was loaded and is now unloaded.
+        """
+        instance = self._instances.pop(name, None)
+        if instance is None:
+            return False
+
+        # Stop scheduler
+        context = self._contexts.pop(name, None)
+        if context is not None and hasattr(context, "scheduler"):
+            context.scheduler.stop_all()
+
+        # Call deactivate
+        if hasattr(instance, "deactivate"):
+            try:
+                instance.deactivate()
+            except Exception as e:
+                logger.warning("Error deactivating %s: %s", name, e)
+
+        # Remove from capability map
+        self._capability_map = {
+            cap: ext for cap, ext in self._capability_map.items() if ext != name
+        }
+
+        # Remove mounted routes (best effort)
+        if self._app is not None:
+            prefix = f"/api/plugins/{name}"
+            self._app.routes[:] = [
+                r for r in self._app.routes
+                if not (hasattr(r, "path") and r.path.startswith(prefix))
+            ]
+
+        logger.info("Unloaded extension: %s", name)
+        return True
 
     # ----- Provider resolution -----
 
@@ -147,6 +250,46 @@ class ExtensionRegistry:
         if instance is not None and isinstance(instance, provider_type):
             return instance
         return None
+
+    # ----- Query -----
+
+    def get_instance(self, name: str) -> object | None:
+        """Get a loaded extension instance by name."""
+        return self._instances.get(name)
+
+    def get_manifest(self, name: str) -> ExtensionManifest | None:
+        """Get a manifest by extension name."""
+        for m in self._manifests:
+            if m.name == name:
+                return m
+        return None
+
+    def list_plugins(self) -> list[dict[str, Any]]:
+        """Return metadata about all discovered plugins (for admin API)."""
+        results: list[dict[str, Any]] = []
+        for m in self._manifests:
+            loaded = m.name in self._instances
+            ctx = self._contexts.get(m.name)
+            results.append({
+                "name": m.name,
+                "version": m.version,
+                "description": m.description,
+                "icon": m.icon,
+                "plugin_type": m.plugin_type,
+                "loaded": loaded,
+                "compatible": self.is_compatible(m),
+                "capabilities": list(m.capabilities),
+                "features": {
+                    name: {
+                        "description": ft.description,
+                        "default": ft.default,
+                        "enabled": ctx.config.is_feature_enabled(name) if ctx else ft.default,
+                    }
+                    for name, ft in m.features.items()
+                },
+                "running_jobs": ctx.scheduler.running_jobs if ctx else [],
+            })
+        return results
 
 
 # ----- Helpers -----

@@ -722,6 +722,233 @@ class TestParseManifest:
         assert _parse_manifest(f, tmp_path) is None
 
 
+class TestPluginContextInjection:
+    """Tests for PluginBase context injection in load_extension."""
+
+    def test_injects_context_for_plugin_base(self, tmp_path: Path) -> None:
+        code = (
+            "from hort.ext.plugin import PluginBase\n"
+            "class MyPlugin(PluginBase):\n"
+            "    def activate(self, config):\n"
+            "        self.log.info('activated with %s', config)\n"
+        )
+        _make_ext_dir(
+            tmp_path, "core", "test-plugin",
+            {"name": "test-plugin", "platforms": [sys.platform],
+             "entry_point": "provider:MyPlugin", "capabilities": ["test"],
+             "features": {"alerts": {"description": "Alert", "default": True}}},
+            py_code=code,
+        )
+        registry = ExtensionRegistry()
+        registry.discover(tmp_path)
+        registry.load_compatible()
+        instance = registry._instances.get("test-plugin")
+        assert instance is not None
+        assert hasattr(instance, "_ctx")
+        assert instance.plugin_id == "test-plugin"
+        assert instance.config.is_feature_enabled("alerts") is True
+
+    def test_no_context_for_extension_base(self, tmp_path: Path) -> None:
+        code = "class OldExt:\n    def activate(self, config): self.cfg = config\n"
+        _make_ext_dir(
+            tmp_path, "core", "old-ext",
+            {"name": "old-ext", "platforms": [sys.platform],
+             "entry_point": "provider:OldExt"},
+            py_code=code,
+        )
+        registry = ExtensionRegistry()
+        registry.discover(tmp_path)
+        registry.load_compatible(config={"old-ext": {"key": "val"}})
+        instance = registry._instances.get("old-ext")
+        assert instance is not None
+        assert instance.cfg == {"key": "val"}
+        assert not hasattr(instance, "_ctx")
+
+
+class TestUnloadExtension:
+    def test_unload_stops_and_removes(self, tmp_path: Path) -> None:
+        code = (
+            "from hort.ext.plugin import PluginBase\n"
+            "class MyPlugin(PluginBase):\n"
+            "    stopped = False\n"
+            "    def deactivate(self):\n"
+            "        self.stopped = True\n"
+        )
+        _make_ext_dir(
+            tmp_path, "core", "unload-test",
+            {"name": "unload-test", "platforms": [sys.platform],
+             "entry_point": "provider:MyPlugin", "capabilities": ["x"]},
+            py_code=code,
+        )
+        registry = ExtensionRegistry()
+        registry.discover(tmp_path)
+        registry.load_compatible()
+        assert "unload-test" in registry._instances
+        assert registry._capability_map.get("x") == "unload-test"
+
+        instance = registry._instances["unload-test"]
+        assert registry.unload_extension("unload-test") is True
+        assert "unload-test" not in registry._instances
+        assert "x" not in registry._capability_map
+        assert instance.stopped is True
+
+    def test_unload_nonexistent(self) -> None:
+        assert ExtensionRegistry().unload_extension("nope") is False
+
+    def test_unload_deactivate_error(self, tmp_path: Path) -> None:
+        code = (
+            "from hort.ext.plugin import PluginBase\n"
+            "class Bad(PluginBase):\n"
+            "    def deactivate(self):\n"
+            "        raise RuntimeError('boom')\n"
+        )
+        _make_ext_dir(
+            tmp_path, "core", "bad-deactivate",
+            {"name": "bad-deactivate", "platforms": [sys.platform],
+             "entry_point": "provider:Bad"},
+            py_code=code,
+        )
+        registry = ExtensionRegistry()
+        registry.discover(tmp_path)
+        registry.load_compatible()
+        assert registry.unload_extension("bad-deactivate") is True  # should not raise
+
+
+class TestListPlugins:
+    def test_lists_all(self, tmp_path: Path) -> None:
+        code = (
+            "from hort.ext.plugin import PluginBase\n"
+            "class P(PluginBase): pass\n"
+        )
+        _make_ext_dir(
+            tmp_path, "core", "p1",
+            {"name": "p1", "platforms": [sys.platform],
+             "entry_point": "provider:P", "capabilities": ["mon"],
+             "features": {"f1": {"description": "F1", "default": True}}},
+            py_code=code,
+        )
+        _make_ext_dir(
+            tmp_path, "core", "p2",
+            {"name": "p2", "platforms": ["not-real"],
+             "entry_point": "provider:P"},
+            py_code=code,
+        )
+        registry = ExtensionRegistry()
+        registry.discover(tmp_path)
+        registry.load_compatible()
+        plugins = registry.list_plugins()
+        assert len(plugins) == 2
+        p1 = next(p for p in plugins if p["name"] == "p1")
+        assert p1["loaded"] is True
+        assert p1["compatible"] is True
+        assert p1["features"]["f1"]["enabled"] is True
+        p2 = next(p for p in plugins if p["name"] == "p2")
+        assert p2["loaded"] is False
+        assert p2["compatible"] is False
+
+
+class TestSetApp:
+    def test_set_app(self) -> None:
+        registry = ExtensionRegistry()
+        registry.set_app("fake-app")
+        assert registry._app == "fake-app"
+
+    def test_router_mounted_when_app_set(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+        code = (
+            "from fastapi import APIRouter\n"
+            "from hort.ext.plugin import PluginBase\n"
+            "class WithRouter(PluginBase):\n"
+            "    def get_router(self):\n"
+            "        r = APIRouter()\n"
+            "        @r.get('/test')\n"
+            "        def test(): return {'ok': True}\n"
+            "        return r\n"
+        )
+        _make_ext_dir(
+            tmp_path, "core", "router-test",
+            {"name": "router-test", "platforms": [sys.platform],
+             "entry_point": "provider:WithRouter"},
+            py_code=code,
+        )
+        app = MagicMock()
+        registry = ExtensionRegistry()
+        registry.set_app(app)
+        registry.discover(tmp_path)
+        registry.load_compatible()
+        app.include_router.assert_called_once()
+
+    def test_router_mount_failure_logged(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+        code = (
+            "from fastapi import APIRouter\n"
+            "from hort.ext.plugin import PluginBase\n"
+            "class Bad(PluginBase):\n"
+            "    def get_router(self):\n"
+            "        return APIRouter()\n"
+        )
+        _make_ext_dir(
+            tmp_path, "core", "bad-router",
+            {"name": "bad-router", "platforms": [sys.platform],
+             "entry_point": "provider:Bad"},
+            py_code=code,
+        )
+        app = MagicMock()
+        app.include_router.side_effect = RuntimeError("mount failed")
+        registry = ExtensionRegistry()
+        registry.set_app(app)
+        registry.discover(tmp_path)
+        registry.load_compatible()  # should not raise
+
+    def test_unload_removes_routes(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+        code = (
+            "from hort.ext.plugin import PluginBase\n"
+            "class P(PluginBase): pass\n"
+        )
+        _make_ext_dir(
+            tmp_path, "core", "rt",
+            {"name": "rt", "platforms": [sys.platform],
+             "entry_point": "provider:P"},
+            py_code=code,
+        )
+        # Simulate app with routes
+        route1 = MagicMock()
+        route1.path = "/api/plugins/rt/test"
+        route2 = MagicMock()
+        route2.path = "/api/other"
+        app = MagicMock()
+        app.routes = [route1, route2]
+        app.include_router = MagicMock()
+
+        registry = ExtensionRegistry()
+        registry.set_app(app)
+        registry.discover(tmp_path)
+        registry.load_compatible()
+        registry.unload_extension("rt")
+        # Only the /api/other route should remain
+        assert len(app.routes) == 1
+        assert app.routes[0].path == "/api/other"
+
+
+class TestGetters:
+    def test_get_instance(self, tmp_path: Path) -> None:
+        code = "class E: pass\n"
+        (tmp_path / "provider.py").write_text(code)
+        m = ExtensionManifest(name="t", entry_point="provider:E", path=str(tmp_path))
+        registry = ExtensionRegistry()
+        registry.load_extension(m)
+        assert registry.get_instance("t") is not None
+        assert registry.get_instance("nope") is None
+
+    def test_get_manifest(self, tmp_path: Path) -> None:
+        _make_ext_dir(tmp_path, "core", "x", {"name": "x"})
+        registry = ExtensionRegistry()
+        registry.discover(tmp_path)
+        assert registry.get_manifest("x") is not None
+        assert registry.get_manifest("nope") is None
+
+
 class TestLoadModule:
     def test_valid(self, tmp_path: Path) -> None:
         f = tmp_path / "mymod.py"

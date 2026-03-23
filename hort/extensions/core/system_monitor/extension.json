@@ -1,0 +1,29 @@
+{
+  "name": "system-monitor",
+  "version": "0.1.0",
+  "description": "Monitors CPU, memory, and disk usage with live dashboard",
+  "provider": "core",
+  "platforms": ["darwin", "linux"],
+  "capabilities": ["monitor", "mcp"],
+  "entry_point": "provider:SystemMonitor",
+  "icon": "ph ph-cpu",
+  "author": "openhort",
+  "plugin_type": "monitor",
+  "features": {
+    "cpu": { "description": "Monitor CPU usage and temperature", "default": true },
+    "memory": { "description": "Monitor memory usage", "default": true },
+    "disk": { "description": "Monitor disk usage", "default": true }
+  },
+  "jobs": [
+    {
+      "id": "poll-metrics",
+      "method": "poll_metrics",
+      "interval_seconds": 5,
+      "run_on_activate": true
+    }
+  ],
+  "mcp": true,
+  "documents": true,
+  "ui_widgets": ["system-monitor-dashboard"],
+  "ui_script": "static/panel.js"
+}

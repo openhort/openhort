@@ -33,7 +33,7 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/access/` — Remote access proxy server (Azure deployment, tunnel protocol, token auth)
 - `hort/access/docker-compose.yml` — Docker Compose for local dev and Azure deployment
 - `hort/static/index.html` — Quasar/Vue 3 mobile-first UI
-- `hort/static/vendor/` — Pre-compiled Vue 3, Quasar, xterm.js, Plotly.js, Material Icons
+- `hort/static/vendor/` — Pre-compiled Vue 3, Quasar, xterm.js, Plotly.js, Material Icons, Phosphor Icons, hort-ext.js, hort-widgets.js
 
 ## Communication Protocol
 
@@ -68,7 +68,8 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 ## Guidelines
 
 - [UX Guidelines](docs/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
-- [Extension System](docs/extensions.md) — plugin architecture, provider interfaces, creating extensions
+- [Plugin Ecosystem](docs/plugins.md) — plugin development guide, storage, scheduler, MCP, intents, widgets
+- [Extension System](docs/extensions.md) — provider interfaces, manifest, registry, creating extensions
 - [Llmings](docs/llmings.md) — panel architecture, shared components, plugin lifecycle
 - [Access Server](docs/access-server.md) — remote proxy, Azure deployment, tunnel protocol
 - [Container Environments](docs/containers.md) — Docker/Azure container management, preview panel

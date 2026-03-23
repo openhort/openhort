@@ -1,0 +1,26 @@
+{
+  "name": "screenshot-capture",
+  "version": "0.1.0",
+  "description": "Capture screenshots on demand and browse them remotely. Demonstrates server→client image transfer via plugin file store.",
+  "provider": "core",
+  "platforms": ["darwin", "linux"],
+  "capabilities": ["tool", "mcp"],
+  "entry_point": "provider:ScreenshotCapture",
+  "icon": "ph ph-camera",
+  "author": "openhort",
+  "plugin_type": "tool",
+  "features": {
+    "auto_capture": { "description": "Automatically capture every 60s", "default": false }
+  },
+  "jobs": [
+    {
+      "id": "auto-screenshot",
+      "method": "capture_screenshot",
+      "interval_seconds": 60,
+      "enabled_feature": "auto_capture"
+    }
+  ],
+  "mcp": true,
+  "ui_widgets": ["screenshot-capture-panel"],
+  "ui_script": "static/panel.js"
+}

@@ -1,0 +1,27 @@
+{
+  "name": "disk-usage",
+  "version": "0.1.0",
+  "description": "Monitors disk partitions and usage across all mountpoints",
+  "provider": "core",
+  "platforms": ["darwin", "linux"],
+  "capabilities": ["monitor", "mcp"],
+  "entry_point": "provider:DiskUsage",
+  "icon": "ph ph-hard-drive",
+  "author": "openhort",
+  "plugin_type": "monitor",
+  "features": {
+    "partitions": { "description": "Monitor all disk partitions and usage", "default": true },
+    "top_dirs": { "description": "Track largest directories", "default": true }
+  },
+  "jobs": [
+    {
+      "id": "poll-disks",
+      "method": "poll_disks",
+      "interval_seconds": 30,
+      "run_on_activate": true
+    }
+  ],
+  "mcp": true,
+  "ui_widgets": ["disk-usage-panel"],
+  "ui_script": "static/panel.js"
+}
