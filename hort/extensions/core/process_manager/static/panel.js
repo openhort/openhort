@@ -15,6 +15,8 @@
     // Cached process data for thumbnail
     _lastProcesses = null;
 
+    _feedStore(store) { if (store.processes) this._lastProcesses = store.processes.list || store.processes; }
+
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff', bar = '#3b82f6';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
@@ -63,7 +65,7 @@
 
           async function refresh() {
             try {
-              const store = await fetch(bp + '/api/plugins/process-manager/store').catch(() => fetch(bp + '/api/plugin/store')).then(r => r.json()).catch(() => ({}));
+              const store = await fetch(bp + '/api/plugins/process-manager/status').catch(() => fetch(bp + '/api/plugins/process-manager/status')).then(r => r.json()).catch(() => ({}));
               const data = store.processes || {};
               processes.value = data.list || [];
               totalCount.value = data.total || 0;

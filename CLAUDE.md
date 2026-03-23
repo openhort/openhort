@@ -139,10 +139,20 @@ bash scripts/deploy-access.sh
 
 ### Critical Azure Findings
 - **WS message size limit:** Azure silently drops WebSocket messages > ~64KB. Tunnel client chunks large responses into 32KB messages.
+- **Binary proxy corruption:** Response bodies MUST stay as raw bytes (`body_bytes`). Decoding as UTF-8 corrupts fonts/images.
 - **Image caching:** `latest` tag doesn't force re-pull. Always use versioned tags (deploy script does this automatically).
 - **Content-Length:** Must be removed from proxied response headers after `<base>` tag injection (changes body size).
 - **Quasar UMD:** Scripts MUST be in `<body>`, not `<head>` — Quasar needs DOM to exist at load time.
 - **Persistent storage:** FileStore JSON is ephemeral. Mount `/data/` volume. Admin user created by entrypoint only if store missing.
+- **Service worker:** Never register SW when proxied (`_basePath` set). Old cached SWs must be manually unregistered.
+- **Plugin scripts:** Script URLs from `/api/plugins` must be prefixed with `basePath` for proxy routing.
+
+### Plugin Architecture Rules
+- **activate() always called** — even without config (receives `{}`). Initialize all instance vars here.
+- **Live data in memory** — never write volatile metrics to disk. Use `self._latest`, `self._history`.
+- **Disk for persistence only** — clipboard entries, user config, saved tokens.
+- **No locks** — `LocalBlobStore` uses atomic file writes (`tempfile + os.replace`). No threading.Lock (deadlocks on hot-reload).
+- **Thumbnail data flow:** Python `get_status()` → JS `_feedStore()` → `renderThumbnail()` → canvas → grid card.
 
 ### Local Testing
 ```bash

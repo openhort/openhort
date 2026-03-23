@@ -409,6 +409,10 @@ Automated build, push, and deploy workflow:
 | Proxy returns 502 for large pages | Azure WS drops messages > ~64KB | Fixed: tunnel client chunks responses at 32KB — `http_response_start` + `http_response_chunk` |
 | Server hangs on startup with plugins | `psutil.cpu_percent(interval=0.5)` blocks event loop | Fixed: `run_on_activate=False` + scheduler start deferred 3s after startup |
 | "Host not connected" after redeploy | Host store wiped, new host_id generated | Re-register host, update config, restart tunnel. TODO: permanent UUID |
+| Plugin scripts 404 through proxy | Script URLs not prefixed with basePath | Fixed: `_loadScript` in `hort-plugins-ui.js` prepends `bp` to all plugin script URLs |
+| manifest.json 401 through proxy | Browser prefetches manifest before session cookie is set | Fixed: `<link rel="manifest">` removed from HTML, added dynamically only when not proxied |
+| Old service worker breaks proxy | SW cached from local access intercepts proxy requests | Fixed: SW only registered when `!_basePath`. Users must manually unregister old SWs |
+| Only 1 spirit visible remotely | Spirit visibility in localStorage (not synced) | Fixed: stored on server at `/api/config/ui.spirits`, loaded on all browsers |
 
 ### Landing Page
 
@@ -535,6 +539,22 @@ The access server generates a new random `host_id` on every `create_host()` call
 **Current state:** Known issue. The host_id should be a permanent UUID generated once locally and sent to the access server during registration.
 
 **Workaround:** After redeployment, re-register the host, update `hort-config.yaml`, restart the tunnel, and refresh the temp token via the Cloud panel's "Refresh Token" button.
+
+### Plugin activate() Not Called Without Config
+
+The registry's `load_extension()` originally only called `activate(config)` if `config is not None`. Since `load_compatible()` passes `cfg.get(manifest.name)` which is `None` for plugins without explicit config, `activate()` was never called. Plugins that initialized instance variables in `activate()` (like `self._latest = {}`) would crash when `get_status()` tried to read them.
+
+**Fix:** Always call `activate(config or {})` — pass empty dict if no config.
+
+### Service Worker Caching Through Proxy
+
+An old service worker registered during local access stays cached in the browser. When accessing through the Azure proxy, the SW intercepts all fetches and fails (`TypeError: Failed to fetch`) because it can't reach the origin. All requests get 502'd.
+
+**Fix:** Don't register SW when proxied (`if (!_basePath)`). For existing cached SWs, users must manually unregister via DevTools → Application → Service Workers → Unregister.
+
+### Spirit Visibility Not Syncing to Remote
+
+The "Show in Llmings" toggle was stored in `localStorage` (browser-side only). Remote browsers had empty localStorage, so no spirits showed. Fixed by storing the visibility list on the server via `/api/config/ui.spirits`.
 
 ### Cloud Connector Green Dot vs Actual Connectivity
 

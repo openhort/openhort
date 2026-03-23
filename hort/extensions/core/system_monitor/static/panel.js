@@ -17,6 +17,16 @@
     _lastMetrics = null;
     _history = [];
 
+    _feedStore(store) {
+      if (store.latest) this._lastMetrics = store.latest;
+      const h = [];
+      for (const [k, v] of Object.entries(store)) {
+        if (k.startsWith('history:') && v) h.push(v);
+      }
+      h.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      this._history = h.slice(-60);
+    }
+
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#64748b', text = '#f0f4ff', muted = '#94a3b8';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
@@ -90,43 +100,26 @@
           const history = Vue.ref([]);
           const chartRef = Vue.ref(null);
 
-          async function fetchStore() {
-            // Try main app endpoint, fall back to debugger
-            for (const url of [bp + '/api/plugins/system-monitor/store', bp + '/api/plugin/store']) {
-              try {
-                const r = await fetch(url);
-                if (r.ok) return await r.json();
-              } catch {}
-            }
+          async function fetchStatus() {
+            try {
+              const r = await fetch(bp + '/api/plugins/system-monitor/status');
+              if (r.ok) return await r.json();
+            } catch {}
             return null;
           }
 
           async function refresh() {
             try {
-              const store = await fetchStore();
+              const store = await fetchStatus();
               if (store && store.latest) {
                 latest.value = store.latest;
+                history.value = store.history || [];
                 // Cache for thumbnail rendering
                 const inst = HortExtension.get('system-monitor');
                 if (inst) {
                   inst._lastMetrics = store.latest;
-                  // Build history from store
-                  const h = [];
-                  for (const [k, v] of Object.entries(store)) {
-                    if (k.startsWith('history:') && v) h.push(v);
-                  }
-                  h.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-                  inst._history = h.slice(-60);
+                  inst._history = store.history || [];
                 }
-              }
-
-              if (store) {
-                const entries = [];
-                for (const [k, v] of Object.entries(store)) {
-                  if (k.startsWith('history:') && v) entries.push(v);
-                }
-                entries.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-                history.value = entries.slice(-60);
                 updateChart();
               }
             } catch {}

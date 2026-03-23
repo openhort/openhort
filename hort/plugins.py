@@ -85,6 +85,50 @@ async def start_plugins(registry: ExtensionRegistry) -> None:  # pragma: no cove
 
     asyncio.create_task(_deferred_start())
 
+    # Apply power settings from config on startup
+    try:
+        apply_power_settings()
+    except Exception:
+        pass
+
+
+_caffeinate_proc: Any = None
+
+
+def apply_power_settings() -> None:  # pragma: no cover
+    """Apply caffeinate/display settings from config. Called on startup and on change."""
+    import subprocess
+    import sys
+
+    if sys.platform != "darwin":
+        return
+
+    global _caffeinate_proc
+    from hort.config import get_store
+
+    cfg = get_store().get("general")
+
+    # Caffeinate
+    if cfg.get("caffeinate"):
+        if _caffeinate_proc is None or _caffeinate_proc.poll() is not None:
+            _caffeinate_proc = subprocess.Popen(
+                ["caffeinate", "-d", "-i", "-s"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            logger.info("Caffeinate started (pid %d)", _caffeinate_proc.pid)
+    else:
+        if _caffeinate_proc and _caffeinate_proc.poll() is None:
+            _caffeinate_proc.terminate()
+            logger.info("Caffeinate stopped")
+            _caffeinate_proc = None
+
+    # Display sleep
+    if cfg.get("display_sleep_disabled"):
+        subprocess.run(["pmset", "-a", "displaysleep", "0"], capture_output=True)
+        logger.info("Display sleep disabled")
+    else:
+        subprocess.run(["pmset", "-a", "displaysleep", "10"], capture_output=True)
+
 
 def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
     """Register plugin-related API endpoints on the app."""
@@ -128,6 +172,34 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
         return Response(
             content=json.dumps({"ok": ok}), media_type="application/json",
             status_code=200 if ok else 404,
+        )
+
+    @app.post("/api/system/apply-power")
+    async def apply_power() -> Response:
+        """Apply power settings (caffeinate, display sleep) from config."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, apply_power_settings)
+        return Response(content=json.dumps({"ok": True}), media_type="application/json")
+
+    @app.get("/api/plugins/{plugin_id}/status")
+    async def plugin_status(plugin_id: str) -> Response:
+        """Get plugin's in-memory status summary (no disk I/O)."""
+        inst = registry.get_instance(plugin_id)
+        if inst is None:
+            return Response(
+                content=json.dumps({"error": "Plugin not found"}),
+                media_type="application/json", status_code=404,
+            )
+        # Call get_status() if the plugin has it, otherwise empty
+        status: dict[str, Any] = {}
+        if hasattr(inst, "get_status"):
+            try:
+                status = inst.get_status()
+            except Exception:
+                pass
+        return Response(
+            content=json.dumps(status, default=str), media_type="application/json"
         )
 
     @app.get("/api/plugins/{plugin_id}/store")

@@ -250,6 +250,39 @@ Jobs run in executor threads — **never block the event loop**. Jobs gated by `
 
 ## Storage
 
+### In-Memory vs Disk: When to Use What
+
+| Data type | Storage | Example |
+|---|---|---|
+| Live metrics (CPU, network, processes) | **In-memory** (`self._latest`, `self._history`) | System monitor, network monitor |
+| Persistent records (clipboard entries, config) | **Disk** (`self.store`, `self.files`) | Clipboard history, user settings |
+| Thumbnail data | **In-memory** (cached on instance) | All plugins with `renderThumbnail` |
+
+**Rule: Never write volatile/live data to disk.** Metrics that refresh every 5 seconds should live in instance variables (`self._latest`). Disk storage is only for data that must survive restarts.
+
+**Pattern for live data plugins:**
+
+```python
+class MyMonitor(PluginBase, ScheduledMixin):
+    def activate(self, config):
+        self._latest = {}      # in-memory, volatile
+        self._history = []     # in-memory, volatile
+
+    def get_status(self):
+        """Returns in-memory data for thumbnails and API."""
+        return {"latest": self._latest, "history": self._history[-60:]}
+
+    def poll_data(self):
+        metrics = collect_metrics()
+        self._latest = metrics
+        self._history.append(metrics)
+        if len(self._history) > 60:
+            self._history = self._history[-60:]
+        # NO self.store.put() — never write live metrics to disk
+```
+
+The `/api/plugins/{id}/status` endpoint calls `get_status()` and returns the in-memory data. The thumbnail renderer on the client fetches this every 5 seconds.
+
 ### Key-Value Store (`PluginStore`)
 
 Every plugin gets an isolated key-value store via `self.store`. Values are dicts with optional TTL.
@@ -350,6 +383,8 @@ The AI assistant plugin can then read (not write) the email monitor's store via 
 Plugins run background jobs on intervals. Jobs execute in thread pool executors — **never blocking the event loop**.
 
 **Startup behavior:** Plugin schedulers start 3 seconds after the server finishes startup. Jobs with `run_on_activate: true` in the manifest do NOT run immediately during server startup — the first interval cycle handles it. This prevents blocking the event loop during startup (e.g., `psutil.cpu_percent(interval=0.5)` for 5 plugins would block for 2.5s).
+
+**Important:** `activate()` is always called on every plugin, even without explicit config (receives `{}`). Plugins MUST initialize their instance variables in `activate()`, not at class level — otherwise they won't exist when `get_status()` or scheduler jobs run.
 
 ### Declarative (in manifest)
 
@@ -686,11 +721,30 @@ Every plugin MUST provide at minimum:
 
 1. **Thumbnail** (`renderThumbnail(ctx, 320, 200)`) — canvas-based preview for the grid card. Shows essential info at a glance (numbers, bars, status). Updated every 5s. The thumbnail is drawn on an offscreen canvas and displayed as a JPEG data URL in the card's `<img>` tag. Cache data in instance properties (e.g. `this._lastMetrics`) from the component's refresh cycle, then draw from cache in `renderThumbnail`.
 
-   **Implementation pattern** (system-monitor example):
-   - Instance property: `_lastMetrics = null; _history = [];`
-   - In `setup()` refresh: `const inst = HortExtension.get('system-monitor'); if (inst) { inst._lastMetrics = data; inst._history = history; }`
-   - In `renderThumbnail()`: read `this._lastMetrics`, draw bars/sparklines on the 320×200 canvas
-   - Colors: use hex directly (not CSS vars — canvas doesn't support them). Use `#111827` bg, `#f0f4ff` text, `#94a3b8` dim, `#f59e0b` amber, `#3b82f6` blue, `#22c55e` green, `#ef4444` red.
+   **Data flow for thumbnails:**
+
+   ```
+   Server (Python)                    Client (JavaScript)
+   ┌─────────────────┐               ┌──────────────────────────┐
+   │ poll_metrics()   │  every 5s     │ fetch /api/plugins/      │
+   │ → self._latest   │ ───────────→ │   {name}/status          │
+   │ → self._history  │  (in-memory) │ → inst._feedStore(data)  │
+   │                  │               │ → renderThumbnail(ctx)   │
+   │ get_status()     │               │ → canvas → data URL      │
+   │ → {latest,       │               │ → <img> in grid card     │
+   │    history}      │               └──────────────────────────┘
+   └─────────────────┘
+   ```
+
+   **Python side:** `get_status()` returns in-memory data (no disk I/O).
+   **JS side:** `_feedStore(status)` caches data on the extension instance. `renderThumbnail()` reads from cache and draws.
+
+   **Implementation:**
+   - Python: `self._latest = metrics` in `poll_*()`, `get_status()` returns it
+   - JS: `_feedStore(store)` sets `this._lastMetrics = store.latest`
+   - JS: `renderThumbnail(ctx, w, h)` draws from `this._lastMetrics`
+   - Colors: use hex directly (not CSS vars — canvas doesn't support them). `#111827` bg, `#f0f4ff` text, `#94a3b8` dim, `#f59e0b` amber, `#3b82f6` blue, `#22c55e` green, `#ef4444` red.
+   - Charts: donut pie (disk usage), sparklines (CPU/MEM), horizontal bars (processes), large numbers (network)
 
 2. **Compact mode** — the default widget rendered inside the lightbox overlay (480px max). Must work on smartphone screens (both portrait and landscape). Use the `.widget-regions` CSS class for auto-wrapping layouts:
 

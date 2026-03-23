@@ -515,7 +515,7 @@ class TestLoadExtension:
         )
         instance = ExtensionRegistry().load_extension(m)
         assert instance is not None
-        assert not hasattr(instance, "config")
+        assert instance.config == {}  # activate always called with empty dict if no config
 
     def test_load_without_activate_method(self, tmp_path: Path) -> None:
         (tmp_path / "provider.py").write_text("class NoActivate: pass\n")

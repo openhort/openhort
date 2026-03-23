@@ -14,10 +14,15 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin):
     """Polls disk partition usage and stores it for the dashboard and AI."""
 
     def activate(self, config: dict[str, Any]) -> None:
+        self._latest: dict[str, Any] = {}
         self.log.info("Disk usage monitor activated")
 
     def deactivate(self) -> None:
         self.log.info("Disk usage monitor deactivated")
+
+    def get_status(self) -> dict[str, Any]:
+        """Return in-memory disk data."""
+        return {"latest": self._latest}
 
     # ===== Scheduler =====
 
@@ -44,23 +49,10 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin):
                     "percent": usage.percent,
                 })
 
-        data: dict[str, Any] = {
+        self._latest = {
             "timestamp": now,
             "partitions": partitions,
         }
-
-        import asyncio
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(self._store_disk_data(data))
-        finally:
-            loop.close()
-
-    async def _store_disk_data(self, data: dict[str, Any]) -> None:
-        """Store latest disk data and append to history."""
-        await self.store.put("latest", data)
-        ts = int(data["timestamp"])
-        await self.store.put(f"history:{ts}", data, ttl_seconds=1800)
 
     # ===== MCP =====
 
@@ -91,7 +83,7 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin):
         self, tool_name: str, arguments: dict[str, Any]
     ) -> MCPToolResult:
         if tool_name == "get_disk_usage":
-            data = await self.store.get("latest")
+            data = self._latest
             if not data:
                 return MCPToolResult(
                     content=[{"type": "text", "text": "No disk data available yet"}]
@@ -110,7 +102,7 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin):
 
         elif tool_name == "get_partition_details":
             mountpoint = arguments.get("mountpoint", "/")
-            data = await self.store.get("latest")
+            data = self._latest
             if not data:
                 return MCPToolResult(
                     content=[{"type": "text", "text": "No disk data available yet"}]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import signal
 from typing import Any
@@ -16,7 +15,12 @@ class ProcessManager(PluginBase, ScheduledMixin, MCPMixin):
     """Lists processes with CPU/memory usage, allows killing by PID."""
 
     def activate(self, config: dict[str, Any]) -> None:
+        self._latest: dict[str, Any] = {}
         self.log.info("Process manager activated")
+
+    def get_status(self) -> dict[str, Any]:
+        """Return in-memory process data."""
+        return {"processes": self._latest}
 
     def poll_processes(self) -> None:
         """Snapshot top processes by CPU usage."""
@@ -42,11 +46,7 @@ class ProcessManager(PluginBase, ScheduledMixin, MCPMixin):
         procs.sort(key=lambda p: p["cpu"], reverse=True)
         top = procs[:50]
 
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(self.store.put("processes", {"list": top, "total": len(procs)}))
-        finally:
-            loop.close()
+        self._latest = {"list": top, "total": len(procs)}
 
     # ===== MCP =====
 
@@ -76,10 +76,10 @@ class ProcessManager(PluginBase, ScheduledMixin, MCPMixin):
         self, tool_name: str, arguments: dict[str, Any]
     ) -> MCPToolResult:
         if tool_name == "list_processes":
-            data = await self.store.get("processes")
+            data = self._latest
             if not data:
                 return MCPToolResult(content=[{"type": "text", "text": "No process data yet"}])
-            procs = data.get("list", [])
+            procs = list(data.get("list", []))
             limit = arguments.get("limit", 20)
             sort_by = arguments.get("sort_by", "cpu")
             if sort_by == "mem":

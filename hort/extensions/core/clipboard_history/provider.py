@@ -15,14 +15,17 @@ from hort.ext.scheduler import ScheduledMixin
 class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin):
     """Polls the system clipboard and stores unique entries for search and review."""
 
-    _last_hash: str = ""
-
     def activate(self, config: dict[str, Any]) -> None:
-        self._last_hash = ""
+        self._last_hash: str = ""
+        self._clips: list[dict[str, Any]] = []
         self.log.info("Clipboard history activated")
 
     def deactivate(self) -> None:
         self.log.info("Clipboard history deactivated")
+
+    def get_status(self) -> dict[str, Any]:
+        """Return in-memory clipboard data."""
+        return {"clips": self._clips[-20:]}
 
     # ===== Scheduler =====
 
@@ -52,23 +55,30 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin):
 
         self._last_hash = text_hash
 
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(self._store_clip(text, text_hash))
-        finally:
-            loop.close()
-
-    async def _store_clip(self, text: str, text_hash: str) -> None:
-        """Store a clipboard entry and enforce the max 100 entry limit."""
-        ts = int(time.time() * 1000)  # millisecond timestamp for uniqueness
+        # Cache in memory
+        ts = int(time.time() * 1000)
         entry = {
             "text": text,
             "hash": text_hash,
             "timestamp": ts,
             "length": len(text),
         }
+        self._clips.append(entry)
+        if len(self._clips) > 100:
+            self._clips = self._clips[-100:]
+
+        # Persist to disk (clipboard is persistent data)
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(self._store_clip(entry))
+        finally:
+            loop.close()
+
+    async def _store_clip(self, entry: dict[str, Any]) -> None:
+        """Store a clipboard entry and enforce the max 100 entry limit."""
+        ts = entry["timestamp"]
         await self.store.put(f"clip:{ts}", entry, ttl_seconds=86400)
 
         # Enforce max 100 entries — remove oldest if over limit
@@ -122,13 +132,10 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin):
                     content=[{"type": "text", "text": "Query is required"}],
                     is_error=True,
                 )
-            keys = await self.store.list_keys("clip:")
-            keys.sort(reverse=True)
             matches = []
             query_lower = query.lower()
-            for k in keys:
-                entry = await self.store.get(k)
-                if entry and query_lower in entry.get("text", "").lower():
+            for entry in reversed(self._clips):
+                if query_lower in entry.get("text", "").lower():
                     matches.append(entry)
                     if len(matches) >= 20:
                         break
@@ -146,13 +153,7 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin):
 
         elif tool_name == "get_clipboard_history":
             limit = arguments.get("limit", 20)
-            keys = await self.store.list_keys("clip:")
-            keys.sort(reverse=True)
-            entries = []
-            for k in keys[:limit]:
-                entry = await self.store.get(k)
-                if entry:
-                    entries.append(entry)
+            entries = list(reversed(self._clips[-limit:]))
             if not entries:
                 return MCPToolResult(
                     content=[{"type": "text", "text": "No clipboard history available yet"}]

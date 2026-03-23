@@ -15,6 +15,15 @@
     // Cached clipboard data for thumbnail
     _lastClips = null;
 
+    _feedStore(store) {
+      const clips = [];
+      for (const [k, v] of Object.entries(store)) {
+        if (k.startsWith('clip:') && v) clips.push(v);
+      }
+      clips.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      this._lastClips = clips;
+    }
+
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
@@ -66,7 +75,7 @@
 
           async function refresh() {
             try {
-              const store = await fetch(bp + '/api/plugins/clipboard-history/store').catch(() => fetch(bp + '/api/plugin/store')).then(r => r.json()).catch(() => null);
+              const store = await fetch(bp + '/api/plugins/clipboard-history/status').catch(() => fetch(bp + '/api/plugins/clipboard-history/status')).then(r => r.json()).catch(() => null);
               if (!store) return;
               const items = [];
               for (const [k, v] of Object.entries(store)) {

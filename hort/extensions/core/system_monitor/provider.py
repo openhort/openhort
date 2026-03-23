@@ -36,6 +36,14 @@ def _run_coro(coro):  # type: ignore[no-untyped-def]
 class SystemMonitor(PluginBase, ScheduledMixin, MCPMixin, DocumentMixin):
     """Polls system metrics and stores them for the dashboard and AI."""
 
+    # In-memory live data (never written to disk for metrics)
+    _latest: dict[str, Any] = {}
+    _history: list[dict[str, Any]] = []
+
+    def get_status(self) -> dict[str, Any]:
+        """Return in-memory status for thumbnail rendering."""
+        return {"latest": self._latest, "history": self._history[-60:]}
+
     def activate(self, config: dict[str, Any]) -> None:
         self.log.info("System monitor activated")
 
@@ -76,20 +84,20 @@ class SystemMonitor(PluginBase, ScheduledMixin, MCPMixin, DocumentMixin):
             metrics["swap_percent"] = swap.percent
 
         if self.config.is_feature_enabled("disk"):
-            disk = psutil.disk_usage("/")
+            # On macOS, /System/Volumes/Data is the real user data volume
+            import os
+            disk_path = "/System/Volumes/Data" if os.path.exists("/System/Volumes/Data") else "/"
+            disk = psutil.disk_usage(disk_path)
             metrics["disk_total_gb"] = round(disk.total / (1024**3), 1)
             metrics["disk_used_gb"] = round(disk.used / (1024**3), 1)
             metrics["disk_percent"] = disk.percent
 
         # Store latest + history
-        _run_coro(self._store_metrics(metrics))
-
-    async def _store_metrics(self, metrics: dict[str, Any]) -> None:
-        """Store latest metrics and append to history."""
-        await self.store.put("latest", metrics)
-        # Keep last 60 entries (5 min at 5s interval)
-        ts = int(metrics["timestamp"])
-        await self.store.put(f"history:{ts}", metrics, ttl_seconds=300)
+        # Store in memory (volatile — no disk I/O for live metrics)
+        self._latest = metrics
+        self._history.append(metrics)
+        if len(self._history) > 60:
+            self._history = self._history[-60:]
 
     # ===== MCP =====
 
@@ -113,7 +121,7 @@ class SystemMonitor(PluginBase, ScheduledMixin, MCPMixin, DocumentMixin):
         self, tool_name: str, arguments: dict[str, Any]
     ) -> MCPToolResult:
         if tool_name == "get_system_metrics":
-            data = await self.store.get("latest")
+            data = self._latest
             if not data:
                 return MCPToolResult(content=[{"type": "text", "text": "No metrics available yet"}])
             lines = []
@@ -129,13 +137,7 @@ class SystemMonitor(PluginBase, ScheduledMixin, MCPMixin, DocumentMixin):
 
         elif tool_name == "get_system_history":
             limit = arguments.get("limit", 30)
-            keys = await self.store.list_keys("history:")
-            keys.sort(reverse=True)
-            entries = []
-            for k in keys[:limit]:
-                entry = await self.store.get(k)
-                if entry:
-                    entries.append(entry)
+            entries = list(reversed(self._history[-limit:]))
             return MCPToolResult(content=[{"type": "text", "text": f"{len(entries)} entries:\n" + "\n".join(
                 f"  CPU:{e.get('cpu_percent', '?')}% MEM:{e.get('mem_percent', '?')}% DISK:{e.get('disk_percent', '?')}%"
                 for e in entries
@@ -156,7 +158,7 @@ class SystemMonitor(PluginBase, ScheduledMixin, MCPMixin, DocumentMixin):
         ]
 
     def get_health_summary(self) -> str:
-        data = _run_coro(self.store.get("latest"))
+        data = self._latest
         if not data:
             return "No system metrics available yet. The monitor is starting up."
         lines = [

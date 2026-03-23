@@ -15,6 +15,8 @@
     // Cached disk data for thumbnail
     _lastDisks = null;
 
+    _feedStore(store) { if (store.latest) this._lastDisks = store.latest.partitions || []; }
+
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
@@ -26,37 +28,59 @@
         return;
       }
 
-      function barColor(pct) {
-        if (pct >= 90) return '#ef4444';
-        if (pct >= 80) return '#f59e0b';
-        return '#22c55e';
-      }
+      // Show main disks: prefer /System/Volumes/Data (macOS real data) or / on Linux
+      let main = disks.filter(d => d.total_gb > 1 && !d.mountpoint.includes('/Preboot') && !d.mountpoint.includes('/Update') && !d.mountpoint.includes('/VM') && !d.mountpoint.includes('/xarts') && !d.mountpoint.includes('/iSCPreboot') && !d.mountpoint.includes('/Hardware'));
+      // On macOS, /System/Volumes/Data is the real disk; skip bare / if Data exists
+      const dataVol = main.find(d => d.mountpoint === '/System/Volumes/Data');
+      if (dataVol) main = main.filter(d => d.mountpoint !== '/');
+      // Deduplicate same-size disks (macOS mirrors)
+      const seen = new Set();
+      main = main.filter(d => {
+        const key = Math.round(d.total_gb);
+        if (seen.has(key) && d.mountpoint !== '/System/Volumes/Data' && d.mountpoint !== '/') return false;
+        seen.add(key);
+        return true;
+      });
+      main = main.slice(0, 3);
+      if (!main.length) main.push(disks[0]);
+      const pieR = Math.min(38, (h - 40) / 2);
+      const spacing = w / (main.length + 1);
 
-      const maxBars = Math.min(disks.length, 5);
-      const barH = 24, gap = 10, startY = 20;
-      ctx.font = 'bold 11px system-ui';
-      ctx.textAlign = 'left';
-      for (let i = 0; i < maxBars; i++) {
-        const p = disks[i];
-        const y = startY + i * (barH + gap);
-        const pct = p.percent || 0;
-        // Background bar
-        ctx.fillStyle = '#1e293b'; ctx.fillRect(20, y, w - 40, barH);
-        // Fill bar
-        ctx.fillStyle = barColor(pct);
-        ctx.fillRect(20, y, (w - 40) * pct / 100, barH);
-        // Mount label
-        const label = p.mountpoint || p.device || '?';
-        ctx.fillStyle = text;
-        ctx.fillText(label.length > 16 ? label.substring(0, 16) + '..' : label, 26, y + 16);
-        // Percentage
-        ctx.textAlign = 'right';
-        ctx.fillText(Math.round(pct) + '%', w - 26, y + 16);
-        ctx.textAlign = 'left';
-      }
-      // Title
-      ctx.fillStyle = dim; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
-      ctx.fillText('Disk Usage', w / 2, h - 8);
+      main.forEach((d, i) => {
+        const cx = spacing * (i + 1);
+        const cy = h / 2 - 8;
+        const pct = (d.percent || 0) / 100;
+        const usedColor = pct > 0.9 ? '#ef4444' : pct > 0.8 ? '#f59e0b' : '#3b82f6';
+
+        // Free space arc (dark)
+        ctx.beginPath();
+        ctx.arc(cx, cy, pieR, 0, Math.PI * 2);
+        ctx.fillStyle = '#1e293b';
+        ctx.fill();
+
+        // Used space arc
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, pieR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
+        ctx.closePath();
+        ctx.fillStyle = usedColor;
+        ctx.fill();
+
+        // Center hole (donut)
+        ctx.beginPath();
+        ctx.arc(cx, cy, pieR * 0.55, 0, Math.PI * 2);
+        ctx.fillStyle = bg;
+        ctx.fill();
+
+        // Percentage in center
+        ctx.fillStyle = text; ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText(Math.round(d.percent) + '%', cx, cy + 5);
+
+        // Label below
+        ctx.fillStyle = dim; ctx.font = '9px system-ui';
+        const label = d.mountpoint === '/' ? 'Main' : (d.mountpoint || '').split('/').pop() || '?';
+        ctx.fillText(label, cx, cy + pieR + 14);
+      });
     }
 
     setup(app) {
@@ -68,7 +92,7 @@
 
           async function refresh() {
             try {
-              const store = await fetch(bp + '/api/plugins/disk-usage/store').catch(() => fetch(bp + '/api/plugin/store')).then(r => r.json()).catch(() => null);
+              const store = await fetch(bp + '/api/plugins/disk-usage/status').catch(() => fetch(bp + '/api/plugins/disk-usage/status')).then(r => r.json()).catch(() => null);
               if (store && store.latest) {
                 const data = store.latest;
                 partitions.value = data.partitions || [];

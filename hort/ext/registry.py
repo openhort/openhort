@@ -133,8 +133,8 @@ class ExtensionRegistry:
             instance._ctx = context
             self._contexts[manifest.name] = context
 
-        if config is not None and hasattr(instance, "activate"):
-            instance.activate(config)
+        if hasattr(instance, "activate"):
+            instance.activate(config or {})
 
         self._instances[manifest.name] = instance
         for cap in manifest.capabilities:

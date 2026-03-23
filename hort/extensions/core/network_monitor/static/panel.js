@@ -15,6 +15,8 @@
     // Cached network data for thumbnail
     _lastNetwork = null;
 
+    _feedStore(store) { if (store.latest) this._lastNetwork = store.latest; }
+
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
@@ -87,7 +89,7 @@
 
           async function refresh() {
             try {
-              const store = await fetch(bp + '/api/plugins/network-monitor/store').catch(() => fetch(bp + '/api/plugin/store')).then(r => r.json()).catch(() => null);
+              const store = await fetch(bp + '/api/plugins/network-monitor/status').catch(() => fetch(bp + '/api/plugins/network-monitor/status')).then(r => r.json()).catch(() => null);
               if (store && store.latest) {
                 latest.value = store.latest;
                 // Cache for thumbnail rendering

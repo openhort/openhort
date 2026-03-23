@@ -1792,21 +1792,106 @@
           </div>
         </div>
 
-        <!-- Config view — card grid for all plugins -->
+        <!-- Config view — sub-screens: top level → General / Extensions -->
         <div v-if="viewTab === 'config'">
-          <div class="llming-grid">
-            <div v-for="p in allPlugins" :key="p.name"
-                 class="grid-card" @click="selectedPlugin = selectedPlugin === p.name ? null : p.name">
-              <div class="card-thumb-icon" style="position:relative">
-                <i :class="p.icon || 'ph ph-puzzle-piece'"></i>
-                <span style="position:absolute;top:8px;right:8px;font-size:10px;padding:2px 6px;border-radius:4px"
-                  :style="{background: p.loaded ? 'rgba(34,197,94,0.2)' : 'rgba(148,163,184,0.15)', color: p.loaded ? 'var(--el-success)' : 'var(--el-text-dim)'}">
-                  {{ p.loaded ? 'On' : 'Off' }}
-                </span>
-              </div>
+          <!-- Top level: category cards -->
+          <div v-if="!configScreen" class="llming-grid">
+            <div class="grid-card" @click="configScreen = 'general'">
+              <div class="card-thumb-icon"><i class="ph ph-gear"></i></div>
               <div class="grid-card-info">
-                <div class="card-app">{{ p.name }}</div>
-                <div class="card-name">{{ p.description }}</div>
+                <div class="card-app">General</div>
+                <div class="card-name">System settings, power, display</div>
+              </div>
+            </div>
+            <div class="grid-card" @click="configScreen = 'extensions'">
+              <div class="card-thumb-icon"><i class="ph ph-puzzle-piece"></i></div>
+              <div class="grid-card-info">
+                <div class="card-app">Extensions</div>
+                <div class="card-name">{{ allPlugins.length }} plugins installed</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- General settings -->
+          <div v-if="configScreen === 'general'" style="padding:0 10px">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0 12px">
+              <button class="header-btn" @click="configScreen = null" style="padding:5px 8px"><i class="ph ph-arrow-left" style="font-size:18px"></i></button>
+              <span style="font-size:15px;font-weight:600">General Settings</span>
+            </div>
+            <div style="max-width:480px">
+              <!-- Caffeinate -->
+              <div class="grid-card" style="height:auto;margin-bottom:10px">
+                <div style="padding:14px;display:flex;align-items:center;gap:12px">
+                  <i class="ph ph-coffee" style="font-size:28px;color:var(--el-warning)"></i>
+                  <div style="flex:1">
+                    <div style="font-size:14px;font-weight:600">Stay Awake</div>
+                    <div style="font-size:12px;color:#cbd5e1">Prevent Mac from sleeping. Keeps server accessible for remote connections.</div>
+                  </div>
+                  <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer">
+                    <input type="checkbox" :checked="generalConfig.caffeinate" @change="toggleGeneral('caffeinate', $event.target.checked)"
+                      style="opacity:0;width:0;height:0">
+                    <span style="position:absolute;inset:0;border-radius:12px;transition:background .2s"
+                      :style="{background: generalConfig.caffeinate ? 'var(--el-success)' : 'var(--el-border)'}">
+                      <span style="position:absolute;top:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .2s"
+                        :style="{left: generalConfig.caffeinate ? '22px' : '2px'}"></span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <!-- Display sleep -->
+              <div class="grid-card" style="height:auto;margin-bottom:10px">
+                <div style="padding:14px;display:flex;align-items:center;gap:12px">
+                  <i class="ph ph-monitor" style="font-size:28px;color:var(--el-primary)"></i>
+                  <div style="flex:1">
+                    <div style="font-size:14px;font-weight:600">Display Sleep</div>
+                    <div style="font-size:12px;color:#cbd5e1">Turn off display after inactivity (server keeps running).</div>
+                  </div>
+                  <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer">
+                    <input type="checkbox" :checked="!generalConfig.display_sleep_disabled" @change="toggleGeneral('display_sleep_disabled', !$event.target.checked)"
+                      style="opacity:0;width:0;height:0">
+                    <span style="position:absolute;inset:0;border-radius:12px;transition:background .2s"
+                      :style="{background: !generalConfig.display_sleep_disabled ? 'var(--el-success)' : 'var(--el-border)'}">
+                      <span style="position:absolute;top:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .2s"
+                        :style="{left: !generalConfig.display_sleep_disabled ? '22px' : '2px'}"></span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <!-- Dev mode info -->
+              <div class="grid-card" style="height:auto;margin-bottom:10px">
+                <div style="padding:14px;display:flex;align-items:center;gap:12px">
+                  <i class="ph ph-code" style="font-size:28px;color:var(--el-accent)"></i>
+                  <div style="flex:1">
+                    <div style="font-size:14px;font-weight:600">Developer Mode</div>
+                    <div style="font-size:12px;color:#cbd5e1">Hot-reload enabled, debug logging active.</div>
+                  </div>
+                  <hort-status-badge :status="state.serverVersion ? 'ok' : 'offline'" label="Active" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Extensions sub-screen -->
+          <div v-if="configScreen === 'extensions'">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px 12px">
+              <button class="header-btn" @click="configScreen = null" style="padding:5px 8px"><i class="ph ph-arrow-left" style="font-size:18px"></i></button>
+              <span style="font-size:15px;font-weight:600">Extensions</span>
+              <span style="font-size:12px;color:var(--el-text-dim)">{{ allPlugins.length }} installed</span>
+            </div>
+            <div class="llming-grid">
+              <div v-for="p in allPlugins" :key="p.name"
+                   class="grid-card" @click="selectedPlugin = selectedPlugin === p.name ? null : p.name">
+                <div class="card-thumb-icon" style="position:relative">
+                  <i :class="p.icon || 'ph ph-puzzle-piece'"></i>
+                  <span style="position:absolute;top:8px;right:8px;font-size:10px;padding:2px 6px;border-radius:4px"
+                    :style="{background: p.loaded ? 'rgba(34,197,94,0.2)' : 'rgba(148,163,184,0.15)', color: p.loaded ? 'var(--el-success)' : 'var(--el-text-dim)'}">
+                    {{ p.loaded ? 'On' : 'Off' }}
+                  </span>
+                </div>
+                <div class="grid-card-info">
+                  <div class="card-app">{{ p.name }}</div>
+                  <div class="card-name">{{ p.description }}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -1994,8 +2079,30 @@
         return state.navWindows.findIndex(w => w.window_id === win.window_id && w.target_id === win.target_id);
       }
 
-      // View tabs + target dropdown + spirits
+      // View tabs + config sub-screens
       const viewTab = ref('screens');
+      const configScreen = ref(null); // null | 'general' | 'extensions'
+      const generalConfig = reactive({ caffeinate: false, display_sleep_disabled: false });
+
+      // Load general config from server
+      async function loadGeneralConfig() {
+        try {
+          const r = await fetch(apiUrl('/api/config/general'));
+          if (r.ok) Object.assign(generalConfig, await r.json());
+        } catch {}
+      }
+      async function toggleGeneral(key, value) {
+        generalConfig[key] = value;
+        await fetch(apiUrl('/api/config/general'), {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({...generalConfig}),
+        }).catch(() => {});
+        // Apply caffeinate immediately
+        if (key === 'caffeinate' || key === 'display_sleep_disabled') {
+          fetch(apiUrl('/api/system/apply-power'), { method: 'POST' }).catch(() => {});
+        }
+      }
+      loadGeneralConfig();
       const targetDropdownOpen = ref(false);
       const activeTargetLabel = computed(() => {
         const t = state.targets.find(t => t.id === state.activeTarget);
@@ -2105,37 +2212,71 @@
         return state.terminals.filter(t => t.target_id === targetId);
       }
 
-      // Plugin thumbnail rendering (for spirit cards in grid)
+      // Plugin thumbnail rendering — fetches in-memory status from server, renders canvas
       const pluginThumbs = reactive({});
-      function renderPluginThumbs() {
-        if (typeof HortPlugins !== 'undefined') {
-          HortPlugins.renderAllThumbnails();
-          if (typeof HortExtension !== 'undefined') {
-            for (const [id] of HortExtension.getRegistry()) {
-              const url = HortPlugins.getThumbnailUrl(id);
-              if (url) pluginThumbs[id] = url;
+      async function renderPluginThumbs() {
+        if (typeof HortExtension === 'undefined' || typeof HortPlugins === 'undefined') return;
+        // Fetch lightweight status from each spirit (in-memory, no disk I/O)
+        for (const sp of spiritsList.value) {
+          const inst = HortExtension.get(sp.name);
+          if (!inst) continue;
+          try {
+            const r = await fetch(apiUrl(`/api/plugins/${sp.name}/status`));
+            if (r.ok) {
+              const status = await r.json();
+              if (inst._feedStore) inst._feedStore(status);
             }
-          }
+          } catch {}
+        }
+        HortPlugins.renderAllThumbnails();
+        for (const [id] of HortExtension.getRegistry()) {
+          const url = HortPlugins.getThumbnailUrl(id);
+          if (url) pluginThumbs[id] = url;
         }
       }
       setInterval(renderPluginThumbs, 5000);
-      setTimeout(renderPluginThumbs, 3000); // first render after plugins load
+      setTimeout(renderPluginThumbs, 3000);
 
-      // Interaction tracking + favorites — persisted to localStorage
-      const _interactionKey = 'hort-last-interaction';
-      const _favoritesKey = 'hort-favorites';
-      const lastInteraction = reactive(JSON.parse(localStorage.getItem(_interactionKey) || '{}'));
-      const favorites = reactive(JSON.parse(localStorage.getItem(_favoritesKey) || '{}'));
+      // Interaction tracking + favorites — stored on server, synced to all clients
+      const lastInteraction = reactive({});
+      const favorites = reactive({});
+      let _uiStateDirty = false;
+
+      // Load from server
+      async function loadUIState() {
+        try {
+          const r = await fetch(apiUrl('/api/config/ui.state'));
+          if (r.ok) {
+            const cfg = await r.json();
+            Object.assign(lastInteraction, cfg.interactions || {});
+            Object.assign(favorites, cfg.favorites || {});
+          }
+        } catch {}
+      }
+      // Save to server (debounced — max once per 2s)
+      let _saveTimer = null;
+      function saveUIState() {
+        if (_saveTimer) return;
+        _saveTimer = setTimeout(() => {
+          _saveTimer = null;
+          fetch(apiUrl('/api/config/ui.state'), {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({interactions: {...lastInteraction}, favorites: {...favorites}}),
+          }).catch(() => {});
+        }, 2000);
+      }
 
       function touch(itemKey) {
         lastInteraction[itemKey] = Date.now();
-        localStorage.setItem(_interactionKey, JSON.stringify(lastInteraction));
+        saveUIState();
       }
       function toggleFavorite(itemKey) {
         favorites[itemKey] = !favorites[itemKey];
         if (!favorites[itemKey]) delete favorites[itemKey];
-        localStorage.setItem(_favoritesKey, JSON.stringify(favorites));
+        saveUIState();
       }
+      loadUIState();
+      setInterval(loadUIState, 30000); // sync from host every 30s
       function isFavorite(itemKey) { return !!favorites[itemKey]; }
 
       // Unified sorted grid: spirits + terminals + windows
@@ -2178,14 +2319,20 @@
           });
         }
 
-        // Sort: favorites first, then by last interaction (most recent first)
+        // Sort: favorites first, then spirits (default priority), then by last interaction
         items.sort((a, b) => {
           const aFav = favorites[a.key] ? 1 : 0;
           const bFav = favorites[b.key] ? 1 : 0;
-          if (aFav !== bFav) return bFav - aFav; // favorites first
+          if (aFav !== bFav) return bFav - aFav;
           const aTs = lastInteraction[a.key] || 0;
           const bTs = lastInteraction[b.key] || 0;
-          return bTs - aTs; // most recent first
+          if (aTs !== bTs) return bTs - aTs;
+          // No interaction data: spirits before windows/terminals
+          if (a.type !== b.type) {
+            if (a.type === 'spirit') return -1;
+            if (b.type === 'spirit') return 1;
+          }
+          return a.app.localeCompare(b.app);
         });
         return items;
       });
@@ -2256,6 +2403,7 @@
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
         onCloudSave,
         viewTab, spiritsList, spiritCount, allPlugins,
+        configScreen, generalConfig, toggleGeneral,
         selectedSpirit, selectedPlugin, toggleSpiritFeature,
         spiritStoreKeys, spiritUIVisible, toggleSpiritUI, spiritWidgetName,
         unifiedGridItems, touch, lastInteraction, pluginThumbs,
@@ -2662,7 +2810,9 @@
   if (typeof HortPlugins !== 'undefined') {
     HortPlugins.discoverAndLoadPlugins().then(() => {
       if (typeof HortExtension !== 'undefined') HortExtension.activateAll(app, Quasar, {});
-      pluginsLoaded.value++;  // trigger reactive re-evaluation of spirit grids
+      pluginsLoaded.value++;
+      // Delay second trigger to ensure spirit visibility config has loaded
+      setTimeout(() => { pluginsLoaded.value++; }, 2000);
     });
   }
 

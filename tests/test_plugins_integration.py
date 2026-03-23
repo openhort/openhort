@@ -94,18 +94,15 @@ class TestSystemMonitor:
         # Run the polling job
         instance.poll_metrics()
 
-        # Check store has data
-        loop = asyncio.new_event_loop()
-        try:
-            latest = loop.run_until_complete(ctx.store.get("latest"))
-            assert latest is not None
-            assert "cpu_percent" in latest
-            assert "mem_percent" in latest
-            assert "disk_percent" in latest
-            assert latest["cpu_percent"] >= 0
-            assert latest["mem_total_gb"] > 0
-        finally:
-            loop.close()
+        # Check in-memory data
+        status = instance.get_status()
+        latest = status["latest"]
+        assert latest is not None
+        assert "cpu_percent" in latest
+        assert "mem_percent" in latest
+        assert "disk_percent" in latest
+        assert latest["cpu_percent"] >= 0
+        assert latest["mem_total_gb"] > 0
 
     def test_mcp_tools(self, tmp_path: Path) -> None:
         instance, ctx = load_test_plugin("system_monitor", tmp_path)
@@ -141,18 +138,15 @@ class TestProcessManager:
 
         instance.poll_processes()
 
-        loop = asyncio.new_event_loop()
-        try:
-            data = loop.run_until_complete(ctx.store.get("processes"))
-            assert data is not None
-            assert "list" in data
-            assert len(data["list"]) > 0
-            proc = data["list"][0]
-            assert "pid" in proc
-            assert "name" in proc
-            assert "cpu" in proc
-        finally:
-            loop.close()
+        status = instance.get_status()
+        data = status["processes"]
+        assert data is not None
+        assert "list" in data
+        assert len(data["list"]) > 0
+        proc = data["list"][0]
+        assert "pid" in proc
+        assert "name" in proc
+        assert "cpu" in proc
 
     def test_mcp_list(self, tmp_path: Path) -> None:
         instance, ctx = load_test_plugin("process_manager", tmp_path)
@@ -177,14 +171,11 @@ class TestNetworkMonitor:
 
         instance.poll_network()
 
-        loop = asyncio.new_event_loop()
-        try:
-            latest = loop.run_until_complete(ctx.store.get("latest"))
-            assert latest is not None
-            assert "interfaces" in latest
-            assert len(latest["interfaces"]) > 0
-        finally:
-            loop.close()
+        status = instance.get_status()
+        latest = status["latest"]
+        assert latest is not None
+        assert "interfaces" in latest
+        assert len(latest["interfaces"]) > 0
 
     def test_mcp_status(self, tmp_path: Path) -> None:
         instance, ctx = load_test_plugin("network_monitor", tmp_path)
@@ -209,17 +200,14 @@ class TestDiskUsage:
 
         instance.poll_disks()
 
-        loop = asyncio.new_event_loop()
-        try:
-            latest = loop.run_until_complete(ctx.store.get("latest"))
-            assert latest is not None
-            assert "partitions" in latest
-            assert len(latest["partitions"]) > 0
-            part = latest["partitions"][0]
-            assert "mountpoint" in part
-            assert "percent" in part
-        finally:
-            loop.close()
+        status = instance.get_status()
+        latest = status["latest"]
+        assert latest is not None
+        assert "partitions" in latest
+        assert len(latest["partitions"]) > 0
+        part = latest["partitions"][0]
+        assert "mountpoint" in part
+        assert "percent" in part
 
     def test_mcp_disk_usage(self, tmp_path: Path) -> None:
         instance, ctx = load_test_plugin("disk_usage", tmp_path)
@@ -246,6 +234,11 @@ class TestClipboardHistory:
         # Poll clipboard (captures whatever is currently copied)
         instance.poll_clipboard()
 
+        # Check in-memory cache
+        status = instance.get_status()
+        assert isinstance(status["clips"], list)
+
+        # Disk persistence should still work
         loop = asyncio.new_event_loop()
         try:
             keys = loop.run_until_complete(ctx.store.list_keys("clip:"))

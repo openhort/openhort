@@ -13,16 +13,19 @@ from hort.ext.scheduler import ScheduledMixin
 class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin):
     """Polls network interface counters and stores bandwidth metrics."""
 
-    _prev_counters: dict[str, dict[str, int]]
-    _prev_time: float
-
     def activate(self, config: dict[str, Any]) -> None:
-        self._prev_counters = {}
-        self._prev_time = 0.0
+        self._prev_counters: dict[str, dict[str, int]] = {}
+        self._prev_time: float = 0.0
+        self._latest: dict[str, Any] = {}
+        self._history: list[dict[str, Any]] = []
         self.log.info("Network monitor activated")
 
     def deactivate(self) -> None:
         self.log.info("Network monitor deactivated")
+
+    def get_status(self) -> dict[str, Any]:
+        """Return in-memory network data."""
+        return {"latest": self._latest, "history": self._history[-60:]}
 
     # ===== Scheduler =====
 
@@ -93,20 +96,12 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin):
             metrics["total_upload_bps"] = round(total_up_bps, 1)
             metrics["total_download_bps"] = round(total_down_bps, 1)
 
-        # Store latest + history
-        import asyncio
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(self._store_metrics(metrics))
-        finally:
-            loop.close()
-
-    async def _store_metrics(self, metrics: dict[str, Any]) -> None:
-        """Store latest metrics and append to history."""
-        await self.store.put("latest", metrics)
+        # Store latest + append to history (in-memory only)
+        self._latest = metrics
+        self._history.append(metrics)
         # Keep last 60 entries (5 min at 5s interval)
-        ts = int(metrics["timestamp"])
-        await self.store.put(f"history:{ts}", metrics, ttl_seconds=300)
+        if len(self._history) > 60:
+            self._history = self._history[-60:]
 
     # ===== MCP =====
 
@@ -130,7 +125,7 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin):
         self, tool_name: str, arguments: dict[str, Any]
     ) -> MCPToolResult:
         if tool_name == "get_network_status":
-            data = await self.store.get("latest")
+            data = self._latest
             if not data:
                 return MCPToolResult(content=[{"type": "text", "text": "No network data available yet"}])
             lines = []
@@ -148,13 +143,7 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin):
 
         elif tool_name == "get_network_history":
             limit = arguments.get("limit", 30)
-            keys = await self.store.list_keys("history:")
-            keys.sort(reverse=True)
-            entries = []
-            for k in keys[:limit]:
-                entry = await self.store.get(k)
-                if entry:
-                    entries.append(entry)
+            entries = list(reversed(self._history[-limit:]))
             return MCPToolResult(content=[{"type": "text", "text": f"{len(entries)} entries:\n" + "\n".join(
                 f"  UP:{_format_speed(e.get('total_upload_bps', 0))} DOWN:{_format_speed(e.get('total_download_bps', 0))}"
                 for e in entries
