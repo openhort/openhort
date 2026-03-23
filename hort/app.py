@@ -77,6 +77,19 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     app = FastAPI(title="openhort", version="0.1.0")
     app.state.dev_mode = is_dev
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    # Mount extension static directories
+    _ext_dir = Path(__file__).parent / "extensions" / "core"
+    if _ext_dir.exists():
+        for ext_path in _ext_dir.iterdir():
+            static_dir = ext_path / "static"
+            if static_dir.is_dir():
+                app.mount(
+                    f"/ext/{ext_path.name}/static",
+                    StaticFiles(directory=str(static_dir)),
+                    name=f"ext-{ext_path.name}",
+                )
+
     _register_targets()
     _register_routes(app)
 
@@ -102,7 +115,125 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
 
         asyncio.create_task(_scan_loop())
 
+    @app.on_event("startup")
+    async def _start_cloud_connector() -> None:
+        """Auto-start cloud tunnel and create temporary token if enabled."""
+        from hort.config import get_store
+
+        cloud = get_store().get("connector.cloud")
+        if cloud.get("enabled") and cloud.get("server") and cloud.get("key"):
+            _apply_cloud_config(cloud)
+        # Always create tokens if cloud is configured (even if tunnel not started yet)
+        if cloud.get("server") and cloud.get("host_id"):
+            _create_startup_tokens(app)
+
+    @app.post("/api/connectors/cloud/token")
+    async def create_cloud_token(request: Request) -> Response:
+        """Create or regenerate a cloud access token."""
+        data = await request.json()
+        permanent = data.get("permanent", False)
+        from hort.access.tokens import TokenStore
+
+        store = TokenStore()
+        if permanent:
+            token = store.create_permanent("Cloud Access Key")
+            app.state.cloud_tokens["permanent"] = token
+        else:
+            # Revoke old temp tokens and create a new one
+            store.revoke_all_temporary()
+            token = store.create_temporary("Cloud Session", duration_seconds=86400)
+            app.state.cloud_tokens["temporary"] = token
+            _TEMP_TOKEN_FILE.write_text(token)
+        return Response(
+            content=json.dumps({"ok": True, "token": token, "permanent": permanent}),
+            media_type="application/json",
+        )
+
+    @app.get("/api/qr")
+    async def generate_qr(request: Request) -> Response:
+        """Generate a QR code data URI for any URL."""
+        url = request.query_params.get("url", "")
+        if not url:
+            return Response(
+                content=json.dumps({"qr": ""}), media_type="application/json"
+            )
+        qr_data_uri = generate_qr_data_uri(url)
+        return Response(
+            content=json.dumps({"qr": qr_data_uri}), media_type="application/json"
+        )
+
     return app
+
+
+_TEMP_TOKEN_FILE = Path("~/.hort/current-temp-token").expanduser()
+
+
+def _create_startup_tokens(app: FastAPI) -> None:  # pragma: no cover
+    """Reuse existing temp token if still valid, otherwise create a new one."""
+    from hort.access.tokens import TokenStore
+
+    store = TokenStore()
+    temp_token = ""
+
+    # Try to reuse persisted temp token
+    if _TEMP_TOKEN_FILE.exists():
+        saved = _TEMP_TOKEN_FILE.read_text().strip()
+        if saved and store.verify(saved):
+            temp_token = saved
+            logger.info("Reusing existing temp token (still valid)")
+
+    # Create new one only if no valid token
+    if not temp_token:
+        store.revoke_all_temporary()
+        temp_token = store.create_temporary("Cloud Session", duration_seconds=86400)
+        _TEMP_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _TEMP_TOKEN_FILE.write_text(temp_token)
+        logger.info("Created new temp token (24h)")
+
+    # Check if a permanent token exists
+    has_perm = any(
+        t["permanent"] and t["label"] == "Cloud Access Key"
+        for t in store.list_tokens()
+    )
+    app.state.cloud_tokens = {
+        "temporary": temp_token,
+        "has_permanent": has_perm,
+    }
+
+
+def _apply_cloud_config(config: dict[str, Any]) -> None:  # pragma: no cover
+    """Start or stop the cloud tunnel based on config."""
+    import signal
+    import subprocess
+
+    active_file = Path("/tmp/hort-tunnel.active")
+    pid_file = Path("/tmp/hort-tunnel.pid")
+
+    # Kill existing tunnel if running
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, signal.SIGTERM)
+            logger.info("Stopped cloud tunnel (pid %d)", pid)
+        except (ProcessLookupError, ValueError, OSError):
+            pass
+        pid_file.unlink(missing_ok=True)
+        active_file.unlink(missing_ok=True)
+
+    # Start new tunnel if enabled
+    if config.get("enabled") and config.get("server") and config.get("key"):
+        logger.info("Starting cloud tunnel to %s", config["server"])
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "hort.access.tunnel_client",
+             f"--server={config['server']}", f"--key={config['key']}",
+             "--local=http://localhost:8940"],
+            stdout=open("/tmp/hort-tunnel.log", "a"),
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        pid_file.write_text(str(proc.pid))
+    else:
+        logger.info("Cloud tunnel disabled")
 
 
 def _refresh_docker_targets() -> None:
@@ -189,13 +320,9 @@ def _register_routes(app: FastAPI) -> None:
     """Register all HTTP and WebSocket routes."""
 
     @app.get("/", response_class=HTMLResponse)
-    async def landing_page() -> str:
-        lan_ip = get_lan_ip()
-        server_info = ServerInfo(
-            lan_ip=lan_ip, http_port=HTTP_PORT, https_port=HTTPS_PORT
-        )
-        qr_data_uri = generate_qr_data_uri(server_info.https_url)
-        return _render_landing(server_info, qr_data_uri, _static_hash())
+    async def root_page() -> HTMLResponse:
+        """Serve the viewer as the root page."""
+        return await viewer_page()
 
     @app.get("/viewer", response_class=HTMLResponse)
     async def viewer_page() -> HTMLResponse:
@@ -249,18 +376,106 @@ def _register_routes(app: FastAPI) -> None:
             headers={"Cache-Control": "no-cache"},
         )
 
+    @app.get("/api/connectors")
+    async def get_connectors() -> Response:
+        """Return active connectors (LAN, cloud proxy). Only for local access."""
+        lan_ip = get_lan_ip()
+        server_info = ServerInfo(
+            lan_ip=lan_ip, http_port=HTTP_PORT, https_port=HTTPS_PORT
+        )
+        qr_data_uri = generate_qr_data_uri(server_info.https_url)
+
+        # Check tunnel status — file format: server_url\nhost_id
+        tunnel_active = Path("/tmp/hort-tunnel.active").exists()
+        tunnel_server = ""
+        tunnel_host_id = ""
+        if tunnel_active:  # pragma: no cover
+            try:
+                lines = Path("/tmp/hort-tunnel.active").read_text().strip().split("\n")
+                tunnel_server = lines[0] if lines else ""
+                tunnel_host_id = lines[1] if len(lines) > 1 else ""
+            except OSError:
+                pass
+
+        # Fallback: read host_id from config if not in tunnel file
+        if not tunnel_host_id:  # pragma: no cover
+            from hort.config import get_store
+
+            cloud_cfg = get_store().get("connector.cloud")
+            tunnel_host_id = cloud_cfg.get("host_id", "")
+
+        # Cloud tokens — read from app state
+        cloud_tokens: dict[str, Any] = {}
+        if hasattr(app.state, "cloud_tokens"):  # pragma: no cover
+            cloud_tokens = app.state.cloud_tokens
+
+        return Response(
+            content=json.dumps({
+                "lan": {
+                    "active": True,
+                    "ip": lan_ip,
+                    "http_url": server_info.http_url,
+                    "https_url": server_info.https_url,
+                    "qr": qr_data_uri,
+                },
+                "cloud": {
+                    "active": tunnel_active,
+                    "server_url": tunnel_server,
+                    "host_id": tunnel_host_id,
+                    "tokens": cloud_tokens,
+                },
+            }),
+            media_type="application/json",
+        )
+
+    @app.get("/api/config/{plugin_id:path}")
+    async def get_config(plugin_id: str) -> Response:
+        """Get config for a plugin by its unique ID."""
+        from hort.config import get_store
+
+        config = get_store().get(plugin_id)
+        return Response(content=json.dumps(config), media_type="application/json")
+
+    @app.post("/api/config/{plugin_id:path}")
+    async def update_config(plugin_id: str, request: Request) -> Response:
+        """Update config for a plugin by its unique ID (merge)."""
+        from hort.config import get_store
+
+        data = await request.json()
+        merged = get_store().update(plugin_id, data)
+
+        # React to cloud connector enable/disable
+        if plugin_id == "connector.cloud":
+            _apply_cloud_config(merged)
+
+        return Response(
+            content=json.dumps({"ok": True, "config": merged}),
+            media_type="application/json",
+        )
+
     @app.post("/api/session")
-    async def create_session() -> dict[str, str]:
-        """Create a new viewer session and return its ID."""
+    async def create_session(request: Request) -> dict[str, Any]:
+        """Create a new viewer session and return its ID.
+
+        Detects if the request is local or proxied so the UI knows
+        whether to show connector controls.
+        """
         from hort.session import HortRegistry, HortSessionEntry
 
         registry = HortRegistry.get()
         import secrets
 
         session_id = secrets.token_urlsafe(24)
+        # Detect if accessed locally or through the proxy
+        host_header = request.headers.get("host", "")
+        is_local = (
+            "localhost" in host_header
+            or host_header.startswith("127.")
+            or host_header.split(":")[0].count(".") == 3  # IP address
+        )
         entry = HortSessionEntry(user_id="viewer")
         registry.register(session_id, entry)
-        return {"session_id": session_id}
+        return {"session_id": session_id, "is_local": is_local}
 
     @app.websocket("/ws/control/{session_id}")
     async def control_ws(websocket: WebSocket, session_id: str) -> None:
@@ -399,7 +614,9 @@ def _dev_reload_script() -> str:
 (function(){
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     function connect() {
-        const ws = new WebSocket(proto + '://' + location.host + '/ws/devreload');
+        const _b = document.querySelector('base');
+        const _bp = _b ? new URL(_b.href).pathname.replace(/\/$/, '') : '';
+        const ws = new WebSocket(proto + '://' + location.host + _bp + '/ws/devreload');
         ws.onmessage = function(e) {
             const msg = JSON.parse(e.data);
             if (msg.type === 'reload') { console.log('[dev] reloading...'); location.reload(); }

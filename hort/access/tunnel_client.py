@@ -15,7 +15,10 @@ import base64
 import json
 import logging
 import sys
+from pathlib import Path
 from typing import Any
+
+import zlib
 
 import httpx
 
@@ -53,7 +56,18 @@ class TunnelClient:
             try:
                 async with websockets.connect(tunnel_url) as ws:
                     self._ws = ws
-                    status_file.write_text(self._server_url)
+                    # Read welcome message to get host_id
+                    host_id = ""
+                    try:
+                        welcome_raw = await asyncio.wait_for(ws.recv(), timeout=5)
+                        welcome = json.loads(welcome_raw)
+                        if welcome.get("type") == "welcome":
+                            host_id = welcome.get("host_id", "")
+                            logger.info("Assigned host_id: %s", host_id)
+                    except Exception as e:
+                        logger.warning("No welcome message: %s", e)
+                    # Write status: server_url\nhost_id
+                    status_file.write_text(f"{self._server_url}\n{host_id}")
                     logger.info("Connected to access server")
                     await self._message_loop(ws)
             except Exception as e:
@@ -100,13 +114,28 @@ class TunnelClient:
                     content=body,
                     timeout=30.0,
                 )
-                await ws.send(json.dumps({
-                    "type": "http_response",
-                    "req_id": req_id,
-                    "status": resp.status_code,
-                    "headers": dict(resp.headers),
-                    "body": resp.content.decode("latin-1"),
-                }))
+                # Split large responses into small WS messages
+                # Azure's WS proxy silently drops messages > ~64KB
+                body_b64 = base64.b64encode(resp.content).decode("ascii")
+                CHUNK = 32000
+                if len(body_b64) <= CHUNK:
+                    await ws.send(json.dumps({
+                        "type": "http_response",
+                        "req_id": req_id,
+                        "status": resp.status_code,
+                        "headers": dict(resp.headers),
+                        "body_b64": body_b64,
+                    }))
+                else:
+                    chunks = [body_b64[i:i + CHUNK] for i in range(0, len(body_b64), CHUNK)]
+                    for i, chunk in enumerate(chunks):
+                        await ws.send(json.dumps({
+                            "type": "http_response_start" if i == 0 else "http_response_chunk",
+                            "req_id": req_id,
+                            **({"status": resp.status_code, "headers": dict(resp.headers), "total_chunks": len(chunks)} if i == 0 else {}),
+                            "chunk_index": i,
+                            "chunk": chunk,
+                        }))
         except Exception as e:
             await ws.send(json.dumps({
                 "type": "http_response",

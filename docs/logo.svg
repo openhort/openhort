@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 40" width="676" height="104">
+  <defs>
+    <filter id="glow"><feGaussianBlur stdDeviation="1.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <!-- Base text — bold italic golden -->
+  <text x="12" y="30" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="28" font-weight="700" font-style="italic"
+        fill="none" stroke="#d4a017" stroke-width="0.8" opacity="0.6" letter-spacing="1">OpenHORT</text>
+  <!-- Single electron tracing letters -->
+  <text x="12" y="30" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="28" font-weight="700" font-style="italic"
+        fill="none" stroke="#fbbf24" stroke-width="0.8" opacity="0.9" letter-spacing="1"
+        stroke-dasharray="6 594" stroke-linecap="round">
+    <animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/>OpenHORT</text>
+  <!-- Electron glow -->
+  <text x="12" y="30" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="28" font-weight="700" font-style="italic"
+        fill="none" stroke="#d4a017" stroke-width="2" filter="url(#glow)" opacity="0" letter-spacing="1"
+        stroke-dasharray="6 594" stroke-linecap="round">
+    <animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.15;0.25;0.15" dur="2s" repeatCount="indefinite"/>OpenHORT</text>
+</svg>

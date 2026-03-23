@@ -1,0 +1,22 @@
+services:
+  access-server:
+    build:
+      context: ../..
+      dockerfile: hort/access/Dockerfile
+      args:
+        BUILD_VERSION: "${BUILD_VERSION:-dev}"
+        BUILD_TIME: "${BUILD_TIME:-}"
+    image: yourregistry.azurecr.io/openhort/access-server:${IMAGE_TAG:-latest}
+    platform: linux/amd64
+    ports:
+      - "${HORT_ACCESS_PORT:-8400}:8080"
+    environment:
+      - ACCESS_SESSION_SECRET=${ACCESS_SESSION_SECRET:-dev-secret-change-me}
+      - HORT_ADMIN_PASSWORD=${HORT_ADMIN_PASSWORD:-OpenHort2026!}
+      - HORT_HTTPS=${HORT_HTTPS:-0}
+    volumes:
+      - access-data:/data
+    restart: unless-stopped
+
+volumes:
+  access-data:

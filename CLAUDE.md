@@ -29,7 +29,9 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/cert.py` — Self-signed TLS certificate generation
 - `hort/ext/` — Extension system (types, manifest, registry)
 - `hort/containers/` — Container management (base ABC, Docker provider, registry)
-- `hort/extensions/core/` — Built-in platform extensions (macOS, Linux)
+- `hort/extensions/core/` — Built-in platform extensions (macOS, Linux, LAN/Cloud connectors)
+- `hort/access/` — Remote access proxy server (Azure deployment, tunnel protocol, token auth)
+- `hort/access/docker-compose.yml` — Docker Compose for local dev and Azure deployment
 - `hort/static/index.html` — Quasar/Vue 3 mobile-first UI
 - `hort/static/vendor/` — Pre-compiled Vue 3, Quasar, xterm.js, Plotly.js, Material Icons
 
@@ -122,6 +124,29 @@ pkill -f "uvicorn hort.app" && sleep 2 && poetry run python run.py  # Restart se
 Rotating log file at `logs/openhort.log` (5 MB, 3 backups). Captures startup, shutdown, and any deadlocks during hot-reload. Check this file when the server hangs:
 ```bash
 tail -50 logs/openhort.log
+```
+
+## Access Server (Cloud Proxy)
+
+Remote access via `https://openhort-access.azurewebsites.net`. See [docs/access-server.md](docs/access-server.md) for full details.
+
+### Deploying
+```bash
+bash scripts/deploy-access.sh
+# Verify: curl https://openhort-access.azurewebsites.net/cfversion
+```
+
+### Critical Azure Findings
+- **WS message size limit:** Azure silently drops WebSocket messages > ~64KB. Tunnel client chunks large responses into 32KB messages.
+- **Image caching:** `latest` tag doesn't force re-pull. Always use versioned tags (deploy script does this automatically).
+- **Content-Length:** Must be removed from proxied response headers after `<base>` tag injection (changes body size).
+- **Quasar UMD:** Scripts MUST be in `<body>`, not `<head>` — Quasar needs DOM to exist at load time.
+- **Persistent storage:** FileStore JSON is ephemeral. Mount `/data/` volume. Admin user created by entrypoint only if store missing.
+
+### Local Testing
+```bash
+docker compose -f hort/access/docker-compose.yml up -d   # Start access server on port 8400
+poetry run python -m hort.access.tunnel_client --server=http://localhost:8400 --key=<KEY> --local=http://localhost:8940
 ```
 
 ## Environment

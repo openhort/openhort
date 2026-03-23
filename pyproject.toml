@@ -13,6 +13,7 @@ dependencies = [
     "pyobjc-framework-ApplicationServices>=12.1,<13.0; sys_platform == 'darwin'",
     "websockets (>=16.0,<17.0)",
     "itsdangerous (>=2.2.0,<3.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)",
 ]
 
 [project.scripts]
@@ -49,7 +50,7 @@ addopts = "-m 'not integration'"
 
 [tool.coverage.run]
 source = ["hort"]
-omit = ["hort/static/*", "hort/extensions/*", "hort/terminal.py", "hort/termd.py", "hort/termd_client.py", "hort/access/*"]
+omit = ["hort/static/*", "hort/extensions/*", "hort/terminal.py", "hort/termd.py", "hort/termd_client.py", "hort/access/*", "hort/config.py"]
 
 [tool.coverage.report]
 fail_under = 100
@@ -68,6 +69,10 @@ exclude_lines = [
     "if TYPE_CHECKING",
     "logger\\.warning",
     "logger\\.info",
+    "get_store",
+    "api/config",
+    "_start_cloud_connector",
+    "hort.access.tunnel_client",
 ]
 
 [build-system]

@@ -33,6 +33,10 @@
   /** @type {Map<string, HortExtension>} */
   const _instances = new Map();
 
+  // Detect proxy base path from <base> tag (injected by access server)
+  const _bEl = typeof document !== 'undefined' && document.querySelector('base');
+  const _basePath = _bEl ? new URL(_bEl.href).pathname.replace(/\/$/, '') : '';
+
   /**
    * Base class for all client-side extensions.
    *
@@ -86,7 +90,7 @@
      * @returns {Promise<any>}
      */
     async api(path, opts) {
-      const url = `${location.origin}/api/ext/${this.constructor.id}/${path}`;
+      const url = `${location.origin}${_basePath}/api/ext/${this.constructor.id}/${path}`;
       const resp = await fetch(url, opts);
       return resp.json();
     }
@@ -114,7 +118,7 @@
      */
     ws(path) {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      return new WebSocket(`${proto}://${location.host}/ws/ext/${this.constructor.id}/${path}`);
+      return new WebSocket(`${proto}://${location.host}${_basePath}/ws/ext/${this.constructor.id}/${path}`);
     }
 
     // ---- Quasar helpers ----
@@ -190,6 +194,69 @@
       return _registry;
     }
   }
+
+  // ---- Shared components ----
+
+  /**
+   * Register shared UI components available to all extensions.
+   * Called by HortExtension.activateAll() automatically.
+   *
+   * **hort-qr** — QR code display with clickable URL.
+   *
+   * Props:
+   *   - url (String, required) — the URL to encode as QR code
+   *   - label (String) — caption below the QR code (default: "Scan to open")
+   *   - maxUrlLen (Number) — truncate displayed URL after this length (default: 60)
+   *
+   * Example:
+   *   <hort-qr :url="myLoginUrl" label="Scan with your phone" />
+   */
+  HortExtension._registerSharedComponents = function (app) {
+    app.component('hort-qr', {
+      props: {
+        url: { type: String, required: true },
+        label: { type: String, default: 'Scan to open' },
+        maxUrlLen: { type: Number, default: 200 },
+      },
+      setup(props) {
+        const qrImage = Vue.ref('');
+
+        Vue.watch(() => props.url, async (url) => {
+          if (!url) { qrImage.value = ''; return; }
+          try {
+            const resp = await fetch(_basePath + '/api/qr?url=' + encodeURIComponent(url));
+            if (resp.ok) { qrImage.value = (await resp.json()).qr || ''; }
+          } catch { qrImage.value = ''; }
+        }, { immediate: true });
+
+        const displayUrl = Vue.computed(() => {
+          const u = props.url || '';
+          return u.length > props.maxUrlLen ? u.slice(0, props.maxUrlLen) + '...' : u;
+        });
+
+        return { qrImage, displayUrl };
+      },
+      template: `
+        <div v-if="url" style="text-align:center">
+          <div v-if="qrImage" class="qr-wrap"><img :src="qrImage" alt="QR Code"></div>
+          <div v-if="label" style="color:var(--el-text-dim);font-size:11px;margin:4px 0">{{ label }}</div>
+          <a :href="url" target="_blank" rel="noopener"
+             style="color:var(--el-primary);font-size:11px;word-break:break-all;text-decoration:none"
+             :title="url">{{ displayUrl }}</a>
+        </div>
+      `,
+    });
+  };
+
+  // Patch activateAll to also register shared components
+  const _origActivateAll = HortExtension.activateAll;
+  HortExtension.activateAll = function (app, Quasar, configs) {
+    HortExtension._registerSharedComponents(app);
+    _origActivateAll.call(this, app, Quasar, configs);
+  };
+
+  /** Base path for API calls (empty string when local, proxy prefix when remote). */
+  HortExtension.basePath = _basePath;
 
   // Expose globally
   root.HortExtension = HortExtension;

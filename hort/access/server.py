@@ -18,6 +18,7 @@ Host tunnel protocol:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -60,6 +61,8 @@ class HostTunnel:
         self.connected_at = time.monotonic()
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._send_queue: asyncio.Queue[str] = asyncio.Queue()
+        self._chunked: dict[str, dict[str, Any]] = {}  # req_id → partial response
+        self._ws_clients: dict[str, WebSocket] = {}  # ws_id → browser WebSocket
 
     async def proxy_request(
         self, method: str, path: str, headers: dict[str, str], body: bytes
@@ -79,13 +82,38 @@ class HostTunnel:
             "body": body.decode("latin-1") if body else "",
         }))
         try:
-            return await asyncio.wait_for(future, timeout=30.0)
+            resp = await asyncio.wait_for(future, timeout=30.0)
+            # Normalize body: decode base64 variants to raw "body" string
+            if "body_b64" in resp:
+                resp["body"] = base64.b64decode(resp["body_b64"]).decode("utf-8", errors="replace")
+                del resp["body_b64"]
+            elif "body_zb64" in resp:
+                import zlib
+                resp["body"] = zlib.decompress(base64.b64decode(resp["body_zb64"])).decode("utf-8", errors="replace")
+                del resp["body_zb64"]
+            return resp
+        except asyncio.TimeoutError:
+            logger.error("Tunnel request timeout: req=%s %s %s", req_id, method, path)
+            raise
         finally:
             self._pending.pop(req_id, None)
 
     async def send_raw(self, msg: str) -> None:
         """Queue a raw JSON message to send through the tunnel."""
         await self._send_queue.put(msg)
+
+    def _finish_chunked(self, req_id: str) -> None:
+        """Reassemble chunked response and resolve the pending future."""
+        info = self._chunked.pop(req_id, None)
+        if not info:
+            return
+        # Reassemble chunks in order
+        body_b64 = "".join(info["chunks"][i] for i in range(info["total"]))
+        self.resolve_response(req_id, {
+            "status": info["status"],
+            "headers": info["headers"],
+            "body_b64": body_b64,
+        })
 
     def resolve_response(self, req_id: str, response: dict[str, Any]) -> None:
         """Resolve a pending HTTP request with the host's response."""
@@ -104,8 +132,45 @@ class HostTunnel:
                     msg_type = msg.get("type", "")
                     if msg_type == "http_response":
                         self.resolve_response(msg.get("req_id", ""), msg)
-            except (WebSocketDisconnect, Exception):
+                    elif msg_type == "http_response_start":
+                        req_id = msg.get("req_id", "")
+                        self._chunked[req_id] = {
+                            "status": msg.get("status", 200),
+                            "headers": msg.get("headers", {}),
+                            "total": msg.get("total_chunks", 1),
+                            "chunks": {msg.get("chunk_index", 0): msg.get("chunk", "")},
+                        }
+                        if msg.get("total_chunks", 1) == 1:
+                            self._finish_chunked(req_id)
+                    elif msg_type == "http_response_chunk":
+                        req_id = msg.get("req_id", "")
+                        if req_id in self._chunked:
+                            self._chunked[req_id]["chunks"][msg.get("chunk_index", 0)] = msg.get("chunk", "")
+                            if len(self._chunked[req_id]["chunks"]) >= self._chunked[req_id]["total"]:
+                                self._finish_chunked(req_id)
+                    elif msg_type == "ws_data":
+                        ws_id = msg.get("ws_id", "")
+                        client_ws = self._ws_clients.get(ws_id)
+                        if client_ws:
+                            try:
+                                if "binary" in msg:
+                                    await client_ws.send_bytes(base64.b64decode(msg["binary"]))
+                                elif "text" in msg:
+                                    await client_ws.send_text(msg["text"])
+                            except Exception:
+                                pass
+                    elif msg_type == "ws_close":
+                        ws_id = msg.get("ws_id", "")
+                        client_ws = self._ws_clients.pop(ws_id, None)
+                        if client_ws:
+                            try:
+                                await client_ws.close()
+                            except Exception:
+                                pass
+            except WebSocketDisconnect:
                 pass
+            except Exception as e:
+                logger.error("Tunnel reader error: %s", e)
 
         async def writer() -> None:
             try:
@@ -148,9 +213,12 @@ def create_access_app(
         store = FileStore()
 
     app = FastAPI(title="openhort-access", version="0.1.0")
+    is_https = os.environ.get("HORT_HTTPS", "0") == "1"
     app.add_middleware(
         SessionMiddleware,
         secret_key=os.environ.get("ACCESS_SESSION_SECRET") or secrets.token_hex(32),
+        https_only=is_https,
+        same_site="none" if is_https else "lax",
     )
 
     if static_dir:
@@ -336,6 +404,12 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             return
 
         await websocket.accept()
+        # Send welcome with host_id so the client knows its identity
+        await websocket.send_text(json.dumps({
+            "type": "welcome",
+            "host_id": host_record.host_id,
+            "display_name": host_record.display_name,
+        }))
         tunnel = HostTunnel(host_record.host_id, host_record.display_name, websocket)
         _tunnels[host_record.host_id] = tunnel
         logger.info("Host connected: %s (%s)", host_record.display_name, host_record.host_id)
@@ -356,10 +430,19 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             await websocket.close(code=4004, reason="Host not connected")
             return
 
+        # Check auth
+        # WebSocket requests don't have session middleware auto-parse,
+        # but cookies are available
+        session_cookie = websocket.cookies.get("session", "")
+        if not session_cookie:
+            await websocket.close(code=4001, reason="Not authenticated")
+            return
+
         await websocket.accept()
 
         # Tell the host to open a WS connection
         ws_id = secrets.token_hex(8)
+        tunnel._ws_clients[ws_id] = websocket
         await tunnel.send_raw(json.dumps({
             "type": "ws_open",
             "ws_id": ws_id,
@@ -390,6 +473,7 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             except WebSocketDisconnect:
                 pass
             finally:
+                tunnel._ws_clients.pop(ws_id, None)
                 await tunnel.send_raw(json.dumps({
                     "type": "ws_close",
                     "ws_id": ws_id,
@@ -441,14 +525,42 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             resp = await tunnel.proxy_request(
                 request.method, f"/{path}", headers, body
             )
-        except (ConnectionError, asyncio.TimeoutError):
+        except (ConnectionError, asyncio.TimeoutError) as e:
+            logger.error("Proxy error for /%s: %s", path, e)
             raise HTTPException(502, "Host not responding")
 
+        # Body is already decoded by proxy_request
+        body_str = resp.get("body", "")
+        body_bytes = body_str.encode("utf-8")
+        resp_headers = resp.get("headers", {})
+        content_type = resp_headers.get("content-type", "")
+
+        # Inject <base> tag into HTML so absolute paths resolve through proxy
+        if "text/html" in content_type:
+            base_tag = f'<base href="/proxy/{host_id}/">'
+            body_str = body_str.replace("<head>", f"<head>{base_tag}", 1)
+            body_bytes = body_str.encode("utf-8")
+            resp_headers["content-type"] = "text/html; charset=utf-8"
+        # Remove content-length — body may have been modified
+        resp_headers.pop("content-length", None)
+        resp_headers.pop("Content-Length", None)
+
         return Response(
-            content=resp.get("body", "").encode("latin-1"),
+            content=body_bytes,
             status_code=resp.get("status", 200),
-            headers=resp.get("headers", {}),
+            headers=resp_headers,
         )
+
+    # ===== Build version =====
+
+    @app.get("/cfversion")
+    async def cfversion() -> JSONResponse:
+        """Return embedded build version info."""
+        try:
+            build_info = json.loads(Path("/app/build_info.json").read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            build_info = {"version": "dev", "build_time": "unknown"}
+        return JSONResponse(build_info)
 
     # ===== Landing page =====
 
@@ -467,8 +579,6 @@ def _landing_html() -> str:
 <title>openhort access</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quasar@2.18.7/dist/quasar.prod.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@quasar/extras@1/material-icons/material-icons.css">
-<script src="https://cdn.jsdelivr.net/npm/vue@3.5.30/dist/vue.global.prod.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/quasar@2.18.7/dist/quasar.umd.prod.js"></script>
 <style>
 :root { --el-bg: #0a0e1a; --el-surface: #111827; --el-border: #1e3a5f; --el-primary: #3b82f6; --el-text: #f0f4ff; --el-text-dim: #94a3b8; }
 body { background: var(--el-bg); margin: 0; font-family: system-ui; }
@@ -505,6 +615,8 @@ body { background: var(--el-bg); margin: 0; font-family: system-ui; }
     </q-card>
   </div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.30/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quasar@2.18.7/dist/quasar.umd.prod.js"></script>
 <script>
 const { createApp, ref } = Vue;
 const app = createApp({

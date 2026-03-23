@@ -19,23 +19,17 @@ from hort.app import (
 from hort.models import ServerInfo
 
 
-class TestLandingPage:
-    def test_returns_html(self, app_client: TestClient) -> None:
-        with patch("hort.app.get_lan_ip", return_value="192.168.1.42"):
-            resp = app_client.get("/")
+class TestRootPage:
+    def test_root_serves_viewer(self, app_client: TestClient) -> None:
+        resp = app_client.get("/")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
-        assert "openhort" in resp.text
+        assert "hort" in resp.text
 
-    def test_contains_qr_code(self, app_client: TestClient) -> None:
-        with patch("hort.app.get_lan_ip", return_value="192.168.1.42"):
-            resp = app_client.get("/")
-        assert "data:image/png;base64," in resp.text
-
-    def test_contains_https_url(self, app_client: TestClient) -> None:
-        with patch("hort.app.get_lan_ip", return_value="192.168.1.42"):
-            resp = app_client.get("/")
-        assert "https://192.168.1.42:8950" in resp.text
+    def test_root_same_as_viewer(self, app_client: TestClient) -> None:
+        root = app_client.get("/")
+        viewer = app_client.get("/viewer")
+        assert root.status_code == viewer.status_code
 
 
 class TestRenderLanding:
@@ -210,6 +204,66 @@ class TestDevReloadWebSocket:
 
 
 # ===== Session-based endpoint tests =====
+
+
+class TestConnectorsEndpoint:
+    def test_returns_connectors(self, app_client: TestClient) -> None:
+        with patch("hort.app.get_lan_ip", return_value="192.168.1.42"):
+            resp = app_client.get("/api/connectors")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "lan" in data
+        assert "cloud" in data
+        assert data["lan"]["active"] is True
+        assert data["lan"]["ip"] == "192.168.1.42"
+
+
+class TestCloudTokenEndpoint:
+    def test_create_temporary_token(self, app_client: TestClient, tmp_path: Path) -> None:
+        app_client.app.state.cloud_tokens = {}  # type: ignore[union-attr]
+        with patch("hort.access.tokens.TokenStore") as MockStore, \
+             patch("hort.app._TEMP_TOKEN_FILE", tmp_path / "temp-token"):
+            inst = MockStore.return_value
+            inst.revoke_all_temporary.return_value = 0
+            inst.create_temporary.return_value = "temp-tok-123"
+            resp = app_client.post(
+                "/api/connectors/cloud/token",
+                json={"permanent": False},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["token"] == "temp-tok-123"
+        assert data["permanent"] is False
+
+    def test_create_permanent_token(self, app_client: TestClient) -> None:
+        app_client.app.state.cloud_tokens = {}  # type: ignore[union-attr]
+        with patch("hort.access.tokens.TokenStore") as MockStore:
+            inst = MockStore.return_value
+            inst.create_permanent.return_value = "perm-tok-456"
+            resp = app_client.post(
+                "/api/connectors/cloud/token",
+                json={"permanent": True},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["token"] == "perm-tok-456"
+        assert data["permanent"] is True
+
+
+class TestCloudQrEndpoint:
+    def test_generate_qr(self, app_client: TestClient) -> None:
+        resp = app_client.get("/api/qr?url=https://example.com/test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["qr"].startswith("data:image/png;base64,")
+
+    def test_empty_url(self, app_client: TestClient) -> None:
+        resp = app_client.get("/api/qr")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["qr"] == ""
 
 
 class TestSessionEndpoint:

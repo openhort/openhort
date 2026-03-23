@@ -1,6 +1,7 @@
 # Environment / secrets
 .env
 .env.*
+hort-config.yaml
 
 # Virtual environments
 .venv/

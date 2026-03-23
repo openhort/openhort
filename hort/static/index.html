@@ -7,16 +7,17 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#3b82f6">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="/manifest.json">
-<link rel="icon" href="/api/icon/192" type="image/png">
-<link rel="apple-touch-icon" href="/api/icon/192">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="api/icon/192" type="image/png">
+<link rel="apple-touch-icon" href="api/icon/192">
 <title>hort</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/bold/style.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/fill/style.css">
-<link rel="stylesheet" href="/static/vendor/material-icons.css">
-<link rel="stylesheet" href="/static/vendor/quasar.prod.css">
-<link rel="stylesheet" href="/static/vendor/xterm.css">
+<link rel="stylesheet" href="static/vendor/material-icons.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,300;0,400;0,700;1,700&display=swap">
+<link rel="stylesheet" href="static/vendor/quasar.prod.css">
+<link rel="stylesheet" href="static/vendor/xterm.css">
 <style>
 :root {
   --el-bg: #0a0e1a;
@@ -37,24 +38,52 @@ body {
     -webkit-user-select: none; user-select: none;
 }
 
-/* ===== PICKER VIEW ===== */
-.picker-header {
-    position: sticky; top: 0; z-index: 100;
-    background: var(--el-surface); padding: 10px 12px;
-    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+/* OpenHORT Logo Bar */
+.logo-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 12px; background: var(--el-surface);
     border-bottom: 1px solid var(--el-border);
 }
-.picker-header h1 { font-size: 15px; color: var(--el-primary); flex-shrink: 0; }
-.cloud-badge {
-    background: var(--el-success); color: #fff; font-size: 11px; font-weight: 600;
-    padding: 3px 10px; border-radius: 12px; display: flex; align-items: center; gap: 4px;
-    animation: cloud-pulse 2s ease-in-out infinite; flex-shrink: 0;
+.logo-svg { flex-shrink: 0; height: 58px; }
+@media (min-width: 768px) { .logo-svg { height: 67px; } }
+.logo-bar .connectors-inline { display: flex; gap: 6px; margin-left: auto; }
+
+/* ===== PICKER VIEW ===== */
+.connector-chip {
+    display: flex; align-items: center; gap: 5px;
+    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 8px;
+    padding: 5px 12px; font-size: 12px; color: var(--el-text-dim); cursor: pointer;
+    transition: border-color 0.15s;
 }
-@keyframes cloud-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
-.picker-header select {
-    flex: 1; min-width: 0; background: var(--el-border); color: var(--el-text);
-    border: 1px solid var(--el-primary); border-radius: 6px; padding: 7px 10px; font-size: 13px;
-    -webkit-appearance: none; appearance: none;
+.connector-chip:hover { border-color: var(--el-primary); color: var(--el-text); }
+.connector-chip .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.connector-chip .dot.on { background: var(--el-success); box-shadow: 0 0 6px var(--el-success); }
+.connector-chip .dot.off { background: var(--el-text-dim); }
+/* Connector panel overlay */
+.connector-panel-overlay {
+    position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.connector-panel {
+    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 16px;
+    width: 100%; max-width: 400px; overflow: hidden;
+}
+.connector-panel-header {
+    display: flex; align-items: center; gap: 10px; padding: 16px 20px;
+    border-bottom: 1px solid var(--el-border);
+}
+.connector-panel-header h3 { color: var(--el-primary); font-size: 16px; margin: 0; flex: 1; }
+.connector-panel-close { background: none; border: none; color: var(--el-text-dim); font-size: 20px; cursor: pointer; }
+.connector-panel-body { padding: 16px 20px; }
+.connector-panel-body .qr-wrap {
+    background: #fff; padding: 12px; border-radius: 10px; display: inline-block; margin: 10px 0;
+}
+.connector-panel-body .qr-wrap img { width: 180px; height: 180px; display: block; }
+.connector-panel-body .conn-url {
+    background: var(--el-bg); color: var(--el-accent); padding: 6px 10px; border-radius: 6px;
+    font-size: 12px; font-family: monospace; word-break: break-all; margin: 8px 0;
 }
 .target-divider {
     display: flex; align-items: center; gap: 8px;
@@ -462,17 +491,33 @@ body {
   <hort-app></hort-app>
 </div>
 
-<script src="/static/vendor/xterm.min.js"></script>
-<script src="/static/vendor/xterm-addon-fit.min.js"></script>
-<script src="/static/vendor/xterm-addon-web-links.min.js"></script>
-<script src="/static/vendor/vue.global.prod.js"></script>
-<script src="/static/vendor/quasar.umd.prod.js"></script>
-<script src="/static/vendor/hort-ext.js"></script>
+<script src="static/vendor/xterm.min.js"></script>
+<script src="static/vendor/xterm-addon-fit.min.js"></script>
+<script src="static/vendor/xterm-addon-web-links.min.js"></script>
+<script src="static/vendor/vue.global.prod.js"></script>
+<script src="static/vendor/quasar.umd.prod.js"></script>
+<script src="static/vendor/hort-ext.js"></script>
+<!-- Connector extension panels -->
+<script src="ext/lan_connector/static/panel.js"></script>
+<script src="ext/cloud_connector/static/panel.js"></script>
 <script>
 (function () {
   'use strict';
 
   const { createApp, ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, toRaw } = Vue;
+
+  // Detect proxy base path from <base> tag (injected by access server)
+  const _baseEl = document.querySelector('base');
+  const _basePath = _baseEl ? new URL(_baseEl.href).pathname.replace(/\/$/, '') : '';
+
+  function wsUrl(path) {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${proto}://${location.host}${_basePath}${path}`;
+  }
+
+  // Prefix API paths with base path (for cloud proxy support)
+  function apiUrl(path) { return _basePath + path; }
+  window.__hortBasePath = _basePath;
 
   // ===== SHARED STATE =====
   const state = reactive({
@@ -494,9 +539,15 @@ body {
     terminals: [],        // [{terminal_id, target_id, title, alive}]
     activeTerminalId: null,
 
-    // Cloud connector
-    tunnelActive: false,
-    tunnelServerUrl: '',
+    // Session
+    isLocal: true,  // true = direct access, false = through proxy
+
+    // Connectors (only shown when local)
+    connectors: {
+      lan: { active: false, ip: '', http_url: '', https_url: '', qr: '' },
+      cloud: { active: false, server_url: '' },
+    },
+    connectorPanelOpen: null,  // null | 'lan' | 'cloud'
 
     // Windows
     allWindows: [],
@@ -600,14 +651,33 @@ body {
 
   async function initSession() {
     try {
-      const resp = await fetch('/api/session', { method: 'POST' });
+      const resp = await fetch(apiUrl('/api/session'), { method: 'POST' });
       const data = await resp.json();
       state.sessionId = data.session_id;
+      state.isLocal = data.is_local !== false;
       connectControlWs();
+      // Fetch connectors if local
+      if (state.isLocal) fetchConnectors();
     } catch (e) {
       console.error('Failed to create session:', e);
       setTimeout(initSession, 2000);
     }
+  }
+
+  let _cloudOptimisticUntil = 0;
+
+  async function fetchConnectors() {
+    try {
+      const resp = await fetch(apiUrl('/api/connectors'));
+      if (resp.ok) {
+        const data = await resp.json();
+        // Preserve optimistic cloud state while tunnel is still connecting
+        if (_cloudOptimisticUntil > Date.now() && !data.cloud.active) {
+          data.cloud = state.connectors.cloud;
+        }
+        state.connectors = data;
+      }
+    } catch {}
   }
 
   function connectControlWs() {
@@ -615,8 +685,7 @@ body {
       state.controlWs.close();
       state.controlWs = null;
     }
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws/control/${state.sessionId}`);
+    const ws = new WebSocket(wsUrl(`/ws/control/${state.sessionId}`));
     state.controlWs = ws;
 
     ws.onopen = () => {
@@ -710,8 +779,10 @@ body {
         }
         break;
       case 'tunnel_status':
-        state.tunnelActive = msg.active || false;
-        state.tunnelServerUrl = msg.server_url || '';
+        state.connectors.cloud = {
+          active: msg.active || false,
+          server_url: msg.server_url || '',
+        };
         break;
       case 'token_created':
       case 'token_list':
@@ -862,8 +933,7 @@ body {
 
   function connectStreamWs() {
     disconnectStreamWs();
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws/stream/${state.sessionId}`);
+    const ws = new WebSocket(wsUrl(`/ws/stream/${state.sessionId}`));
     ws.binaryType = 'arraybuffer';
     state.streamWs = ws;
 
@@ -974,6 +1044,7 @@ body {
     requestWindows();
     requestSpaces();
     requestTerminalList();
+    if (state.isLocal) fetchConnectors();
     // Request thumbnails for current nav windows after a short delay for windows_list to arrive
     setTimeout(() => {
       if (state.view === 'picker') {
@@ -1869,16 +1940,48 @@ body {
   const HortPicker = {
     template: `
       <div v-show="state.view === 'picker'">
-        <!-- Header -->
-        <div class="picker-header">
-          <h1>hort</h1>
-          <span v-if="state.tunnelActive" class="cloud-badge" title="Connected to cloud">
-            <i class="ph-fill ph-cloud-check"></i> Cloud
-          </span>
-          <select :value="state.appFilter" @change="onAppFilterChange">
-            <option value="">All Apps</option>
-            <option v-for="name in state.appNames" :key="name" :value="name">{{ name }}</option>
-          </select>
+        <!-- Logo bar -->
+        <div class="logo-bar">
+          <svg class="logo-svg" viewBox="0 0 220 32" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <filter id="el-glow"><feGaussianBlur stdDeviation="1.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            <!-- Base text — bold, golden -->
+            <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic"
+                  fill="none" stroke="#d4a017" stroke-width="0.8" opacity="0.6" letter-spacing="1">OpenHORT</text>
+            <!-- Single electron — bright golden dot tracing letter by letter -->
+            <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic"
+                  fill="none" stroke="#fbbf24" stroke-width="0.8" opacity="0.9" letter-spacing="1"
+                  stroke-dasharray="6 594" stroke-linecap="round">
+              <animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/>OpenHORT</text>
+            <!-- Electron glow trail -->
+            <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic"
+                  fill="none" stroke="#d4a017" stroke-width="2" filter="url(#el-glow)" opacity="0" letter-spacing="1"
+                  stroke-dasharray="6 594" stroke-linecap="round">
+              <animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.15;0.25;0.15" dur="2s" repeatCount="indefinite"/>OpenHORT</text>
+          </svg>
+          <!-- Connectors inline (only when local) -->
+          <div v-if="state.isLocal" class="connectors-inline">
+            <div class="connector-chip" @click="state.connectorPanelOpen = 'lan'">
+              <span class="dot on"></span>
+              <i class="ph ph-wifi-high"></i> LAN
+            </div>
+            <div class="connector-chip" @click="state.connectorPanelOpen = 'cloud'">
+              <span class="dot" :class="state.connectors.cloud.active ? 'on' : 'off'"></span>
+              <i class="ph ph-cloud"></i> {{ state.connectors.cloud.active ? 'Cloud' : 'Cloud (off)' }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector detail panel (rendered by extensions) -->
+        <div v-if="state.connectorPanelOpen" class="connector-panel-overlay" @click.self="state.connectorPanelOpen = null">
+          <lan-connector-panel v-if="state.connectorPanelOpen === 'lan'"
+            :connectors="state.connectors" @close="state.connectorPanelOpen = null" />
+          <cloud-connector-panel v-if="state.connectorPanelOpen === 'cloud'"
+            :connectors="state.connectors"
+            @close="state.connectorPanelOpen = null"
+            @save="onCloudSave" />
         </div>
 
         <!-- Target bar -->
@@ -1900,19 +2003,6 @@ body {
           <button v-for="sp in state.spacesData.spaces" :key="sp.index"
                   class="space-btn" :class="{ active: sp.is_current }"
                   @click="doSwitchSpace(sp.index)">{{ sp.index }}</button>
-        </div>
-
-        <!-- Groups bar -->
-        <div class="groups-bar">
-          <div class="group-chip" :class="{ active: state.navMode === 'all' }" @click="setNavMode('all')">All</div>
-          <div v-for="(ids, name) in groupsList" :key="name"
-               class="group-chip" :class="{ active: state.navMode === name }"
-               @click="toggleGroup(name)"
-               @contextmenu.prevent="editGroup(name)"
-               @dblclick.prevent="editGroup(name)">{{ name }} ({{ ids.length }})</div>
-          <div class="group-chip new-group" @click="openNewGroup">
-            <i class="ph ph-plus"></i> Group
-          </div>
         </div>
 
         <!-- Unified grid -->
@@ -2085,6 +2175,20 @@ body {
         setTarget(targetId);
       }
 
+      // Cloud connector save handler (panel is rendered by extension)
+      function onCloudSave(enabled) {
+        if (enabled) {
+          state.connectors.cloud.active = true;
+          _cloudOptimisticUntil = Date.now() + 3000;
+        } else {
+          state.connectors.cloud.active = false;
+          state.connectors.cloud.server_url = '';
+          _cloudOptimisticUntil = 0;
+        }
+        state.connectorPanelOpen = null;
+        setTimeout(fetchConnectors, 1000);
+      }
+
       // Group windows by target for the flat "All" view
       const targetGroups = computed(() => {
         const groups = {};
@@ -2183,6 +2287,7 @@ body {
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
         onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal,
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
+        onCloudSave,
       };
     },
   };
@@ -2267,7 +2372,7 @@ body {
         BACKSPACE: '\x7f', ENTER: '\r',
       };
 
-      const softKeysVisible = ref(true);
+      const softKeysVisible = ref(false);
       const detectedActions = ref([]);
 
       const activeTerminal = computed(() => {
@@ -2299,8 +2404,7 @@ body {
         if (termWs) { termWs.close(); termWs = null; }
         currentTermId = terminalId;
 
-        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-        termWs = new WebSocket(proto + '://' + location.host + '/ws/terminal/' + terminalId);
+        termWs = new WebSocket(wsUrl('/ws/terminal/' + terminalId));
         termWs.binaryType = 'arraybuffer';
 
         termWs.onmessage = (e) => {
@@ -2396,10 +2500,31 @@ body {
           sendControl({ type: 'terminal_resize', terminal_id: currentTermId, cols, rows });
         });
 
-        // Handle window resize
-        const onResize = () => { if (fitAddon) fitAddon.fit(); };
-        window.addEventListener('resize', onResize);
-        xterm._hortResizeHandler = onResize;
+        // Debounced resize — fits terminal to container, max once per second
+        let resizeTimer = null;
+        const debouncedFit = () => {
+          if (resizeTimer) return;
+          resizeTimer = setTimeout(() => {
+            resizeTimer = null;
+            if (fitAddon && xterm && state.view === 'terminal') {
+              fitAddon.fit();
+            }
+          }, 1000);
+        };
+        window.addEventListener('resize', debouncedFit);
+        window.addEventListener('orientationchange', debouncedFit);
+        // Also observe the container itself (catches CSS layout changes)
+        let resizeObserver = null;
+        if (typeof ResizeObserver !== 'undefined' && termContainer.value) {
+          resizeObserver = new ResizeObserver(debouncedFit);
+          resizeObserver.observe(termContainer.value);
+        }
+        xterm._hortCleanup = () => {
+          window.removeEventListener('resize', debouncedFit);
+          window.removeEventListener('orientationchange', debouncedFit);
+          if (resizeObserver) resizeObserver.disconnect();
+          clearTimeout(resizeTimer);
+        };
       }
 
       // Watch for terminal activation
@@ -2429,7 +2554,7 @@ body {
       onUnmounted(() => {
         disconnectTerminal();
         if (xterm) {
-          if (xterm._hortResizeHandler) window.removeEventListener('resize', xterm._hortResizeHandler);
+          if (xterm._hortCleanup) xterm._hortCleanup();
           xterm.dispose();
         }
       });
@@ -2547,7 +2672,7 @@ body {
 
   // Register service worker for PWA installability (skip on localhost/self-signed)
   if ('serviceWorker' in navigator && location.hostname !== 'localhost' && !location.hostname.match(/^(\d+\.){3}\d+$/)) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register((_basePath || '') + '/sw.js').catch(() => {});
   }
 })();
 </script>

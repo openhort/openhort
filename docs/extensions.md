@@ -580,6 +580,38 @@ HortExtension.activateAll(app, Quasar, extensionConfigs);
 HortExtension.destroyAll();
 ```
 
+### Shared Components
+
+`hort-ext.js` registers shared Vue components that any extension can use in its templates. These are registered automatically when `activateAll()` is called.
+
+**`<hort-qr>`** — QR code with clickable URL
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `url` | String (required) | — | The URL to encode as a QR code |
+| `label` | String | `"Scan to open"` | Caption below the QR image |
+| `maxUrlLen` | Number | `60` | Truncate displayed URL after this length |
+
+The component fetches the QR image from `GET /api/qr?url=...` (server-side generation via `qrcode` library) and renders it with a clickable link to the URL below.
+
+```html
+<!-- In any extension template -->
+<hort-qr :url="myLoginUrl" label="Scan with your phone" />
+```
+
+### Connector Extensions
+
+Connector extensions provide UI panels for the connector bar (LAN, Cloud, etc.). They follow the same `HortExtension` pattern but register a `*-connector-panel` component:
+
+| Extension | Directory | Component |
+|---|---|---|
+| LAN | `extensions/core/lan_connector/` | `<lan-connector-panel>` |
+| Cloud | `extensions/core/cloud_connector/` | `<cloud-connector-panel>` |
+
+**Props:** `connectors` (the full connectors state object), **Emits:** `close`, `save`
+
+The host app loads connector panel scripts from `/ext/<name>/static/panel.js` and renders them inside the connector overlay.
+
 ### Server-Side: Static Assets
 
 Return a directory from `get_static_dir()`. The server mounts it at `/ext/<extension-name>/`:

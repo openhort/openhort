@@ -1,6 +1,15 @@
-# openhort
+<p align="center">
+  <img src="docs/logo.svg" alt="OpenHORT" width="676">
+</p>
 
-Remote window viewer and controller — watch and interact with your Mac from your phone, tablet, or another computer over your local network.
+<p align="center">
+  <strong>A Kindergarten for your LLMings.</strong><br>
+  Watch over your little AI agents as they work, play, and occasionally misbehave — across machines, containers, and clouds. From your phone, tablet, or browser.
+</p>
+
+---
+
+Your LLMings — Claude Code instances, coding agents, automated workflows — need supervision. OpenHORT is their daycare: a single dashboard where you can see what every LLMing is up to, open terminals to talk to them, view their screens, and keep them out of trouble. Locally, in Docker containers, or on remote machines across the cloud.
 
 ## Quick Start
 
