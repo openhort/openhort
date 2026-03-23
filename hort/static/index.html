@@ -37,6 +37,7 @@
 <!-- Connector extension panels -->
 <script src="ext/lan_connector/static/panel.js"></script>
 <script src="ext/cloud_connector/static/panel.js"></script>
+<script src="ext/telegram_connector/static/panel.js"></script>
 <script>
 (function () {
   'use strict';
@@ -83,8 +84,9 @@
     connectors: {
       lan: { active: false, ip: '', http_url: '', https_url: '', qr: '' },
       cloud: { active: false, server_url: '' },
+      messaging: {},  // {telegram: {active, token_set, allowed_users, polling, plugin_id}, ...}
     },
-    connectorPanelOpen: null,  // null | 'lan' | 'cloud'
+    connectorPanelOpen: null,  // null | 'lan' | 'cloud' | 'telegram'
 
     // Windows
     allWindows: [],
@@ -212,6 +214,7 @@
         if (_cloudOptimisticUntil > Date.now() && !data.cloud.active) {
           data.cloud = state.connectors.cloud;
         }
+        if (!data.messaging) data.messaging = {};
         state.connectors = data;
       }
     } catch {}
@@ -1586,7 +1589,11 @@
             </div>
             <div class="header-btn" @click="state.connectorPanelOpen = 'cloud'">
               <span class="dot" :class="state.connectors.cloud.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-              <i class="ph ph-cloud"></i> <span class="hide-mobile">{{ state.connectors.cloud.active ? 'Cloud' : 'Cloud' }}</span>
+              <i class="ph ph-cloud"></i> <span class="hide-mobile">Cloud</span>
+            </div>
+            <div v-if="state.connectors.messaging.telegram" class="header-btn" @click="state.connectorPanelOpen = 'telegram'">
+              <span class="dot" :class="state.connectors.messaging.telegram.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+              <i class="ph ph-telegram-logo"></i> <span class="hide-mobile">Telegram</span>
             </div>
           </div>
         </div>
@@ -1599,6 +1606,8 @@
             :connectors="state.connectors"
             @close="state.connectorPanelOpen = null"
             @save="onCloudSave" />
+          <telegram-connector-panel v-if="state.connectorPanelOpen === 'telegram'"
+            :connectors="state.connectors" @close="state.connectorPanelOpen = null" />
         </div>
 
         <!-- Target bar removed — replaced by dropdown in header -->

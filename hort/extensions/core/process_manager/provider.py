@@ -6,12 +6,13 @@ import os
 import signal
 from typing import Any
 
+from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
 from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
 from hort.ext.plugin import PluginBase
 from hort.ext.scheduler import ScheduledMixin
 
 
-class ProcessManager(PluginBase, ScheduledMixin, MCPMixin):
+class ProcessManager(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     """Lists processes with CPU/memory usage, allows killing by PID."""
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -108,3 +109,44 @@ class ProcessManager(PluginBase, ScheduledMixin, MCPMixin):
                 return MCPToolResult(content=[{"type": "text", "text": f"Permission denied for PID {pid}"}], is_error=True)
 
         return MCPToolResult(content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}], is_error=True)
+
+    # ===== Connector =====
+
+    def get_connector_commands(self) -> list[ConnectorCommand]:
+        return [
+            ConnectorCommand(name="processes", description="Top processes by CPU", plugin_id="process-manager"),
+            ConnectorCommand(name="kill", description="Kill a process by PID", plugin_id="process-manager"),
+        ]
+
+    async def handle_connector_command(
+        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
+    ) -> ConnectorResponse | None:
+        if command == "processes":
+            data = self._latest
+            if not data:
+                return ConnectorResponse.simple("No process data yet.")
+            procs = list(data.get("list", []))[:10]
+            lines = [f"{'PID':>7} {'CPU%':>6} {'MEM%':>6} {'NAME'}"]
+            for p in procs:
+                lines.append(f"{p['pid']:>7} {p['cpu']:>6.1f} {p['mem']:>6.1f} {p['name']}")
+            return ConnectorResponse.simple("\n".join(lines))
+
+        if command == "kill":
+            if not self.config.is_feature_enabled("kill"):
+                return ConnectorResponse.simple("Kill feature is disabled.")
+            args = message.command_args.strip()
+            if not args:
+                return ConnectorResponse.simple("Usage: /kill <PID>")
+            try:
+                pid = int(args.split()[0])
+            except ValueError:
+                return ConnectorResponse.simple(f"Invalid PID: {args}")
+            try:
+                os.kill(pid, signal.SIGTERM)
+                return ConnectorResponse.simple(f"Sent SIGTERM to PID {pid}.")
+            except ProcessLookupError:
+                return ConnectorResponse.simple(f"Process {pid} not found.")
+            except PermissionError:
+                return ConnectorResponse.simple(f"Permission denied for PID {pid}.")
+
+        return None

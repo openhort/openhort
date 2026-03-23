@@ -5,12 +5,13 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
 from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
 from hort.ext.plugin import PluginBase
 from hort.ext.scheduler import ScheduledMixin
 
 
-class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin):
+class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     """Polls network interface counters and stores bandwidth metrics."""
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -150,6 +151,33 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin):
             )}])
 
         return MCPToolResult(content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}], is_error=True)
+
+    # ===== Connector =====
+
+    def get_connector_commands(self) -> list[ConnectorCommand]:
+        return [
+            ConnectorCommand(name="network", description="Network interfaces and bandwidth", plugin_id="network-monitor"),
+        ]
+
+    async def handle_connector_command(
+        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
+    ) -> ConnectorResponse | None:
+        if command == "network":
+            data = self._latest
+            if not data:
+                return ConnectorResponse.simple("No network data available yet.")
+            lines = []
+            for iface in data.get("interfaces", []):
+                ips_str = ", ".join(iface.get("ips", [])) or "no IP"
+                bw = ""
+                if "upload_bps" in iface:
+                    bw = f" (up: {_format_speed(iface['upload_bps'])}, down: {_format_speed(iface['download_bps'])})"
+                lines.append(f"{iface['name']}: {ips_str}{bw}")
+            if not lines:
+                lines.append("No interfaces found.")
+            return ConnectorResponse.simple("\n".join(lines))
+
+        return None
 
 
 def _format_speed(bps: float) -> str:

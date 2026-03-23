@@ -29,7 +29,9 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/cert.py` — Self-signed TLS certificate generation
 - `hort/ext/` — Extension system (types, manifest, registry)
 - `hort/containers/` — Container management (base ABC, Docker provider, registry)
-- `hort/extensions/core/` — Built-in platform extensions (macOS, Linux, LAN/Cloud connectors)
+- `hort/ext/connectors.py` — Connector framework (ConnectorBase, CommandRegistry, ConnectorMixin)
+- `hort/plugins.py` — Plugin lifecycle (discovery, loading, scheduler/connector startup, shutdown)
+- `hort/extensions/core/` — Built-in platform extensions (macOS, Linux, LAN/Cloud/Telegram connectors)
 - `hort/access/` — Remote access proxy server (Azure deployment, tunnel protocol, token auth)
 - `hort/access/docker-compose.yml` — Docker Compose for local dev and Azure deployment
 - `hort/static/index.html` — Quasar/Vue 3 mobile-first UI
@@ -78,6 +80,8 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 - **NEVER block the async event loop.** Every subprocess call, Docker exec, provider method, file I/O, and network call MUST run in a thread executor (`await _run_sync(fn)`) or use native async I/O (`add_reader`, `asyncio.open_unix_connection`). A single blocking call on the main thread can hang the entire server and prevent clean shutdown (uvicorn --reload). No exceptions.
 - **NEVER use `lsof -ti :PORT | xargs kill`** — this kills Docker containers. Always kill by process name: `pgrep -f "uvicorn hort.app" | xargs kill -9`
+- **NEVER load or start plugins at import time or in `create_app()`.** Plugin loading (`load_plugins_sync`), scheduler start, and connector start MUST happen exclusively in the FastAPI `on_event("startup")` handler. With uvicorn `--reload`, `create_app()` runs multiple times per module import — loading plugins there causes duplicate instances (e.g. multiple Telegram bots competing for the same token via `TelegramConflictError`). Clean shutdown via `stop_plugins()` in `on_event("shutdown")`.
+- **NEVER use `asyncio.create_task` for deferred plugin startup.** Background tasks created in startup events get killed silently on `--reload`. Run plugin startup synchronously in the startup event instead.
 
 ## Quality Standards
 
@@ -153,6 +157,36 @@ bash scripts/deploy-access.sh
 - **Disk for persistence only** — clipboard entries, user config, saved tokens.
 - **No locks** — `LocalBlobStore` uses atomic file writes (`tempfile + os.replace`). No threading.Lock (deadlocks on hot-reload).
 - **Thumbnail data flow:** Python `get_status()` → JS `_feedStore()` → `renderThumbnail()` → canvas → grid card.
+
+### Plugin Lifecycle (startup/shutdown)
+```
+create_app()          → setup_plugins() discovers manifests, registers API routes (NO loading)
+on_event("startup")   → load_plugins_sync() → start_plugins() → schedulers → connectors
+on_event("shutdown")  → stop_plugins() → stop connectors → stop schedulers
+```
+This ensures each plugin is loaded exactly once and cleaned up on shutdown. With `--reload`, the old worker shuts down cleanly before the new one starts.
+
+### Connector Framework
+- **Files:** `hort/ext/connectors.py` (framework), `hort/extensions/core/telegram_connector/` (Telegram impl)
+- **Classes:** `ConnectorBase` (abstract connector), `ConnectorMixin` (plugin commands), `CommandRegistry` (routing), `ConnectorResponse` (multi-format response)
+- **System commands** (help, status, link, etc.) defined in the connector provider — plugins CANNOT override them
+- **Plugin commands** registered via `ConnectorMixin.get_connector_commands()` on any `PluginBase` subclass
+- **Response fallback:** `render_text()` picks best format for the connector (HTML → Markdown → plain text). `send_response()` auto-falls back to plain text on parse failure.
+- **Telegram specifics:**
+  - Use **HTML** (`<b>bold</b>`) not Markdown v1 (`*bold*`) — Markdown v1 breaks on em-dashes and `/` characters
+  - `delete_webhook(drop_pending_updates=True)` before polling to claim exclusive access (prevents conflicts on restart)
+  - Retry logic (5 attempts with backoff) for `TelegramConflictError`
+  - Requires `TELEGRAM_BOT_TOKEN` env var; ACL via `allowed_users` config
+- **UI panels:** Each connector has `static/panel.js` extending `HortExtension`, using `connector-panel` CSS classes (same pattern as LAN/Cloud panels)
+
+### Debugging Stale Processes
+When the server behaves unexpectedly (old code running, Telegram conflicts, port busy):
+```bash
+lsof -ti :8940                                    # Find ALL processes on the port (including Docker, orphaned workers)
+ps -p <PID> -o pid,lstart,command                 # Check when each process started
+pgrep -af "python.*telegram\|python.*hort"        # Find any hort-related Python processes
+```
+`pgrep -f "uvicorn"` misses multiprocessing spawn children. Always verify with `lsof` and check start times.
 
 ### Local Testing
 ```bash

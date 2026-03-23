@@ -5,12 +5,13 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
 from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
 from hort.ext.plugin import PluginBase
 from hort.ext.scheduler import ScheduledMixin
 
 
-class DiskUsage(PluginBase, ScheduledMixin, MCPMixin):
+class DiskUsage(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     """Polls disk partition usage and stores it for the dashboard and AI."""
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -133,3 +134,26 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin):
             content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}],
             is_error=True,
         )
+
+    # ===== Connector =====
+
+    def get_connector_commands(self) -> list[ConnectorCommand]:
+        return [
+            ConnectorCommand(name="disk", description="Disk partition usage", plugin_id="disk-usage"),
+        ]
+
+    async def handle_connector_command(
+        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
+    ) -> ConnectorResponse | None:
+        if command == "disk":
+            data = self._latest
+            if not data:
+                return ConnectorResponse.simple("No disk data available yet.")
+            lines = []
+            for p in data.get("partitions", []):
+                lines.append(f"{p['mountpoint']}: {p['used_gb']}/{p['total_gb']} GB ({p['percent']}%)")
+            if not lines:
+                lines.append("No partitions found.")
+            return ConnectorResponse.simple("\n".join(lines))
+
+        return None

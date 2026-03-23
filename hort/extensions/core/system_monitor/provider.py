@@ -6,6 +6,7 @@ import asyncio
 import time
 from typing import Any
 
+from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
 from hort.ext.documents import DocumentDef, DocumentMixin
 from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
 from hort.ext.plugin import PluginBase
@@ -33,7 +34,7 @@ def _run_coro(coro):  # type: ignore[no-untyped-def]
             new_loop.close()
 
 
-class SystemMonitor(PluginBase, ScheduledMixin, MCPMixin, DocumentMixin):
+class SystemMonitor(PluginBase, ScheduledMixin, MCPMixin, DocumentMixin, ConnectorMixin):
     """Polls system metrics and stores them for the dashboard and AI."""
 
     # In-memory live data (never written to disk for metrics)
@@ -172,3 +173,28 @@ class SystemMonitor(PluginBase, ScheduledMixin, MCPMixin, DocumentMixin):
             f"Disk: {data.get('disk_used_gb', '?')}/{data.get('disk_total_gb', '?')} GB ({data.get('disk_percent', '?')}%)",
         ])
         return "\n".join(lines)
+
+    # ===== Connector =====
+
+    def get_connector_commands(self) -> list[ConnectorCommand]:
+        return [
+            ConnectorCommand(name="cpu", description="Current CPU, memory, disk usage", plugin_id="system-monitor"),
+            ConnectorCommand(name="health", description="Full system health report", plugin_id="system-monitor"),
+        ]
+
+    async def handle_connector_command(
+        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
+    ) -> ConnectorResponse | None:
+        if command == "cpu":
+            data = self._latest
+            if not data:
+                return ConnectorResponse.simple("No metrics available yet.")
+            cpu = data.get("cpu_percent", "?")
+            mem = data.get("mem_percent", "?")
+            disk = data.get("disk_percent", "?")
+            return ConnectorResponse.simple(f"CPU: {cpu}%  MEM: {mem}%  DISK: {disk}%")
+
+        if command == "health":
+            return ConnectorResponse.simple(self.get_health_summary())
+
+        return None

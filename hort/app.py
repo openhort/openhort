@@ -24,9 +24,17 @@ _log_handler = RotatingFileHandler(
 _log_handler.setFormatter(logging.Formatter(
     "%(asctime)s %(levelname)s %(name)s: %(message)s"
 ))
-logging.getLogger().addHandler(_log_handler)
+# Attach to 'hort' namespace logger (not root — uvicorn may clear root handlers)
+_hort_logger = logging.getLogger("hort")
+# Clear stale handlers from previous reloads, then add fresh ones
+_hort_logger.handlers = [h for h in _hort_logger.handlers if not isinstance(h, RotatingFileHandler)]
+_hort_logger.addHandler(_log_handler)
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+_hort_logger.addHandler(_stream_handler)
+_hort_logger.setLevel(logging.DEBUG)
+_hort_logger.propagate = False  # don't double-log through root
 logging.getLogger().setLevel(logging.INFO)
-logging.getLogger("hort").setLevel(logging.DEBUG)
 
 logger = logging.getLogger("hort.app")
 
@@ -113,23 +121,22 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     _register_targets()
     _register_routes(app)
 
-    # Plugins — discovery, loading, routes, and scheduler startup
-    from hort.plugins import load_plugins_sync, setup_plugins, start_plugins
+    # Plugins — discovery and route registration only (no loading yet).
+    # Actual loading + scheduling + connectors happen in the startup event.
+    from hort.plugins import load_plugins_sync, setup_plugins, start_plugins, stop_plugins
 
     plugin_registry = setup_plugins(app)
-    load_plugins_sync(plugin_registry)  # load immediately (no event loop needed)
-
-    @app.on_event("startup")
-    async def _start_plugin_schedulers() -> None:
-        await start_plugins(plugin_registry)  # start schedulers (needs event loop)
 
     @app.on_event("startup")
     async def _on_startup() -> None:
+        load_plugins_sync(plugin_registry)
+        await start_plugins(plugin_registry)
         logger.info("App startup complete (pid=%d)", os.getpid())
 
     @app.on_event("shutdown")
     async def _on_shutdown() -> None:
         logger.info("App shutdown initiated (pid=%d)", os.getpid())
+        await stop_plugins(plugin_registry)
 
     @app.on_event("startup")
     async def _start_target_scanner() -> None:
@@ -439,6 +446,20 @@ def _register_routes(app: FastAPI) -> None:
         if hasattr(app.state, "cloud_tokens"):  # pragma: no cover
             cloud_tokens = app.state.cloud_tokens
 
+        # Messaging connectors (Telegram, etc.) from plugin registry
+        messaging: dict[str, Any] = {}
+        if hasattr(app.state, "plugin_registry"):  # pragma: no cover
+            from hort.ext.connectors import ConnectorBase
+
+            for name, inst in app.state.plugin_registry._instances.items():
+                if isinstance(inst, ConnectorBase):
+                    status = inst.get_status() if hasattr(inst, "get_status") else {}
+                    messaging[inst.connector_id] = {
+                        "active": status.get("active", False),
+                        "plugin_id": name,
+                        **status,
+                    }
+
         return Response(
             content=json.dumps({
                 "lan": {
@@ -454,6 +475,7 @@ def _register_routes(app: FastAPI) -> None:
                     "host_id": tunnel_host_id,
                     "tokens": cloud_tokens,
                 },
+                "messaging": messaging,
             }),
             media_type="application/json",
         )

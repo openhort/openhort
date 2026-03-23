@@ -1067,3 +1067,220 @@ class SystemMonitorPanel extends HortExtension {
 }
 HortExtension.register(SystemMonitorPanel);
 ```
+
+---
+
+## Connector Framework
+
+### Overview
+
+The connector framework (`hort/ext/connectors.py`) provides a unified messaging interface for platforms like Telegram, Discord, and WhatsApp. Connectors receive messages, route commands to plugins, and send formatted responses.
+
+Message flow:
+
+```
+User → Connector (Telegram/Discord/...) → CommandRegistry → Plugin → ConnectorResponse → Connector → User
+```
+
+### Architecture
+
+- **`ConnectorBase`** — Abstract base for messaging connectors. Implements `start()`, `stop()`, `send_response()`, and `render_text()` (fallback chain: HTML → Markdown → plain text).
+- **`ConnectorMixin`** — Mixin for plugins that provide commands. Implement `get_connector_commands()` and `handle_connector_command()`.
+- **`CommandRegistry`** — Routes commands to plugins. System commands (defined by the connector) cannot be overridden by plugins.
+- **`ConnectorResponse`** — Response with `text`, `markdown`, `html`, `image`, `buttons` fields. The connector picks the best format for its capabilities.
+- **`IncomingMessage`** — Normalized message from any platform. Parses `/command args` syntax, strips `@botname` suffixes.
+- **`ConnectorCapabilities`** — Declares what a connector can render (text, markdown, html, images, files, inline buttons, commands, location, max text length).
+- **`ConnectorCommand`** — Command registration with name, description, plugin ID, usage, and flags (`hidden`, `accept_images`, `accept_files`, `system`).
+- **`ResponseButton`** — Interactive button with label and callback data, used in `ConnectorResponse.buttons` (rows of buttons).
+
+### System Commands
+
+System commands are defined in the connector provider (e.g. `SYSTEM_COMMANDS` in `telegram_connector/provider.py`) and take priority over plugin commands. They have `system=True` set on the `ConnectorCommand`, which prevents plugins from overriding them.
+
+| Command | Description |
+|---|---|
+| `/start` | Welcome message |
+| `/help` | List all commands (system + plugin) |
+| `/link` | Temporary access link |
+| `/status` | Server status (CPU, memory, uptime) |
+| `/screenshot` | Capture screen |
+| `/windows` | List open windows |
+| `/targets` | List connected machines |
+| `/spaces` | List virtual desktops |
+
+### Adding Commands to a Plugin
+
+Any plugin can expose commands to all connectors by mixing in `ConnectorMixin`:
+
+```python
+from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
+from hort.ext.plugin import PluginBase
+
+class MyPlugin(PluginBase, ConnectorMixin):
+    def get_connector_commands(self) -> list[ConnectorCommand]:
+        return [
+            ConnectorCommand(name="mycommand", description="Does something", plugin_id="my-plugin"),
+        ]
+
+    async def handle_connector_command(
+        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
+    ) -> ConnectorResponse | None:
+        if command == "mycommand":
+            return ConnectorResponse.simple(f"Result: {message.command_args}")
+        return None
+```
+
+- `get_connector_commands()` returns the list of commands this plugin provides.
+- `handle_connector_command()` is called when a user sends one of those commands. Return `None` if not handled (a fallback message is sent automatically).
+- The `capabilities` argument lets you adapt responses to the platform (e.g. send an image only if `capabilities.images` is True).
+
+### ConnectorResponse Formats
+
+`ConnectorResponse` supports multiple output formats. The connector picks the best one it supports:
+
+```python
+# Plain text
+ConnectorResponse.simple("Hello, world!")
+
+# Rich text with HTML and plain fallback
+ConnectorResponse(
+    text="Hello, world!",
+    html="<b>Hello, world!</b>",
+)
+
+# Image with caption
+ConnectorResponse.with_image(jpeg_bytes, caption="Screenshot of desktop")
+
+# Interactive buttons (rows of buttons)
+from hort.ext.connectors import ResponseButton
+ConnectorResponse(
+    text="Pick an option:",
+    buttons=[
+        [ResponseButton(label="Option A", callback_data="pick:a"),
+         ResponseButton(label="Option B", callback_data="pick:b")],
+    ],
+)
+```
+
+Rendering priority: `html` → `markdown` → `text`. If HTML sending fails, `send_response()` automatically falls back to plain text.
+
+### Creating a New Connector
+
+1. Create an extension directory under `hort/extensions/core/` (e.g. `discord_connector/`)
+2. Inherit from both `PluginBase` and `ConnectorBase`
+3. Implement the required abstract members:
+   - `connector_id` (property) — unique ID string like `"discord"`
+   - `capabilities` (property) — `ConnectorCapabilities` declaring what the platform supports
+   - `start()` — start the connector (polling, webhook listener, etc.)
+   - `stop()` — stop the connector gracefully (cancel tasks, close sessions)
+   - `send_response(chat_id, response)` — send a `ConnectorResponse` to a specific chat, adapting to platform capabilities
+4. Add a `set_command_registry(registry)` method to receive the `CommandRegistry`
+5. Handle system commands in your message handler, delegate plugin commands to `self._registry.dispatch()`
+6. Create `static/panel.js` for the UI panel (use `connector-panel` CSS classes)
+7. Add the connector chip to `index.html` header alongside LAN and Cloud
+
+**Minimal skeleton:**
+
+```python
+from hort.ext.connectors import (
+    CommandRegistry, ConnectorBase, ConnectorCapabilities,
+    ConnectorCommand, ConnectorResponse, IncomingMessage,
+)
+from hort.ext.plugin import PluginBase
+
+SYSTEM_COMMANDS = [
+    ConnectorCommand(name="start", description="Welcome message", system=True),
+    ConnectorCommand(name="help", description="List all commands", system=True),
+    # ... other system commands
+]
+
+class MyConnector(PluginBase, ConnectorBase):
+    _registry: CommandRegistry | None = None
+
+    @property
+    def connector_id(self) -> str:
+        return "my-platform"
+
+    @property
+    def capabilities(self) -> ConnectorCapabilities:
+        return ConnectorCapabilities(text=True, images=True)
+
+    async def start(self) -> None:
+        # Start polling / webhook listener
+        ...
+
+    async def stop(self) -> None:
+        # Cancel tasks, close connections
+        ...
+
+    async def send_response(self, chat_id: str, response: ConnectorResponse) -> None:
+        text = self.render_text(response)  # uses fallback chain
+        # Send text (and image if response.image) to the platform
+        ...
+
+    def set_command_registry(self, registry: CommandRegistry) -> None:
+        self._registry = registry
+
+    async def _handle(self, message: IncomingMessage) -> ConnectorResponse | None:
+        if message.is_command:
+            cmd = message.command
+            # Handle system commands first
+            if cmd == "start":
+                return ConnectorResponse.simple("Welcome!")
+            if cmd == "help":
+                return self._build_help()
+            # Delegate to plugin commands
+            if self._registry:
+                return await self._registry.dispatch(message, self.capabilities)
+        return ConnectorResponse.simple("Send /help for available commands.")
+```
+
+### Lifecycle
+
+Connectors are managed by the plugin lifecycle in `hort/plugins.py`:
+
+1. **Discovery** — Connectors are discovered like any other extension during `setup_plugins()`.
+2. **Loading** — The connector class is instantiated and `activate(config)` is called.
+3. **Startup** — `start_plugins()` calls `_start_connectors()`, which:
+   - Creates a `CommandRegistry`
+   - Registers system commands (from the connector provider's `SYSTEM_COMMANDS`)
+   - Collects commands from all plugins that implement `ConnectorMixin` (but are not themselves connectors)
+   - Calls `set_command_registry(registry)` on each connector
+   - Calls `start()` on each connector
+4. **Runtime** — The connector polls/receives messages and routes them through the registry.
+5. **Shutdown** — `stop_plugins()` calls `stop()` on each connector, then stops all schedulers.
+
+**Important for `uvicorn --reload`:** The Telegram connector calls `delete_webhook(drop_pending_updates=True)` before starting to poll, ensuring only one instance polls at a time. Without this, the old and new worker would conflict. Other connectors should implement similar deduplication.
+
+### Formatting Guidelines
+
+- Use **HTML** (`<b>bold</b>`) not Markdown v1 (`*bold*`) for Telegram responses — Markdown v1 breaks on em-dashes, slashes, and other common punctuation.
+- Always provide a plain `text` fallback alongside `html` or `markdown`.
+- `send_response()` should catch formatting errors and automatically fall back to plain text (the Telegram connector does this).
+- Long messages should be chunked to respect `capabilities.max_text_length` (4096 for Telegram).
+
+### UI Panel
+
+Each connector has a `static/panel.js` that extends `HortExtension` and registers a Vue component using the `connector-panel` CSS classes. The panel shows connection status, configuration, and setup hints. The connector chip appears in the `index.html` header alongside the LAN and Cloud chips when the connector extension is discovered.
+
+### IncomingMessage Properties
+
+`IncomingMessage` provides convenience properties for parsing commands:
+
+| Property | Type | Description |
+|---|---|---|
+| `is_command` | `bool` | True if text starts with `/` |
+| `command` | `str` | Command name without `/` or `@bot` suffix (e.g. `"help"`) |
+| `command_args` | `str` | Everything after the command (e.g. `"search term"` from `/find search term`) |
+| `callback_data` | `str \| None` | Data from inline button press |
+
+### CommandRegistry Dispatch
+
+When `CommandRegistry.dispatch()` is called:
+
+1. If the message is not a command, returns `None`.
+2. Looks up the command name in the registry.
+3. If the command is a system command (`system=True`), returns `None` — the connector handles it directly.
+4. If it is a plugin command, calls `handle_connector_command()` on the owning plugin.
+5. If the plugin returns `None`, a default "no response" message is sent.
+6. If the command is not found, an "Unknown command" message with a `/help` hint is returned.

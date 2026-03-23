@@ -44,52 +44,97 @@ def load_plugins_sync(registry: ExtensionRegistry) -> None:  # pragma: no cover
 
 
 async def start_plugins(registry: ExtensionRegistry) -> None:  # pragma: no cover
-    """Start plugin schedulers. Called from FastAPI startup event.
-
-    Deferred: schedulers start 3s after startup to avoid blocking the event loop.
-    """
-    import asyncio
+    """Start plugin schedulers and connectors. Called once from startup event."""
     from hort.ext.plugin import PluginBase
     from hort.ext.scheduler import JobSpec, ScheduledMixin
 
-    async def _deferred_start() -> None:
-        await asyncio.sleep(3)  # let server finish startup first
-        for name, inst in registry._instances.items():
-            if not isinstance(inst, PluginBase):
+    # Start schedulers
+    for name, inst in registry._instances.items():
+        if not isinstance(inst, PluginBase):
+            continue
+        manifest = registry.get_manifest(name)
+        if not manifest:
+            continue
+        jobs: list[JobSpec] = []
+        for jm in manifest.jobs:
+            jobs.append(JobSpec(
+                id=jm.id, fn_name=jm.method,
+                interval_seconds=jm.interval_seconds,
+                run_on_activate=False,
+                enabled_feature=jm.enabled_feature,
+            ))
+        if isinstance(inst, ScheduledMixin):
+            jobs.extend(inst.get_jobs())
+        ctx = registry._contexts.get(name)
+        if not ctx:
+            continue
+        for job in jobs:
+            if job.enabled_feature and not ctx.config.is_feature_enabled(
+                job.enabled_feature
+            ):
                 continue
-            manifest = registry.get_manifest(name)
-            if not manifest:
-                continue
-            jobs: list[JobSpec] = []
-            for jm in manifest.jobs:
-                jobs.append(JobSpec(
-                    id=jm.id, fn_name=jm.method,
-                    interval_seconds=jm.interval_seconds,
-                    run_on_activate=False,
-                    enabled_feature=jm.enabled_feature,
-                ))
-            if isinstance(inst, ScheduledMixin):
-                jobs.extend(inst.get_jobs())
-            ctx = registry._contexts.get(name)
-            if not ctx:
-                continue
-            for job in jobs:
-                if job.enabled_feature and not ctx.config.is_feature_enabled(
-                    job.enabled_feature
-                ):
-                    continue
-                fn = getattr(inst, job.fn_name, None)
-                if fn:
-                    ctx.scheduler.start_job(job, fn)
-        logger.info("Plugin schedulers started")
+            fn = getattr(inst, job.fn_name, None)
+            if fn:
+                ctx.scheduler.start_job(job, fn)
+    logger.info("Plugin schedulers started")
 
-    asyncio.create_task(_deferred_start())
+    # Start messaging connectors (Telegram, etc.)
+    await _start_connectors(registry)
 
     # Apply power settings from config on startup
     try:
         apply_power_settings()
     except Exception:
         pass
+
+
+async def stop_plugins(registry: ExtensionRegistry) -> None:  # pragma: no cover
+    """Stop connectors and schedulers cleanly. Called from shutdown event."""
+    from hort.ext.connectors import ConnectorBase
+
+    for name, inst in registry._instances.items():
+        if isinstance(inst, ConnectorBase):
+            try:
+                await inst.stop()
+                logger.info("Stopped connector: %s", name)
+            except Exception as e:
+                logger.error("Error stopping connector %s: %s", name, e)
+
+    # Stop all schedulers
+    for name, ctx in registry._contexts.items():
+        if ctx and ctx.scheduler:
+            ctx.scheduler.stop_all()
+    logger.info("Plugins stopped")
+
+
+async def _start_connectors(registry: ExtensionRegistry) -> None:  # pragma: no cover
+    """Discover and start messaging connectors with command registry."""
+    logger.info("Starting connector discovery...")
+    from hort.ext.connectors import CommandRegistry, ConnectorBase, ConnectorMixin
+
+    cmd_registry = CommandRegistry()
+
+    # Register system commands
+    from hort.extensions.core.telegram_connector.provider import SYSTEM_COMMANDS
+    cmd_registry.register_system(SYSTEM_COMMANDS)
+
+    # Collect commands from plugins
+    for name, inst in registry._instances.items():
+        if isinstance(inst, ConnectorMixin) and not isinstance(inst, ConnectorBase):
+            commands = inst.get_connector_commands()
+            if commands:
+                cmd_registry.register_plugin(name, inst, commands)
+                logger.info("Registered %d commands from %s", len(commands), name)
+
+    # Start connectors
+    for name, inst in registry._instances.items():
+        if isinstance(inst, ConnectorBase):
+            inst.set_command_registry(cmd_registry)
+            try:
+                await inst.start()
+                logger.info("Started connector: %s", name)
+            except Exception as e:
+                logger.error("Failed to start connector %s: %s", name, e)
 
 
 _caffeinate_proc: Any = None

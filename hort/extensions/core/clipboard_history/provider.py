@@ -7,12 +7,13 @@ import subprocess
 import time
 from typing import Any
 
+from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
 from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
 from hort.ext.plugin import PluginBase
 from hort.ext.scheduler import ScheduledMixin
 
 
-class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin):
+class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     """Polls the system clipboard and stores unique entries for search and review."""
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -170,3 +171,49 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin):
             content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}],
             is_error=True,
         )
+
+    # ===== Connector =====
+
+    def get_connector_commands(self) -> list[ConnectorCommand]:
+        return [
+            ConnectorCommand(name="clipboard", description="Recent clipboard entries", plugin_id="clipboard-history"),
+            ConnectorCommand(name="clip_search", description="Search clipboard", plugin_id="clipboard-history"),
+        ]
+
+    async def handle_connector_command(
+        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
+    ) -> ConnectorResponse | None:
+        if command == "clipboard":
+            entries = list(reversed(self._clips[-5:]))
+            if not entries:
+                return ConnectorResponse.simple("No clipboard history yet.")
+            lines = []
+            for e in entries:
+                ts = e.get("timestamp", 0)
+                ts_str = time.strftime("%H:%M:%S", time.localtime(ts / 1000))
+                preview = e.get("text", "")[:100]
+                lines.append(f"[{ts_str}] {preview}")
+            return ConnectorResponse.simple("\n".join(lines))
+
+        if command == "clip_search":
+            query = message.command_args.strip()
+            if not query:
+                return ConnectorResponse.simple("Usage: /clip_search <text>")
+            query_lower = query.lower()
+            matches = []
+            for entry in reversed(self._clips):
+                if query_lower in entry.get("text", "").lower():
+                    matches.append(entry)
+                    if len(matches) >= 10:
+                        break
+            if not matches:
+                return ConnectorResponse.simple(f"No clipboard entries matching '{query}'.")
+            lines = [f"Found {len(matches)} match(es):"]
+            for e in matches:
+                ts = e.get("timestamp", 0)
+                ts_str = time.strftime("%H:%M:%S", time.localtime(ts / 1000))
+                preview = e.get("text", "")[:100]
+                lines.append(f"[{ts_str}] {preview}")
+            return ConnectorResponse.simple("\n".join(lines))
+
+        return None
