@@ -54,6 +54,12 @@
     /** Description shown in the launcher. */
     static llmingDescription = '';
 
+    /** Widget component names this llming provides (for inline rendering). */
+    static llmingWidgets = [];
+
+    /** Auto-show UI in the grid on startup (like auto-launching a window). */
+    static autoShow = false;
+
     /** Unique extension identifier (kebab-case, must match server-side name). */
     static id = '';
 
@@ -79,6 +85,29 @@
      * Override to tear down event listeners, intervals, etc.
      */
     destroy() {}
+
+    /**
+     * Render a thumbnail preview for the grid card.
+     *
+     * Override to draw plugin status into a standardized 320×200 canvas.
+     * The host calls this every ~5s for active plugins. The result is
+     * displayed as the grid card thumbnail (same position as window screenshots).
+     *
+     * @param {CanvasRenderingContext2D} ctx - 2D context (320×200 canvas)
+     * @param {number} width - Canvas width (320)
+     * @param {number} height - Canvas height (200)
+     */
+    renderThumbnail(ctx, width, height) {
+      // Default: icon + name centered
+      ctx.fillStyle = getComputedStyle(document.documentElement)
+        .getPropertyValue('--el-surface').trim() || '#111827';
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = getComputedStyle(document.documentElement)
+        .getPropertyValue('--el-text-dim').trim() || '#94a3b8';
+      ctx.font = '14px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(this.constructor.name || this.constructor.id, width / 2, height / 2);
+    }
 
     // ---- API helpers ----
 
@@ -158,6 +187,7 @@
     static activateAll(app, Quasar, configs) {
       const cfgs = configs || {};
       for (const [id, ExtClass] of _registry) {
+        if (_instances.has(id)) continue; // skip already activated
         const instance = new ExtClass();
         instance.config = cfgs[id] || {};
         instance.setup(app, Quasar);

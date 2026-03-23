@@ -349,6 +349,8 @@ The AI assistant plugin can then read (not write) the email monitor's store via 
 
 Plugins run background jobs on intervals. Jobs execute in thread pool executors — **never blocking the event loop**.
 
+**Startup behavior:** Plugin schedulers start 3 seconds after the server finishes startup. Jobs with `run_on_activate: true` in the manifest do NOT run immediately during server startup — the first interval cycle handles it. This prevents blocking the event loop during startup (e.g., `psutil.cpu_percent(interval=0.5)` for 5 plugins would block for 2.5s).
+
 ### Declarative (in manifest)
 
 ```json
@@ -677,6 +679,47 @@ File upload button that sends to the plugin's file store.
 - Use `this.localStorage(key)` and `this.localStorage(key, value)` for namespaced storage
 - API calls via `this.api(path)` / `this.apiPost(path, body)` are auto-prefixed to `/api/plugins/{id}/`
 - CSS scope with `[data-plugin="my-plugin"] .my-class { ... }`
+
+### Widget Modes: Compact + Thumbnail (mandatory), Desktop (optional)
+
+Every plugin MUST provide at minimum:
+
+1. **Thumbnail** (`renderThumbnail(ctx, 320, 200)`) — canvas-based preview for the grid card. Shows essential info at a glance (numbers, bars, status). Updated every 5s. The thumbnail is drawn on an offscreen canvas and displayed as a JPEG data URL in the card's `<img>` tag. Cache data in instance properties (e.g. `this._lastMetrics`) from the component's refresh cycle, then draw from cache in `renderThumbnail`.
+
+   **Implementation pattern** (system-monitor example):
+   - Instance property: `_lastMetrics = null; _history = [];`
+   - In `setup()` refresh: `const inst = HortExtension.get('system-monitor'); if (inst) { inst._lastMetrics = data; inst._history = history; }`
+   - In `renderThumbnail()`: read `this._lastMetrics`, draw bars/sparklines on the 320×200 canvas
+   - Colors: use hex directly (not CSS vars — canvas doesn't support them). Use `#111827` bg, `#f0f4ff` text, `#94a3b8` dim, `#f59e0b` amber, `#3b82f6` blue, `#22c55e` green, `#ef4444` red.
+
+2. **Compact mode** — the default widget rendered inside the lightbox overlay (480px max). Must work on smartphone screens (both portrait and landscape). Use the `.widget-regions` CSS class for auto-wrapping layouts:
+
+```html
+<div class="widget-regions">
+  <div class="widget-region"><!-- stat cards --></div>
+  <div class="widget-region"><!-- chart or table --></div>
+</div>
+```
+
+Regions wrap vertically on phones, sit side-by-side on tablets. Each region stretches to fill available width. This gives landscape mode 2-3 columns and portrait mode a single scrollable column.
+
+3. **Desktop mode** (optional) — an expanded view with more detail, used when the plugin is pinned to the Llmings grid. Can use the full grid width. Only implement if the compact mode is insufficient for the data being shown.
+
+**Responsive behavior:**
+
+| Context | Width | Layout |
+|---|---|---|
+| Spirit lightbox (phone portrait) | 100% screen | Single column, full height |
+| Spirit lightbox (phone landscape) | 100% screen | 2 regions side by side |
+| Spirit lightbox (tablet/desktop) | 480px centered | 2 regions side by side |
+| Llmings grid (pinned panel) | Grid column width | Compact, adapt to card |
+
+**Rules:**
+- Never hardcode pixel widths — use `100%`, `flex`, and `min-width`
+- Use `.widget-regions` for multi-section layouts
+- Use `hort-stat-card` for key numbers (auto-wraps in grid)
+- Use Plotly.js for charts with `responsive: true`
+- Test in both portrait and landscape on a real phone or Chrome DevTools
 
 ### Responsive Design
 

@@ -10,6 +10,51 @@
     static llmingTitle = 'Clipboard History';
     static llmingIcon = 'ph ph-clipboard-text';
     static llmingDescription = 'Searchable clipboard history';
+    static llmingWidgets = ['clipboard-history-panel'];
+
+    // Cached clipboard data for thumbnail
+    _lastClips = null;
+
+    renderThumbnail(ctx, w, h) {
+      const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff';
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+
+      const clips = this._lastClips;
+      if (!clips || !clips.length) {
+        ctx.fillStyle = dim; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText('Clipboard History', w / 2, h / 2);
+        return;
+      }
+
+      // Entry count header
+      ctx.textAlign = 'center';
+      ctx.fillStyle = text; ctx.font = 'bold 28px system-ui';
+      ctx.fillText(String(clips.length), w / 2, 42);
+      ctx.fillStyle = dim; ctx.font = '12px system-ui';
+      ctx.fillText('clipboard entr' + (clips.length === 1 ? 'y' : 'ies'), w / 2, 60);
+
+      // Preview last 3 entries
+      const preview = clips.slice(0, 3);
+      ctx.textAlign = 'left';
+      ctx.font = '11px system-ui';
+      const startY = 86;
+      const lineH = 30;
+      preview.forEach((clip, i) => {
+        const y = startY + i * lineH;
+        const t = (clip.text || '').replace(/\n/g, ' ').trim();
+        const truncated = t.length > 38 ? t.substring(0, 38) + '...' : t;
+        // Dim index
+        ctx.fillStyle = dim;
+        ctx.fillText((i + 1) + '.', 20, y);
+        // Clip text
+        ctx.fillStyle = text;
+        ctx.fillText(truncated, 36, y);
+      });
+
+      // Title
+      ctx.fillStyle = dim; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('Clipboard History', w / 2, h - 8);
+    }
 
     setup(app) {
       app.component('clipboard-history-panel', {
@@ -21,7 +66,7 @@
 
           async function refresh() {
             try {
-              const store = await fetch(bp + '/api/plugin/store').then(r => r.json()).catch(() => null);
+              const store = await fetch(bp + '/api/plugins/clipboard-history/store').catch(() => fetch(bp + '/api/plugin/store')).then(r => r.json()).catch(() => null);
               if (!store) return;
               const items = [];
               for (const [k, v] of Object.entries(store)) {
@@ -29,6 +74,9 @@
               }
               items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
               entries.value = items;
+              // Cache for thumbnail rendering
+              const inst = HortExtension.get('clipboard-history');
+              if (inst) inst._lastClips = items;
             } catch {}
           }
 

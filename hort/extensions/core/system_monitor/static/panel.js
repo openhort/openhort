@@ -10,6 +10,77 @@
     static llmingTitle = 'System Monitor';
     static llmingIcon = 'ph ph-cpu';
     static llmingDescription = 'CPU, memory, and disk monitoring';
+    static llmingWidgets = ['system-monitor-dashboard'];
+    static autoShow = true;
+
+    // Cached data for thumbnail
+    _lastMetrics = null;
+    _history = [];
+
+    renderThumbnail(ctx, w, h) {
+      const bg = '#111827', dim = '#64748b', text = '#f0f4ff', muted = '#94a3b8';
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+
+      const m = this._lastMetrics;
+      if (!m) {
+        ctx.fillStyle = dim; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText('Waiting for data...', w / 2, h / 2);
+        return;
+      }
+
+      // Top row: big numbers for CPU, MEM, DISK
+      const stats = [
+        { label: 'CPU', val: Math.round(m.cpu_percent || 0), color: '#f59e0b' },
+        { label: 'MEM', val: Math.round(m.mem_percent || 0), color: '#3b82f6' },
+        { label: 'DISK', val: Math.round(m.disk_percent || 0), color: '#6366f1' },
+      ];
+      const colW = (w - 20) / 3;
+      stats.forEach((s, i) => {
+        const x = 10 + i * colW;
+        ctx.fillStyle = s.color; ctx.globalAlpha = 0.12;
+        ctx.fillRect(x, 8, colW - 4, 52);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = muted; ctx.font = '9px system-ui'; ctx.textAlign = 'left';
+        ctx.fillText(s.label, x + 6, 22);
+        ctx.fillStyle = text; ctx.font = 'bold 22px system-ui';
+        ctx.fillText(s.val + '%', x + 6, 50);
+      });
+
+      // Sparkline: CPU + MEM history
+      const hist = this._history;
+      if (hist.length > 2) {
+        const chartY = 68, chartH = h - chartY - 18;
+        const chartW = w - 20;
+        // Grid lines
+        ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 0.5;
+        for (let p = 0; p <= 100; p += 25) {
+          const y = chartY + chartH - (p / 100) * chartH;
+          ctx.beginPath(); ctx.moveTo(10, y); ctx.lineTo(w - 10, y); ctx.stroke();
+        }
+        // Draw lines
+        const lines = [
+          { key: 'cpu_percent', color: '#f59e0b' },
+          { key: 'mem_percent', color: '#3b82f6' },
+        ];
+        lines.forEach(line => {
+          ctx.strokeStyle = line.color; ctx.lineWidth = 1.5; ctx.beginPath();
+          hist.forEach((e, i) => {
+            const x = 10 + (i / (hist.length - 1)) * chartW;
+            const y = chartY + chartH - ((e[line.key] || 0) / 100) * chartH;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+        });
+        // Legend
+        ctx.font = '8px system-ui'; ctx.textAlign = 'left';
+        ctx.fillStyle = '#f59e0b'; ctx.fillText('CPU', 12, h - 6);
+        ctx.fillStyle = '#3b82f6'; ctx.fillText('MEM', 40, h - 6);
+        ctx.fillStyle = dim; ctx.fillText(hist.length + ' samples', w - 70, h - 6);
+      } else {
+        ctx.fillStyle = dim; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText('Collecting data...', w / 2, h - 20);
+      }
+    }
 
     setup(app) {
       app.component('system-monitor-dashboard', {
@@ -19,18 +90,36 @@
           const history = Vue.ref([]);
           const chartRef = Vue.ref(null);
 
+          async function fetchStore() {
+            // Try main app endpoint, fall back to debugger
+            for (const url of [bp + '/api/plugins/system-monitor/store', bp + '/api/plugin/store']) {
+              try {
+                const r = await fetch(url);
+                if (r.ok) return await r.json();
+              } catch {}
+            }
+            return null;
+          }
+
           async function refresh() {
             try {
-              const store = await fetch(bp + '/api/plugin/store').then(r => r.json()).catch(() => null);
-              // Try plugin debugger endpoint first, fall back to main app
+              const store = await fetchStore();
               if (store && store.latest) {
                 latest.value = store.latest;
-              } else {
-                const resp = await fetch(bp + '/api/config/plugin.system-monitor').then(r => r.json()).catch(() => null);
-                if (resp) latest.value = resp;
+                // Cache for thumbnail rendering
+                const inst = HortExtension.get('system-monitor');
+                if (inst) {
+                  inst._lastMetrics = store.latest;
+                  // Build history from store
+                  const h = [];
+                  for (const [k, v] of Object.entries(store)) {
+                    if (k.startsWith('history:') && v) h.push(v);
+                  }
+                  h.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+                  inst._history = h.slice(-60);
+                }
               }
 
-              // Build history from store keys
               if (store) {
                 const entries = [];
                 for (const [k, v] of Object.entries(store)) {

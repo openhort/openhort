@@ -212,3 +212,59 @@ Grid thumbnails are captured at 600px width for sharp display in the card grid.
 - Icon buttons have `title` attributes for tooltips.
 - Color is never the only indicator of state (icons + color).
 - Touch targets meet minimum size requirements on all device classes.
+
+## Essential Libraries
+
+**Plotly.js** is the standard charting library. All plugins that display charts, graphs, gauges, or data visualizations MUST use Plotly.js (pre-compiled at `static/vendor/plotly.min.js`). Do not introduce alternative chart libraries.
+
+Plotly provides: line/bar/pie charts, gauges, heatmaps, 3D plots, and responsive layouts out of the box. Use `paper_bgcolor: 'transparent'` and `plot_bgcolor: 'transparent'` with `font.color: 'var(--el-text-dim)'` to match the Electric palette.
+
+## Navigation Model — Shorts-Style Zapping
+
+The navigation is inspired by **YouTube Shorts**: users should be able to efficiently zap through their llmings (windows, terminals, plugin panels) with minimal friction, having all information at their fingertips.
+
+**Key principles:**
+
+1. **Single-swipe navigation** — On mobile, swipe left/right or tap card edges to cycle through llmings. Each llming fills the viewport like a "short".
+2. **Cards as entry points** — Every llming, spirit, and system appears as a unified card in the grid. Tap once to peek (preview), tap again to enter full screen.
+3. **Consistent card layout** — Whether it's a window screenshot, terminal, plugin dashboard, or system status — all use the same `.grid-card` with `.card-thumb-icon` or `.grid-card-thumb` + `.grid-card-info`.
+4. **Glanceable thumbnails** — Spirits render live thumbnails via `renderThumbnail(ctx, 320, 200)`. The grid is a dashboard — you should be able to see the state of your entire system at a glance without opening anything.
+5. **Constrained detail panels** — Config and spirit detail panels never span full width. Max-width 420px (smartphone-proportioned). This works on both landscape tablet and portrait phone.
+
+**Three views, same feel:**
+
+| View | Content | Card behavior |
+|---|---|---|
+| **Llmings** | Windows + terminals + plugin UIs | Tap → full viewer, swipe to cycle |
+| **Spirits** | Background plugins with live stats | Tap → config panel with toggles |
+| **Config** | All plugins with feature management | Tap → detail with capabilities |
+
+**Responsive breakpoints:**
+
+| Device | Grid columns | Card min-width | Detail panel |
+|---|---|---|---|
+| Phone portrait | 2 | 150px | Full width, max 420px |
+| Phone landscape | 3-4 | 150px | Centered, max 420px |
+| Tablet | 4-5 | 200px | Centered, max 420px |
+| Desktop | 6-8 | 200px | Centered, max 420px |
+
+## File Size Constraints
+
+**Enforce: no single file should exceed ~1000 lines.**
+
+The main exception is `index.html` — a single-file Quasar UMD SPA with no build step. CSS is extracted to `hort.css`. Component extraction is limited by Vue UMD's closure-based scope (components share state with the main IIFE).
+
+| File | Purpose | Target |
+|---|---|---|
+| `hort.css` | All styles | < 500 lines |
+| `hort-ext.js` | Extension base class | < 300 lines |
+| `hort-widgets.js` | Shared widget components | < 400 lines |
+| `hort-plugins-ui.js` | Plugin manager + loader | < 250 lines |
+| `index.html` | Core logic + templates | ~2500 lines (UMD constraint) |
+| Plugin `panel.js` | Per-plugin UI | < 200 lines each |
+
+To keep `index.html` manageable:
+- CSS is in `hort.css` (never inline)
+- Shared components are in vendor JS files
+- Plugin UIs are in extension directories
+- Only core app logic and template structure stay in index.html

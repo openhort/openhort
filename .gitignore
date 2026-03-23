@@ -2,6 +2,7 @@
 .env
 .env.*
 hort-config.yaml
+subprojects/telegram_bot/bot_config.yaml
 
 # Virtual environments
 .venv/

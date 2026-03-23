@@ -10,6 +10,58 @@
     static llmingTitle = 'Network Monitor';
     static llmingIcon = 'ph ph-wifi-high';
     static llmingDescription = 'Network interfaces and bandwidth monitoring';
+    static llmingWidgets = ['network-monitor-panel'];
+
+    // Cached network data for thumbnail
+    _lastNetwork = null;
+
+    renderThumbnail(ctx, w, h) {
+      const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff';
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+
+      const net = this._lastNetwork;
+      if (!net) {
+        ctx.fillStyle = dim; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText('Network Monitor', w / 2, h / 2);
+        return;
+      }
+
+      function fmtSpeed(bps) {
+        if (bps == null) return { val: '0', unit: 'B/s' };
+        if (bps >= 1024 * 1024) return { val: (bps / (1024 * 1024)).toFixed(1), unit: 'MB/s' };
+        if (bps >= 1024) return { val: (bps / 1024).toFixed(1), unit: 'KB/s' };
+        return { val: Math.round(bps).toString(), unit: 'B/s' };
+      }
+
+      const up = fmtSpeed(net.total_upload_bps);
+      const down = fmtSpeed(net.total_download_bps);
+      const ifaceCount = (net.interfaces || []).length;
+
+      // Upload speed
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 11px system-ui';
+      ctx.fillText('UPLOAD', w / 2, 28);
+      ctx.fillStyle = text; ctx.font = 'bold 28px system-ui';
+      ctx.fillText(up.val, w / 2, 60);
+      ctx.fillStyle = dim; ctx.font = '12px system-ui';
+      ctx.fillText(up.unit, w / 2, 76);
+
+      // Download speed
+      ctx.fillStyle = '#3b82f6'; ctx.font = 'bold 11px system-ui';
+      ctx.fillText('DOWNLOAD', w / 2, 102);
+      ctx.fillStyle = text; ctx.font = 'bold 28px system-ui';
+      ctx.fillText(down.val, w / 2, 134);
+      ctx.fillStyle = dim; ctx.font = '12px system-ui';
+      ctx.fillText(down.unit, w / 2, 150);
+
+      // Interface count
+      ctx.fillStyle = dim; ctx.font = '11px system-ui';
+      ctx.fillText(ifaceCount + ' interface' + (ifaceCount !== 1 ? 's' : ''), w / 2, 170);
+
+      // Title
+      ctx.fillStyle = dim; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('Network Monitor', w / 2, h - 8);
+    }
 
     setup(app) {
       app.component('network-monitor-panel', {
@@ -35,9 +87,12 @@
 
           async function refresh() {
             try {
-              const store = await fetch(bp + '/api/plugin/store').then(r => r.json()).catch(() => null);
+              const store = await fetch(bp + '/api/plugins/network-monitor/store').catch(() => fetch(bp + '/api/plugin/store')).then(r => r.json()).catch(() => null);
               if (store && store.latest) {
                 latest.value = store.latest;
+                // Cache for thumbnail rendering
+                const inst = HortExtension.get('network-monitor');
+                if (inst) inst._lastNetwork = store.latest;
               }
 
               // Build history from store keys

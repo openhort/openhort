@@ -10,6 +10,47 @@
     static llmingTitle = 'Task Manager';
     static llmingIcon = 'ph ph-list-checks';
     static llmingDescription = 'View and manage running processes';
+    static llmingWidgets = ['process-manager-panel'];
+
+    // Cached process data for thumbnail
+    _lastProcesses = null;
+
+    renderThumbnail(ctx, w, h) {
+      const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff', bar = '#3b82f6';
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+
+      const procs = this._lastProcesses;
+      if (!procs || !procs.length) {
+        ctx.fillStyle = dim; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText('Process Manager', w / 2, h / 2);
+        return;
+      }
+
+      // Top 5 by CPU
+      const top5 = [...procs].sort((a, b) => b.cpu - a.cpu).slice(0, 5);
+      const maxCpu = Math.max(top5[0].cpu, 1);
+      const barH = 22, gap = 8, startY = 18;
+      ctx.font = 'bold 11px system-ui';
+      ctx.textAlign = 'left';
+      top5.forEach((p, i) => {
+        const y = startY + i * (barH + gap);
+        // Background bar
+        ctx.fillStyle = '#1e293b'; ctx.fillRect(20, y, w - 40, barH);
+        // Fill bar
+        ctx.fillStyle = bar;
+        ctx.fillRect(20, y, (w - 40) * p.cpu / maxCpu, barH);
+        // Process name
+        ctx.fillStyle = text;
+        ctx.fillText(p.name.length > 18 ? p.name.substring(0, 18) + '..' : p.name, 26, y + 15);
+        // CPU percentage
+        ctx.textAlign = 'right';
+        ctx.fillText(p.cpu.toFixed(1) + '%', w - 26, y + 15);
+        ctx.textAlign = 'left';
+      });
+      // Title
+      ctx.fillStyle = dim; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('Process Manager', w / 2, h - 8);
+    }
 
     setup(app) {
       app.component('process-manager-panel', {
@@ -22,10 +63,13 @@
 
           async function refresh() {
             try {
-              const store = await fetch(bp + '/api/plugin/store').then(r => r.json()).catch(() => ({}));
+              const store = await fetch(bp + '/api/plugins/process-manager/store').catch(() => fetch(bp + '/api/plugin/store')).then(r => r.json()).catch(() => ({}));
               const data = store.processes || {};
               processes.value = data.list || [];
               totalCount.value = data.total || 0;
+              // Cache for thumbnail rendering
+              const inst = HortExtension.get('process-manager');
+              if (inst) inst._lastProcesses = data.list || [];
             } catch {}
           }
 

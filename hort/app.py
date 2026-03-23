@@ -113,6 +113,16 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     _register_targets()
     _register_routes(app)
 
+    # Plugins — discovery, loading, routes, and scheduler startup
+    from hort.plugins import load_plugins_sync, setup_plugins, start_plugins
+
+    plugin_registry = setup_plugins(app)
+    load_plugins_sync(plugin_registry)  # load immediately (no event loop needed)
+
+    @app.on_event("startup")
+    async def _start_plugin_schedulers() -> None:
+        await start_plugins(plugin_registry)  # start schedulers (needs event loop)
+
     @app.on_event("startup")
     async def _on_startup() -> None:
         logger.info("App startup complete (pid=%d)", os.getpid())
@@ -450,7 +460,7 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.get("/api/config/{plugin_id:path}")
     async def get_config(plugin_id: str) -> Response:
-        """Get config for a plugin by its unique ID."""
+        """Get system config by ID (connectors, etc). NOT for plugin data — use /api/plugins/{id}/store."""
         from hort.config import get_store
 
         config = get_store().get(plugin_id)

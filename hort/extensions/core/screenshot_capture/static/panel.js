@@ -18,6 +18,7 @@
     static llmingTitle = 'Screenshots';
     static llmingIcon = 'ph ph-camera';
     static llmingDescription = 'Capture and browse remote screenshots';
+    static llmingWidgets = ['screenshot-capture-panel'];
 
     setup(app) {
       app.component('screenshot-capture-panel', {

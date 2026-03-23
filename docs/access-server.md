@@ -405,6 +405,10 @@ Automated build, push, and deploy workflow:
 | Host data lost on redeploy | Ephemeral filesystem on Azure App Service | Mount persistent volume at `/data/` via `docker-compose.yml` |
 | Token login cookies not set | Wrong cookie config for HTTPS | Set `HORT_HTTPS=1` to enable `https_only=True, same_site="none"` |
 | Token login cookies not sent (local dev) | Cookies require HTTPS but dev uses HTTP | Keep `HORT_HTTPS=0` (default) for local dev — uses `https_only=False, same_site="lax"` |
+| Icons/fonts broken through proxy (empty squares) | Binary response bodies decoded as UTF-8 | Fixed: `proxy_request()` now keeps bodies as raw bytes (`body_bytes`), only decodes for HTML injection |
+| Proxy returns 502 for large pages | Azure WS drops messages > ~64KB | Fixed: tunnel client chunks responses at 32KB — `http_response_start` + `http_response_chunk` |
+| Server hangs on startup with plugins | `psutil.cpu_percent(interval=0.5)` blocks event loop | Fixed: `run_on_activate=False` + scheduler start deferred 3s after startup |
+| "Host not connected" after redeploy | Host store wiped, new host_id generated | Re-register host, update config, restart tunnel. TODO: permanent UUID |
 
 ### Landing Page
 
@@ -507,3 +511,33 @@ The deploy script now always uses unique version tags.
 ### Optimistic Cloud Status Overwritten
 
 When enabling the cloud connector via the UI, the status dot turned green optimistically. But the 10-second picker refresh called `fetchConnectors()` which immediately overwrote the state with the server's "not yet active" response (tunnel hadn't connected yet). Fixed with a `_cloudOptimisticUntil` timestamp that preserves the optimistic state for 3 seconds, during which `fetchConnectors()` skips updating the cloud status.
+
+### Binary Response Corruption Through Proxy
+
+The `proxy_request()` method in the access server decoded all response bodies as UTF-8 strings (`errors="replace"`), which replaces non-UTF8 bytes with `�` (U+FFFD). This corrupted binary files — fonts (.woff2), images, and other non-text assets. Symptoms: Phosphor icons showing as empty squares, images garbled.
+
+**Root cause:** `base64.b64decode(resp["body_b64"]).decode("utf-8", errors="replace")` in the response normalization.
+
+**Fix:** Keep response bodies as raw bytes (`body_bytes`) throughout the proxy chain. Only decode to string for HTML `<base>` tag injection (which explicitly checks `text/html` content-type). Binary content passes through untouched.
+
+### Plugin Scheduler Blocking Server Startup
+
+With 5+ plugins each running `psutil.cpu_percent(interval=0.5)` via `run_on_activate=True` during the startup event, the server would hang for 2.5+ seconds and sometimes fail to complete startup within uvicorn's timeout.
+
+**Fix:** Two changes:
+1. `run_on_activate` forced to `False` in `hort/plugins.py` — plugins never block startup
+2. Scheduler start deferred by 3 seconds via `asyncio.create_task` with `asyncio.sleep(3)` — lets the server finish startup and start serving before any plugin jobs run
+
+### Host ID Changes on Every Redeploy
+
+The access server generates a new random `host_id` on every `create_host()` call. When the access server is redeployed (store wiped), a new registration creates a different host_id. The local QR codes/tokens become invalid because they reference the old host_id.
+
+**Current state:** Known issue. The host_id should be a permanent UUID generated once locally and sent to the access server during registration.
+
+**Workaround:** After redeployment, re-register the host, update `hort-config.yaml`, restart the tunnel, and refresh the temp token via the Cloud panel's "Refresh Token" button.
+
+### Cloud Connector Green Dot vs Actual Connectivity
+
+The cloud connector status (green dot) only checks if `/tmp/hort-tunnel.active` exists. It does not verify that the tunnel is actually working or that the host_id matches the registered one on the access server.
+
+**Current state:** Known issue. The connector should periodically ping the access server to confirm the tunnel is alive and the host_id is valid. Until fixed, the green dot may show "connected" when the tunnel is stale or the host_id has changed.

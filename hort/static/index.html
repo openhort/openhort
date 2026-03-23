@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#3b82f6">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="manifest.json">
+<!-- manifest loaded dynamically to avoid 401 through proxy -->
 <link rel="icon" href="api/icon/192" type="image/png">
 <link rel="apple-touch-icon" href="api/icon/192">
 <title>hort</title>
@@ -18,472 +18,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,300;0,400;0,700;1,700&display=swap">
 <link rel="stylesheet" href="static/vendor/quasar.prod.css">
 <link rel="stylesheet" href="static/vendor/xterm.css">
-<style>
-:root {
-  --el-bg: #0a0e1a;
-  --el-surface: #111827;
-  --el-border: #1e3a5f;
-  --el-primary: #3b82f6;
-  --el-accent: #60a5fa;
-  --el-text: #f0f4ff;
-  --el-text-dim: #94a3b8;
-  --el-danger: #ef4444;
-  --el-success: #22c55e;
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    background: var(--el-bg); color: var(--el-text);
-    overscroll-behavior: none;
-    -webkit-user-select: none; user-select: none;
-}
-
-/* OpenHORT Logo Bar */
-.logo-bar {
-    display: flex; align-items: center; gap: 12px;
-    padding: 8px 12px; background: var(--el-surface);
-    border-bottom: 1px solid var(--el-border);
-}
-.logo-svg { flex-shrink: 0; height: 58px; }
-@media (min-width: 768px) { .logo-svg { height: 67px; } }
-.logo-bar .connectors-inline { display: flex; gap: 6px; margin-left: auto; }
-
-/* ===== PICKER VIEW ===== */
-.connector-chip {
-    display: flex; align-items: center; gap: 5px;
-    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 8px;
-    padding: 5px 12px; font-size: 12px; color: var(--el-text-dim); cursor: pointer;
-    transition: border-color 0.15s;
-}
-.connector-chip:hover { border-color: var(--el-primary); color: var(--el-text); }
-.connector-chip .dot {
-    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-}
-.connector-chip .dot.on { background: var(--el-success); box-shadow: 0 0 6px var(--el-success); }
-.connector-chip .dot.off { background: var(--el-text-dim); }
-/* Connector panel overlay */
-.connector-panel-overlay {
-    position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.6);
-    display: flex; align-items: center; justify-content: center; padding: 20px;
-}
-.connector-panel {
-    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 16px;
-    width: 100%; max-width: 400px; overflow: hidden;
-}
-.connector-panel-header {
-    display: flex; align-items: center; gap: 10px; padding: 16px 20px;
-    border-bottom: 1px solid var(--el-border);
-}
-.connector-panel-header h3 { color: var(--el-primary); font-size: 16px; margin: 0; flex: 1; }
-.connector-panel-close { background: none; border: none; color: var(--el-text-dim); font-size: 20px; cursor: pointer; }
-.connector-panel-body { padding: 16px 20px; }
-.connector-panel-body .qr-wrap {
-    background: #fff; padding: 12px; border-radius: 10px; display: inline-block; margin: 10px 0;
-}
-.connector-panel-body .qr-wrap img { width: 180px; height: 180px; display: block; }
-.connector-panel-body .conn-url {
-    background: var(--el-bg); color: var(--el-accent); padding: 6px 10px; border-radius: 6px;
-    font-size: 12px; font-family: monospace; word-break: break-all; margin: 8px 0;
-}
-.target-divider {
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 12px 4px; margin-top: 4px;
-    font-size: 12px; color: var(--el-primary); font-weight: 600;
-    border-bottom: 1px solid var(--el-border); margin-bottom: 6px;
-}
-.target-divider i { font-size: 16px; }
-.target-count {
-    background: var(--el-border); border-radius: 10px; padding: 1px 8px;
-    font-size: 11px; color: var(--el-text-dim); font-weight: normal;
-}
-
-/* Unified grid */
-.llming-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
-  padding: 10px;
-}
-@media (max-width: 480px) {
-  .llming-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-}
-.grid-card {
-  background: var(--el-surface);
-  border-radius: 10px;
-  cursor: pointer;
-  border: 2px solid transparent;
-  transition: border-color 0.15s, transform 0.1s;
-  overflow: hidden;
-}
-.grid-card:hover { border-color: var(--el-primary); transform: translateY(-2px); }
-.grid-card-thumb {
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  object-fit: cover;
-  background: var(--el-border);
-  display: block;
-}
-.grid-card-info {
-  padding: 8px 10px;
-}
-.grid-card-info .card-app { font-size: 12px; color: var(--el-primary); font-weight: 600; }
-.grid-card-info .card-name { font-size: 11px; color: var(--el-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.grid-card.new-llming {
-  border: 2px dashed var(--el-border);
-  display: flex; align-items: center; justify-content: center;
-  min-height: 140px;
-  flex-direction: column; gap: 8px;
-  color: var(--el-text-dim); font-size: 14px;
-}
-.grid-card.new-llming:hover { border-color: var(--el-primary); color: var(--el-primary); }
-.grid-card.new-llming i { font-size: 36px; }
-.grid-card.terminal-card .card-thumb-icon {
-  width: 100%; aspect-ratio: 16 / 10;
-  background: var(--el-border);
-  display: flex; align-items: center; justify-content: center;
-}
-.grid-card.terminal-card .card-thumb-icon i { font-size: 40px; color: var(--el-primary); }
-
-/* Llming launcher overlay */
-.llming-launcher-overlay {
-    position: fixed; inset: 0; z-index: 500;
-    background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center;
-    padding: 20px;
-}
-.llming-launcher {
-    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 16px;
-    width: 100%; max-width: 700px; max-height: 80vh; display: flex; flex-direction: column;
-    overflow: hidden;
-}
-.llming-launcher-header {
-    display: flex; align-items: center; gap: 10px; padding: 16px 20px;
-    border-bottom: 1px solid var(--el-border);
-}
-.llming-launcher-header h3 { color: var(--el-primary); font-size: 16px; margin: 0; flex-shrink: 0; }
-.llming-launcher-search {
-    flex: 1; background: var(--el-bg); color: var(--el-text); border: 1px solid var(--el-border);
-    border-radius: 8px; padding: 8px 12px; font-size: 14px; outline: none;
-}
-.llming-launcher-search:focus { border-color: var(--el-primary); }
-.llming-launcher-close {
-    background: none; border: none; color: var(--el-text-dim); font-size: 20px; cursor: pointer;
-    padding: 4px;
-}
-.llming-launcher-close:hover { color: var(--el-text); }
-.llming-launcher-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 10px; padding: 16px 20px; overflow-y: auto;
-}
-@media (min-width: 600px) {
-    .llming-launcher-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
-}
-.llming-option {
-    background: var(--el-bg); border: 1px solid var(--el-border); border-radius: 10px;
-    padding: 16px 10px; text-align: center; cursor: pointer;
-    transition: border-color 0.15s, transform 0.1s;
-}
-.llming-option:hover { border-color: var(--el-primary); transform: translateY(-2px); }
-.llming-option.disabled { opacity: 0.4; cursor: not-allowed; }
-.llming-option.disabled:hover { border-color: var(--el-border); transform: none; }
-.llming-option-icon { font-size: 32px; color: var(--el-primary); display: block; margin-bottom: 8px; }
-.llming-option-label { font-size: 13px; color: var(--el-text); font-weight: 600; }
-.llming-option-desc { font-size: 10px; color: var(--el-text-dim); margin-top: 4px; }
-
-/* Spaces bar */
-.spaces-bar {
-    display: none; gap: 6px; padding: 8px 12px 4px; align-items: center;
-}
-.spaces-bar.visible { display: flex; }
-.spaces-bar .spaces-label { font-size: 11px; color: var(--el-text-dim); margin-right: 2px; }
-.space-btn {
-    width: 32px; height: 24px; border-radius: 6px; border: 1px solid var(--el-border);
-    background: var(--el-border); color: var(--el-text-dim); font-size: 12px; font-weight: 600;
-    cursor: pointer; transition: all 0.15s;
-}
-.space-btn:hover { border-color: var(--el-primary); color: var(--el-text); }
-.space-btn.active { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
-.viewer-spaces {
-    display: none; align-items: center; gap: 2px; flex-shrink: 0;
-    background: var(--el-border); border-radius: 6px; padding: 2px 4px;
-}
-.viewer-spaces.visible { display: inline-flex; }
-.space-label { font-size: 11px; color: var(--el-primary); min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
-.space-nav-btn {
-    background: none; border: none; color: var(--el-text-dim); font-size: 14px;
-    cursor: pointer; padding: 2px 4px; display: flex; align-items: center;
-}
-.space-nav-btn:hover { color: var(--el-primary); }
-
-/* Groups bar */
-.groups-bar {
-    display: flex; gap: 6px; padding: 8px 12px 4px; overflow-x: auto; scrollbar-width: none;
-}
-.groups-bar::-webkit-scrollbar { display: none; }
-.group-chip {
-    flex-shrink: 0; padding: 6px 14px; border-radius: 16px;
-    background: var(--el-border); border: 1px solid var(--el-border); color: var(--el-text-dim);
-    font-size: 12px; cursor: pointer; white-space: nowrap; transition: all 0.15s;
-}
-.group-chip:hover { border-color: var(--el-primary); color: var(--el-text); }
-.group-chip.active { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
-.group-chip.new-group { border-style: dashed; border-color: var(--el-text-dim); color: var(--el-text-dim); }
-.group-chip.new-group:hover { border-color: var(--el-primary); color: var(--el-primary); }
-
-/* ===== SHARED LLMING LAYOUT ===== */
-.llming-view {
-    position: fixed; inset: 0; background: var(--el-bg);
-    display: none; flex-direction: column;
-}
-.llming-view.visible { display: flex; }
-.llming-content { flex: 1; overflow: hidden; position: relative; }
-
-/* Shared toolbar */
-.llming-toolbar {
-    background: var(--el-surface); padding: 6px 10px; display: flex; align-items: center; gap: 6px;
-    border-bottom: 1px solid var(--el-border); flex-shrink: 0;
-    position: sticky; top: 0; z-index: 200;
-}
-.llming-back, .llming-close {
-    background: none; border: 1px solid var(--el-border); color: var(--el-text-dim); border-radius: 6px;
-    padding: 6px 10px; font-size: 13px; cursor: pointer; flex-shrink: 0;
-}
-.llming-back:hover, .llming-close:hover { border-color: var(--el-primary); color: var(--el-text); }
-.llming-close { color: var(--el-danger); }
-.llming-close:hover { border-color: var(--el-danger); }
-.llming-title { flex: 1; font-size: 12px; color: var(--el-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.llming-action {
-    background: none; border: 1px solid var(--el-border); color: var(--el-text-dim); border-radius: 50%;
-    width: 32px; height: 32px; font-size: 16px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.llming-action:hover, .llming-action.active { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
-
-/* Shared bottom bar */
-.llming-bottom-bar {
-    background: var(--el-surface); padding: 4px 6px; display: flex; gap: 4px;
-    overflow-x: auto; scrollbar-width: none; flex-shrink: 0;
-    border-top: 1px solid var(--el-border);
-}
-.llming-bottom-bar::-webkit-scrollbar { display: none; }
-.llming-bottom-bar button {
-    flex-shrink: 0; background: var(--el-border); color: var(--el-text-dim); border: 1px solid var(--el-border);
-    border-radius: 6px; padding: 8px 12px; font-size: 13px; cursor: pointer;
-    font-family: monospace; min-width: 40px;
-}
-.llming-bottom-bar button:active { background: var(--el-primary); color: #fff; }
-
-/* Shared floating soft keys */
-.llming-floating-keys {
-    position: fixed; bottom: 60px; left: 10px; z-index: 300;
-    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 12px;
-    padding: 8px; display: flex; flex-wrap: wrap; gap: 4px;
-    max-width: 280px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-    touch-action: none;
-}
-.llming-floating-keys.hidden { display: none; }
-.llming-floating-keys button {
-    background: var(--el-border); color: var(--el-text); border: none;
-    border-radius: 6px; padding: 10px 14px; font-size: 14px; cursor: pointer;
-    font-family: monospace; min-width: 44px; min-height: 44px;
-    display: flex; align-items: center; justify-content: center;
-}
-.llming-floating-keys button:active { background: var(--el-primary); }
-.llming-floating-keys .drag-handle {
-    width: 100%; text-align: center; color: var(--el-text-dim); font-size: 10px;
-    cursor: grab; padding: 2px; user-select: none;
-}
-
-/* ===== VIEWER (llming-view variant) ===== */
-.llming-view.viewer-llming { background: #000; }
-.llming-view.viewer-llming .llming-toolbar {
-    background: rgba(17, 24, 39, 0.9);
-    padding: calc(6px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 6px calc(10px + env(safe-area-inset-left, 0px));
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    position: fixed; top: 0; left: 0; right: 0;
-}
-.llming-view.viewer-llming .llming-back {
-    background: var(--el-primary); color: white; border: none; font-weight: 600;
-}
-.nav-mode-select {
-    background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border); border-radius: 6px;
-    padding: 5px 8px; font-size: 12px; flex-shrink: 0; max-width: 140px;
-    -webkit-appearance: none; appearance: none;
-}
-.nav-counter { font-size: 11px; color: var(--el-primary); flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.fps-display { font-size: 10px; color: #555; flex-shrink: 0; }
-.observer-count { font-size: 10px; color: #555; flex-shrink: 0; }
-
-.stream-container {
-    position: absolute;
-    top: calc(44px + env(safe-area-inset-top, 0px));
-    left: env(safe-area-inset-left, 0px);
-    right: env(safe-area-inset-right, 0px);
-    bottom: env(safe-area-inset-bottom, 0px);
-    overflow: hidden;
-}
-.stream-img {
-    position: absolute; top: 0; left: 0; transform-origin: 0 0;
-}
-
-/* Active mode */
-.llming-view.active-mode .stream-container { cursor: none; }
-.llming-view.active-mode .nav-arrow { display: none; }
-
-/* Remote cursor indicator */
-.remote-cursor {
-    display: none; position: absolute; z-index: 180; pointer-events: none;
-    width: 24px; height: 24px; transform: translate(-2px, -2px);
-}
-.remote-cursor svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8)); }
-.llming-view.active-mode .remote-cursor { display: block; }
-.click-ripple {
-    display: none; position: absolute; z-index: 179; pointer-events: none;
-    width: 40px; height: 40px; transform: translate(-20px, -20px);
-    border: 2px solid var(--el-primary); border-radius: 50%;
-    animation: ripple 0.4s ease-out forwards;
-}
-@keyframes ripple {
-    0% { transform: translate(-20px,-20px) scale(0.3); opacity: 1; }
-    100% { transform: translate(-20px,-20px) scale(1.5); opacity: 0; }
-}
-
-/* Nav arrows */
-.nav-arrow {
-    position: fixed; top: 50%; z-index: 250; transform: translateY(-50%);
-    background: rgba(17,24,39,0.6); border: 1px solid rgba(30,58,95,0.5);
-    color: var(--el-text-dim); font-size: 26px; width: 40px; height: 72px;
-    cursor: pointer; display: flex; align-items: center; justify-content: center;
-    transition: background 0.15s, color 0.15s;
-}
-.nav-arrow:hover { background: var(--el-primary); color: #fff; }
-.nav-arrow.prev { left: env(safe-area-inset-left, 0px); border-radius: 0 8px 8px 0; }
-.nav-arrow.next { right: env(safe-area-inset-right, 0px); border-radius: 8px 0 0 8px; }
-
-/* Settings panel */
-.settings-panel {
-    display: none; position: fixed;
-    top: calc(44px + env(safe-area-inset-top, 0px));
-    right: calc(12px + env(safe-area-inset-right, 0px));
-    z-index: 300;
-    background: rgba(17,24,39,0.95); border: 1px solid var(--el-border);
-    border-radius: 12px; padding: 14px 18px; min-width: 240px;
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-}
-.settings-panel.open { display: block; }
-.settings-panel h3 { font-size: 11px; color: var(--el-primary); margin: 0 0 10px; text-transform: uppercase; letter-spacing: 1px; }
-.setting-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.setting-row:last-child { margin-bottom: 0; }
-.setting-row label { font-size: 12px; color: var(--el-text-dim); min-width: 65px; flex-shrink: 0; }
-.setting-row input[type=range] { flex: 1; accent-color: var(--el-primary); }
-.setting-val { font-size: 12px; color: var(--el-primary); min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
-.setting-row select {
-    flex: 1; background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border);
-    border-radius: 6px; padding: 5px 8px; font-size: 12px;
-}
-
-/* Minimap */
-.minimap {
-    display: none; position: fixed;
-    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
-    right: calc(12px + env(safe-area-inset-right, 0px));
-    z-index: 250;
-    background: rgba(17,24,39,0.9); border: 1px solid var(--el-border); border-radius: 8px;
-    padding: 6px; backdrop-filter: blur(8px);
-}
-.minimap.visible { display: block; }
-.minimap-wrap {
-    position: relative; width: 180px; cursor: crosshair; overflow: hidden; border-radius: 4px;
-}
-.minimap-img { width: 100%; display: block; background: var(--el-border); }
-.minimap-viewport {
-    position: absolute; border: 2px solid var(--el-primary); background: rgba(59,130,246,0.1);
-    pointer-events: none; border-radius: 2px;
-}
-.minimap-nav {
-    display: flex; gap: 4px; margin-top: 6px;
-}
-.minimap-nav button {
-    flex: 1; background: var(--el-border); border: 1px solid var(--el-border); color: var(--el-text-dim);
-    border-radius: 4px; padding: 4px; font-size: 11px; cursor: pointer; font-weight: 600;
-}
-.minimap-nav button:hover { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
-
-/* Overview grid */
-.overview {
-    display: none; position: fixed; inset: 0; z-index: 350;
-    background: rgba(0,0,0,0.85); overflow-y: auto; padding: 50px 16px 16px;
-}
-.overview.open { display: block; }
-.overview-header {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 360;
-    background: rgba(17,24,39,0.95); padding: 10px 16px;
-    display: flex; align-items: center; gap: 10px;
-    backdrop-filter: blur(8px);
-}
-.overview-spaces { display: inline-flex; gap: 3px; flex-shrink: 0; }
-.overview-header h2 { flex: 1; font-size: 15px; color: var(--el-primary); }
-.overview-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 10px;
-}
-.overview-card {
-    background: var(--el-surface); border-radius: 8px; padding: 8px; cursor: pointer;
-    border: 1px solid transparent; transition: border-color 0.15s;
-}
-.overview-card:hover { border-color: var(--el-primary); }
-.overview-card.current { border-color: var(--el-primary); }
-.overview-card img {
-    width: 100%; aspect-ratio: 16/10; object-fit: cover; border-radius: 5px;
-    background: var(--el-border);
-}
-.overview-card .ov-app { font-size: 11px; color: var(--el-primary); margin-top: 6px; font-weight: 600; }
-.overview-card .ov-name { font-size: 10px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* Group modal */
-.group-modal-overlay {
-    display: none; position: fixed; inset: 0; z-index: 400;
-    background: rgba(0,0,0,0.7); align-items: center; justify-content: center;
-}
-.group-modal-overlay.open { display: flex; }
-.group-modal-content {
-    background: var(--el-surface); border: 1px solid var(--el-border); border-radius: 12px;
-    padding: 20px; width: 90%; max-width: 360px;
-}
-.group-modal-content h3 { color: var(--el-primary); margin-bottom: 12px; font-size: 15px; }
-.group-modal-content input {
-    width: 100%; background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border);
-    border-radius: 6px; padding: 10px; font-size: 14px; margin-bottom: 12px;
-}
-.group-modal-content input:focus { outline: none; border-color: var(--el-primary); }
-.modal-btns { display: flex; gap: 8px; }
-.modal-btns button {
-    flex: 1; padding: 10px; border: none; border-radius: 6px;
-    font-size: 14px; cursor: pointer; font-weight: 600;
-}
-.modal-save { background: var(--el-primary); color: #fff; }
-.modal-cancel { background: var(--el-border); color: var(--el-text-dim); }
-.modal-delete { background: var(--el-border); color: var(--el-danger); flex: 0; padding: 10px 16px; }
-
-/* Quasar overrides for dark theme */
-.q-dark { background: var(--el-bg) !important; }
-
-/* ===== TERMINAL (llming-view variant) ===== */
-.llming-view.terminal-llming { background: #000; }
-.llming-view.terminal-llming .llming-content .xterm { height: 100%; }
-/* Plugin action buttons */
-.term-actions {
-    background: rgba(17,24,39,0.95); padding: 6px 10px; display: flex; gap: 6px;
-    flex-shrink: 0; border-top: 1px solid var(--el-border);
-}
-.term-actions button {
-    padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px;
-    cursor: pointer; font-weight: 600;
-}
-.term-actions .action-accept { background: var(--el-success); color: #fff; }
-.term-actions .action-decline { background: var(--el-danger); color: #fff; }
-.term-actions .action-choice { background: var(--el-border); color: var(--el-text); border: 1px solid var(--el-border); }
-</style>
+<link rel="stylesheet" href="static/hort.css">
 </head>
 <body>
 
@@ -498,6 +33,7 @@ body {
 <script src="static/vendor/quasar.umd.prod.js"></script>
 <script src="static/vendor/hort-ext.js"></script>
 <script src="static/vendor/hort-widgets.js"></script>
+<script src="static/vendor/hort-plugins-ui.js"></script>
 <!-- Connector extension panels -->
 <script src="ext/lan_connector/static/panel.js"></script>
 <script src="ext/cloud_connector/static/panel.js"></script>
@@ -909,9 +445,13 @@ body {
   }
 
   function computeNavWindows() {
-    // First filter by active target (client-side, instant)
+    // Auto-select first target if still "all"
+    if (state.activeTarget === 'all' && state.targets.length > 0) {
+      state.activeTarget = state.targets[0].id;
+    }
+    // Filter by active target
     let base = state.allWindows;
-    if (state.activeTarget !== 'all') {
+    if (state.activeTarget && state.activeTarget !== 'all') {
       base = base.filter(w => w.target_id === state.activeTarget);
     }
 
@@ -1053,6 +593,28 @@ body {
       }
     }, 300);
   }
+
+  // ===== PLUGIN LOAD SIGNAL (triggers computed re-evaluation) =====
+  const pluginsLoaded = ref(0);
+
+  // ===== SPIRIT FULLSCREEN (shared between picker and root) =====
+  const fullscreenSpirit = ref(null);
+  function openSpiritFullscreen(name) {
+    fullscreenSpirit.value = name;
+    state.view = 'spirit-fullscreen';
+  }
+  function closeSpiritFullscreen() {
+    fullscreenSpirit.value = null;
+    state.view = 'picker';
+  }
+  const fullscreenSpiritWidget = computed(() => {
+    const name = fullscreenSpirit.value;
+    if (!name || typeof HortExtension === 'undefined') return '';
+    for (const [id, ExtClass] of HortExtension.getRegistry()) {
+      if (id === name && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) return ExtClass.llmingWidgets[0];
+    }
+    return '';
+  });
 
   // ===== ESCAPE HELPER =====
   function esc(s) {
@@ -1962,15 +1524,69 @@ body {
               <animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/>
               <animate attributeName="opacity" values="0.15;0.25;0.15" dur="2s" repeatCount="indefinite"/>OpenHORT</text>
           </svg>
-          <!-- Connectors inline (only when local) -->
-          <div v-if="state.isLocal" class="connectors-inline">
-            <div class="connector-chip" @click="state.connectorPanelOpen = 'lan'">
-              <span class="dot on"></span>
-              <i class="ph ph-wifi-high"></i> LAN
+
+          <!-- Lemming icon -->
+          <svg viewBox="0 0 24 24" style="width:28px;height:28px;flex-shrink:0;opacity:0.5;margin-left:4px" fill="none" stroke="#d4a017" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 4c-2 0-3.5 1-4 2.5C7.5 8 7 9.5 7 11c0 2 .5 3.5 1 4.5l-.5 3c0 .5.3 1 .8 1.2l1.2.3c.3 0 .5-.2.5-.5v-2c.3.2.8.5 2 .5s1.7-.3 2-.5v2c0 .3.2.5.5.5l1.2-.3c.5-.2.8-.7.8-1.2l-.5-3c.5-1 1-2.5 1-4.5 0-1.5-.5-3-1-4.5C14.5 5 13 4 12 4z"/>
+            <circle cx="10" cy="9" r="1" fill="#d4a017"/>
+            <path d="M8 6.5C7 5.5 6 5 5 5M16 6.5C17 5.5 18 5 19 5"/>
+          </svg>
+
+          <div class="header-sep"></div>
+
+          <!-- View tabs -->
+          <div style="display:flex;gap:4px">
+            <div class="header-btn" :class="{active: viewTab === 'screens'}" @click="viewTab = 'screens'">
+              <i class="ph ph-monitor"></i> <span class="hide-mobile">Llmings</span>
             </div>
-            <div class="connector-chip" @click="state.connectorPanelOpen = 'cloud'">
-              <span class="dot" :class="state.connectors.cloud.active ? 'on' : 'off'"></span>
-              <i class="ph ph-cloud"></i> {{ state.connectors.cloud.active ? 'Cloud' : 'Cloud (off)' }}
+            <div class="header-btn" :class="{active: viewTab === 'spirits'}" @click="viewTab = 'spirits'">
+              <i class="ph ph-ghost"></i> <span class="hide-mobile">Spirits</span>
+              <span v-if="spiritCount" class="badge">{{ spiritCount }}</span>
+            </div>
+            <div class="header-btn" :class="{active: viewTab === 'config'}" @click="viewTab = 'config'">
+              <i class="ph ph-sliders"></i> <span class="hide-mobile">Config</span>
+            </div>
+          </div>
+
+          <div class="header-sep"></div>
+
+          <!-- Target selector (card-based popup) -->
+          <div v-if="state.targets.length > 0" class="hort-popup-anchor">
+            <div class="header-btn" @click="targetDropdownOpen = !targetDropdownOpen">
+              <i :class="activeTargetIcon"></i>
+              <span class="hide-mobile">{{ activeTargetLabel }}</span>
+              <i class="ph ph-caret-down" style="font-size:14px;opacity:0.5"></i>
+            </div>
+            <div v-if="targetDropdownOpen" class="hort-popup-backdrop" @click="targetDropdownOpen = false"></div>
+            <div v-if="targetDropdownOpen" class="hort-popup">
+              <div class="hort-popup-grid">
+                <div v-for="t in state.targets" :key="t.id"
+                     class="grid-card" :style="{borderColor: state.activeTarget === t.id ? 'var(--el-primary)' : ''}"
+                     @click="onSetTarget(t.id); targetDropdownOpen = false">
+                  <div class="card-thumb-icon">
+                    <i :class="t.provider_type === 'macos' ? 'ph ph-desktop' : t.provider_type === 'linux-docker' ? 'ph ph-linux-logo' : 'ph ph-monitor'"></i>
+                  </div>
+                  <div class="grid-card-info">
+                    <div class="card-app">{{ t.name }}</div>
+                    <div class="card-name">{{ t.provider_type }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Spacer -->
+          <div style="flex:1"></div>
+
+          <!-- Connectors -->
+          <div v-if="state.isLocal" style="display:flex;gap:4px">
+            <div class="header-btn" @click="state.connectorPanelOpen = 'lan'">
+              <span class="dot on" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+              <i class="ph ph-wifi-high"></i> <span class="hide-mobile">LAN</span>
+            </div>
+            <div class="header-btn" @click="state.connectorPanelOpen = 'cloud'">
+              <span class="dot" :class="state.connectors.cloud.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+              <i class="ph ph-cloud"></i> <span class="hide-mobile">{{ state.connectors.cloud.active ? 'Cloud' : 'Cloud' }}</span>
             </div>
           </div>
         </div>
@@ -1985,19 +1601,9 @@ body {
             @save="onCloudSave" />
         </div>
 
-        <!-- Target bar -->
-        <div v-if="state.targets.length > 0" class="groups-bar">
-          <div class="group-chip" :class="{ active: state.activeTarget === 'all' }" @click="onSetTarget('all')">
-            <i class="ph ph-globe"></i> All
-          </div>
-          <div v-for="t in state.targets" :key="t.id"
-               class="group-chip" :class="{ active: state.activeTarget === t.id }"
-               @click="onSetTarget(t.id)">
-            <i :class="t.provider_type === 'macos' ? 'ph ph-desktop' : t.provider_type === 'linux-docker' ? 'ph ph-linux-logo' : 'ph ph-monitor'"></i>
-            {{ t.name }}
-          </div>
-        </div>
+        <!-- Target bar removed — replaced by dropdown in header -->
 
+        <template v-if="viewTab === 'screens'">
         <!-- Spaces bar (single-target only) -->
         <div v-if="state.activeTarget !== 'all'" class="spaces-bar" :class="{ visible: state.spacesData.count > 1 }">
           <span class="spaces-label"><i class="ph ph-monitor"></i></span>
@@ -2009,7 +1615,7 @@ body {
         <!-- Unified grid -->
         <div class="llming-grid">
           <!-- Grouped by target ("all" mode with multiple targets) -->
-          <template v-if="state.activeTarget === 'all' && targetGroups.length > 1">
+          <template v-if="false && state.activeTarget === 'all' && targetGroups.length > 1">
             <template v-for="group in targetGroups" :key="group.targetId">
               <div class="target-divider" style="grid-column: 1 / -1">
                 <i :class="group.icon"></i>
@@ -2043,38 +1649,207 @@ body {
             </template>
           </template>
 
-          <!-- Single target / no grouping -->
+          <!-- Single target: unified sorted grid -->
           <template v-else>
-            <!-- "+" card -->
+            <!-- "+" always first -->
             <div class="grid-card new-llming" @click="onNewLlming(state.activeTarget !== 'all' ? state.activeTarget : (state.targets[0] ? state.targets[0].id : ''))">
               <i class="ph ph-plus-circle"></i>
               <span>New Llming</span>
             </div>
-            <!-- Terminals for active target -->
-            <div v-for="t in terminalsForTarget(state.activeTarget)" :key="'term-' + t.terminal_id"
-                 class="grid-card terminal-card" @click="openTerminal(t.terminal_id)">
-              <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
-              <div class="grid-card-info">
-                <div class="card-app">Terminal</div>
-                <div class="card-name">{{ t.title }}</div>
+            <!-- All items sorted by last interaction -->
+            <template v-for="item in unifiedGridItems" :key="item.key">
+              <!-- Spirit/plugin card -->
+              <div v-if="item.type === 'spirit'" class="grid-card" :style="{borderColor: isFavorite(item.key) ? 'var(--el-accent)' : ''}"
+                   @click="touch(item.key); openSpiritFullscreen(item.id)">
+                <div style="position:relative">
+                  <img v-if="pluginThumbs[item.id]" class="grid-card-thumb" :src="pluginThumbs[item.id]" alt="">
+                  <div v-else class="card-thumb-icon"><i :class="item.icon"></i></div>
+                  <i class="ph" :class="isFavorite(item.key) ? 'ph-fill ph-star' : 'ph ph-star'"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;opacity:0.6"
+                     :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
+                     @click.stop="toggleFavorite(item.key)"></i>
+                </div>
+                <div class="grid-card-info">
+                  <div class="card-app" style="color:var(--el-accent)">{{ item.app }}</div>
+                  <div class="card-name">Spirit</div>
+                </div>
               </div>
-            </div>
-            <!-- Windows -->
-            <div v-for="(win, idx) in state.navWindows" :key="win.window_id"
-                 class="grid-card" @click="$emit('select-window', idx)">
-              <img class="grid-card-thumb" :src="getThumbnailSrc(win.window_id)"
-                   loading="lazy" alt="" @error="onThumbError($event)">
-              <div class="grid-card-info">
-                <div class="card-app">{{ win.owner_name }}</div>
-                <div class="card-name">{{ win.window_name || '(untitled)' }}</div>
+              <!-- Terminal card -->
+              <div v-else-if="item.type === 'terminal'" class="grid-card" :style="{borderColor: isFavorite(item.key) ? 'var(--el-accent)' : ''}"
+                   @click="touch(item.key); openTerminal(item.id)">
+                <div style="position:relative">
+                  <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
+                  <i class="ph" :class="isFavorite(item.key) ? 'ph-fill ph-star' : 'ph ph-star'"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;opacity:0.6"
+                     :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
+                     @click.stop="toggleFavorite(item.key)"></i>
+                </div>
+                <div class="grid-card-info">
+                  <div class="card-app">{{ item.app }}</div>
+                  <div class="card-name">{{ item.name }}</div>
+                </div>
               </div>
-            </div>
+              <!-- Window card -->
+              <div v-else-if="item.type === 'window'" class="grid-card" :style="{borderColor: isFavorite(item.key) ? 'var(--el-accent)' : ''}"
+                   @click="touch(item.key); $emit('select-window', item.idx)">
+                <div style="position:relative">
+                  <img class="grid-card-thumb" :src="getThumbnailSrc(item.id)"
+                       loading="lazy" alt="" @error="onThumbError($event)">
+                  <i class="ph" :class="isFavorite(item.key) ? 'ph-fill ph-star' : 'ph ph-star'"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;opacity:0.6"
+                     :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
+                     @click.stop="toggleFavorite(item.key)"></i>
+                </div>
+                <div class="grid-card-info">
+                  <div class="card-app">{{ item.app }}</div>
+                  <div class="card-name">{{ item.name }}</div>
+                </div>
+              </div>
+            </template>
           </template>
 
           <!-- Empty state -->
           <div v-if="state.navWindows.length === 0 && state.terminals.length === 0"
                style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--el-text-dim)">
             No windows found
+          </div>
+        </div>
+        </template><!-- /screens -->
+
+        <!-- Spirits view — cards with thumbnail OR icon, click for settings -->
+        <div v-if="viewTab === 'spirits'">
+          <div class="llming-grid">
+            <div v-for="sp in spiritsList" :key="sp.name"
+                 class="grid-card" :style="{borderColor: selectedSpirit === sp.name ? 'var(--el-primary)' : ''}"
+                 @click="selectedSpirit = selectedSpirit === sp.name ? null : sp.name">
+              <div style="position:relative">
+                <img v-if="pluginThumbs[sp.name]" class="grid-card-thumb" :src="pluginThumbs[sp.name]" alt="">
+                <div v-else class="card-thumb-icon"><i :class="sp.icon || 'ph ph-ghost'"></i></div>
+                <span style="position:absolute;top:6px;right:6px">
+                  <span class="dot" :class="sp.loaded ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+                </span>
+              </div>
+              <div class="grid-card-info">
+                <div class="card-app">{{ sp.name }}</div>
+                <div class="card-name">{{ sp.description }}</div>
+              </div>
+            </div>
+          </div>
+          <!-- Spirit settings lightbox -->
+          <div v-if="selectedSpirit" class="hort-lightbox" @click.self="selectedSpirit = null">
+            <div class="hort-lightbox-content">
+              <div class="hort-lightbox-header">
+                <i :class="spiritsList.find(s => s.name === selectedSpirit)?.icon || 'ph ph-ghost'"></i>
+                <div style="flex:1">
+                  <div class="title">{{ selectedSpirit }}</div>
+                  <div class="desc">{{ spiritsList.find(s => s.name === selectedSpirit)?.description }}</div>
+                </div>
+                <button class="hort-lightbox-close" @click="selectedSpirit = null"><i class="ph ph-x"></i></button>
+              </div>
+              <div class="hort-lightbox-body">
+                <!-- Health stats -->
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+                  <div style="flex:1;min-width:80px;background:var(--el-bg);border-radius:8px;padding:10px;text-align:center">
+                    <div style="font-size:20px;font-weight:700;color:var(--el-success)">{{ spiritsList.find(s => s.name === selectedSpirit)?.running_jobs?.length || 0 }}</div>
+                    <div style="font-size:10px;color:var(--el-text-dim)">Jobs</div>
+                  </div>
+                  <div style="flex:1;min-width:80px;background:var(--el-bg);border-radius:8px;padding:10px;text-align:center">
+                    <div style="font-size:20px;font-weight:700;color:var(--el-primary)">{{ Object.values(spiritsList.find(s => s.name === selectedSpirit)?.features || {}).filter(f => f.enabled).length }}</div>
+                    <div style="font-size:10px;color:var(--el-text-dim)">Features on</div>
+                  </div>
+                  <div style="flex:1;min-width:80px;background:var(--el-bg);border-radius:8px;padding:10px;text-align:center">
+                    <div style="font-size:20px;font-weight:700;color:var(--el-accent)">{{ spiritStoreKeys[selectedSpirit] || 0 }}</div>
+                    <div style="font-size:10px;color:var(--el-text-dim)">Records</div>
+                  </div>
+                </div>
+                <!-- Open UI button -->
+                <button v-if="spiritWidgetName(selectedSpirit)" @click="openSpiritFullscreen(selectedSpirit); selectedSpirit = null"
+                  style="width:100%;padding:12px;background:var(--el-primary);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px">
+                  <i class="ph ph-monitor"></i> Open UI
+                </button>
+                <!-- Features -->
+                <template v-if="Object.keys(spiritsList.find(s => s.name === selectedSpirit)?.features || {}).length">
+                  <div style="font-size:11px;color:var(--el-text-dim);margin-bottom:4px">Features</div>
+                  <div v-for="(ft, fname) in spiritsList.find(s => s.name === selectedSpirit).features" :key="fname"
+                    style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03)">
+                    <input type="checkbox" :checked="ft.enabled" @change="toggleSpiritFeature(selectedSpirit, fname, $event.target.checked)">
+                    <span style="font-size:12px;color:var(--el-text)">{{ fname }}</span>
+                    <span style="font-size:11px;color:#cbd5e1">{{ ft.description }}</span>
+                  </div>
+                </template>
+                <!-- Running jobs -->
+                <div v-if="spiritsList.find(s => s.name === selectedSpirit)?.running_jobs?.length" style="margin-top:10px;display:flex;gap:4px;flex-wrap:wrap">
+                  <span v-for="j in spiritsList.find(s => s.name === selectedSpirit).running_jobs" :key="j"
+                    style="font-size:10px;padding:3px 8px;background:rgba(34,197,94,0.1);border-radius:6px;color:var(--el-success)">
+                    <i class="ph ph-play-circle"></i> {{ j }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="!spiritsList.length" style="color:var(--el-text-dim);text-align:center;padding:40px;font-size:13px">
+            No spirits running. Install plugins with background jobs.
+          </div>
+        </div>
+
+        <!-- Config view — card grid for all plugins -->
+        <div v-if="viewTab === 'config'">
+          <div class="llming-grid">
+            <div v-for="p in allPlugins" :key="p.name"
+                 class="grid-card" @click="selectedPlugin = selectedPlugin === p.name ? null : p.name">
+              <div class="card-thumb-icon" style="position:relative">
+                <i :class="p.icon || 'ph ph-puzzle-piece'"></i>
+                <span style="position:absolute;top:8px;right:8px;font-size:10px;padding:2px 6px;border-radius:4px"
+                  :style="{background: p.loaded ? 'rgba(34,197,94,0.2)' : 'rgba(148,163,184,0.15)', color: p.loaded ? 'var(--el-success)' : 'var(--el-text-dim)'}">
+                  {{ p.loaded ? 'On' : 'Off' }}
+                </span>
+              </div>
+              <div class="grid-card-info">
+                <div class="card-app">{{ p.name }}</div>
+                <div class="card-name">{{ p.description }}</div>
+              </div>
+            </div>
+          </div>
+          <!-- Plugin lightbox (same as spirits) -->
+          <div v-if="selectedPlugin" class="hort-lightbox" @click.self="selectedPlugin = null">
+            <div class="hort-lightbox-content">
+              <div class="hort-lightbox-header">
+                <i :class="allPlugins.find(p => p.name === selectedPlugin)?.icon || 'ph ph-puzzle-piece'"></i>
+                <div style="flex:1">
+                  <div class="title">{{ selectedPlugin }}</div>
+                  <div class="desc">{{ allPlugins.find(p => p.name === selectedPlugin)?.description }}</div>
+                </div>
+                <button class="hort-lightbox-close" @click="selectedPlugin = null"><i class="ph ph-x"></i></button>
+              </div>
+              <div class="hort-lightbox-body">
+                <!-- Plugin widget if registered -->
+                <div v-if="spiritWidgetName(selectedPlugin)" style="margin-bottom:12px">
+                  <component :is="spiritWidgetName(selectedPlugin)" />
+                </div>
+                <!-- Capabilities -->
+                <div v-if="allPlugins.find(p => p.name === selectedPlugin)?.capabilities?.length" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+                  <span v-for="c in allPlugins.find(p => p.name === selectedPlugin).capabilities" :key="c"
+                    style="font-size:10px;padding:2px 8px;background:var(--el-bg);border-radius:4px;color:var(--el-text-dim)">{{ c }}</span>
+                </div>
+                <!-- Features -->
+                <template v-if="Object.keys(allPlugins.find(p => p.name === selectedPlugin)?.features || {}).length">
+                  <div style="font-size:11px;color:var(--el-text-dim);margin-bottom:4px">Features</div>
+                  <div v-for="(ft, fname) in allPlugins.find(p => p.name === selectedPlugin).features" :key="fname"
+                    style="display:flex;align-items:center;gap:6px;padding:4px 0">
+                    <input type="checkbox" :checked="ft.enabled" @change="toggleSpiritFeature(selectedPlugin, fname, $event.target.checked)">
+                    <span style="font-size:12px">{{ fname }}</span>
+                    <span style="font-size:11px;color:#cbd5e1">{{ ft.description }}</span>
+                  </div>
+                </template>
+                <!-- Jobs -->
+                <div v-if="allPlugins.find(p => p.name === selectedPlugin)?.running_jobs?.length" style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap">
+                  <span v-for="j in allPlugins.find(p => p.name === selectedPlugin).running_jobs" :key="j"
+                    style="font-size:10px;padding:3px 8px;background:rgba(34,197,94,0.1);border-radius:6px;color:var(--el-success)">
+                    <i class="ph ph-play-circle"></i> {{ j }}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2219,10 +1994,201 @@ body {
         return state.navWindows.findIndex(w => w.window_id === win.window_id && w.target_id === win.target_id);
       }
 
+      // View tabs + target dropdown + spirits
+      const viewTab = ref('screens');
+      const targetDropdownOpen = ref(false);
+      const activeTargetLabel = computed(() => {
+        const t = state.targets.find(t => t.id === state.activeTarget);
+        return t ? t.name : state.targets[0]?.name || 'System';
+      });
+      const activeTargetIcon = computed(() => {
+        const t = state.targets.find(t => t.id === state.activeTarget);
+        const pt = t?.provider_type || state.targets[0]?.provider_type || '';
+        if (pt === 'macos') return 'ph ph-desktop';
+        if (pt === 'linux-docker') return 'ph ph-linux-logo';
+        return 'ph ph-monitor';
+      });
+      // Auto-select first target — never show "all"
+      watch(() => state.targets.length, () => {
+        if ((state.activeTarget === 'all' || !state.targets.find(t => t.id === state.activeTarget)) && state.targets.length > 0) {
+          state.activeTarget = state.targets[0].id;
+        }
+      }, { immediate: true });
+      const spiritsList = ref([]);
+      const spiritCount = computed(() => spiritsList.value.filter(s => s.running_jobs && s.running_jobs.length > 0).length);
+      const allPlugins = ref([]);
+      const selectedSpirit = ref(null);
+      const selectedPlugin = ref(null);
+
+      async function refreshSpirits() {
+        try {
+          const r = await fetch(apiUrl('/api/plugins'));
+          if (r.ok) {
+            const all = await r.json();
+            allPlugins.value = all;
+            spiritsList.value = all.filter(p => p.loaded && p.running_jobs && p.running_jobs.length);
+          }
+        } catch {}
+      }
+      // Track store key counts per spirit (mini stats)
+      const spiritStoreKeys = reactive({});
+      async function refreshSpiritStores() {
+        for (const sp of spiritsList.value) {
+          try {
+            const r = await fetch(apiUrl(`/api/plugins/${sp.name}/store`));
+            if (r.ok) spiritStoreKeys[sp.name] = Object.keys(await r.json()).length;
+          } catch {}
+        }
+      }
+
+      // Spirits whose UI panels are visible in Llmings view
+      // "Show in Llmings" — stored server-side so it syncs across browsers
+      const spiritUIVisible = ref([]);
+      async function loadSpiritUIVisible() {
+        try {
+          const r = await fetch(apiUrl('/api/config/ui.spirits'));
+          if (r.ok) {
+            const cfg = await r.json();
+            spiritUIVisible.value = cfg.visible || [];
+          }
+        } catch {}
+      }
+      function toggleSpiritUI(name, show) {
+        const list = spiritUIVisible.value;
+        const idx = list.indexOf(name);
+        if (show && idx < 0) list.push(name);
+        else if (!show && idx >= 0) list.splice(idx, 1);
+        // Save to server (fire-and-forget)
+        fetch(apiUrl('/api/config/ui.spirits'), {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({visible: [...list]}),
+        }).catch(() => {});
+      }
+      loadSpiritUIVisible().then(() => {
+        // Migrate from localStorage if server has no data
+        if (!spiritUIVisible.value.length) {
+          const local = JSON.parse(localStorage.getItem('hort-spirit-ui') || '[]');
+          if (local.length) {
+            spiritUIVisible.value = local;
+            fetch(apiUrl('/api/config/ui.spirits'), {
+              method: 'POST', headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({visible: local}),
+            }).catch(() => {});
+          }
+        }
+      });
+
+      // Map plugin name → widget component name (if registered)
+      function spiritWidgetName(pluginName) {
+        if (typeof HortExtension === 'undefined') return '';
+        for (const [id, ExtClass] of HortExtension.getRegistry()) {
+          if (id === pluginName && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
+            return ExtClass.llmingWidgets[0];
+          }
+        }
+        return '';
+      }
+
+      async function toggleSpiritFeature(pluginId, feature, enabled) {
+        await fetch(apiUrl(`/api/plugins/${pluginId}/features/${feature}`), {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({enabled}),
+        });
+        await refreshSpirits();
+      }
+      setInterval(refreshSpirits, 10000);
+      setInterval(refreshSpiritStores, 15000);
+      refreshSpirits().then(refreshSpiritStores);
+
       function terminalsForTarget(targetId) {
         if (targetId === 'all') return state.terminals;
         return state.terminals.filter(t => t.target_id === targetId);
       }
+
+      // Plugin thumbnail rendering (for spirit cards in grid)
+      const pluginThumbs = reactive({});
+      function renderPluginThumbs() {
+        if (typeof HortPlugins !== 'undefined') {
+          HortPlugins.renderAllThumbnails();
+          if (typeof HortExtension !== 'undefined') {
+            for (const [id] of HortExtension.getRegistry()) {
+              const url = HortPlugins.getThumbnailUrl(id);
+              if (url) pluginThumbs[id] = url;
+            }
+          }
+        }
+      }
+      setInterval(renderPluginThumbs, 5000);
+      setTimeout(renderPluginThumbs, 3000); // first render after plugins load
+
+      // Interaction tracking + favorites — persisted to localStorage
+      const _interactionKey = 'hort-last-interaction';
+      const _favoritesKey = 'hort-favorites';
+      const lastInteraction = reactive(JSON.parse(localStorage.getItem(_interactionKey) || '{}'));
+      const favorites = reactive(JSON.parse(localStorage.getItem(_favoritesKey) || '{}'));
+
+      function touch(itemKey) {
+        lastInteraction[itemKey] = Date.now();
+        localStorage.setItem(_interactionKey, JSON.stringify(lastInteraction));
+      }
+      function toggleFavorite(itemKey) {
+        favorites[itemKey] = !favorites[itemKey];
+        if (!favorites[itemKey]) delete favorites[itemKey];
+        localStorage.setItem(_favoritesKey, JSON.stringify(favorites));
+      }
+      function isFavorite(itemKey) { return !!favorites[itemKey]; }
+
+      // Unified sorted grid: spirits + terminals + windows
+      // Sort: favorites first (by interaction), then rest by interaction
+      const unifiedGridItems = computed(() => {
+        void pluginsLoaded.value; // reactive dependency — re-evaluate when plugins load
+        const items = [];
+        const target = state.activeTarget;
+
+        // Spirits: pinned (spiritUIVisible) + autoShow
+        const shownSpirits = new Set(spiritUIVisible.value);
+        if (typeof HortExtension !== 'undefined') {
+          for (const [id, ExtClass] of HortExtension.getRegistry()) {
+            if (ExtClass.autoShow && spiritWidgetName(id)) shownSpirits.add(id);
+          }
+        }
+        for (const sn of shownSpirits) {
+          if (!spiritWidgetName(sn)) continue;
+          const sp = spiritsList.value.find(s => s.name === sn);
+          items.push({
+            type: 'spirit', key: 'spirit:' + sn, id: sn,
+            icon: sp?.icon || 'ph ph-ghost', app: sn, name: 'Spirit',
+          });
+        }
+
+        // Terminals
+        for (const t of terminalsForTarget(target)) {
+          items.push({
+            type: 'terminal', key: 'term:' + t.terminal_id, id: t.terminal_id,
+            icon: 'ph ph-terminal-window', app: 'Terminal', name: t.title,
+          });
+        }
+
+        // Windows
+        for (let idx = 0; idx < state.navWindows.length; idx++) {
+          const w = state.navWindows[idx];
+          items.push({
+            type: 'window', key: 'win:' + w.window_id, id: w.window_id, idx,
+            app: w.owner_name, name: w.window_name || '(untitled)',
+          });
+        }
+
+        // Sort: favorites first, then by last interaction (most recent first)
+        items.sort((a, b) => {
+          const aFav = favorites[a.key] ? 1 : 0;
+          const bFav = favorites[b.key] ? 1 : 0;
+          if (aFav !== bFav) return bFav - aFav; // favorites first
+          const aTs = lastInteraction[a.key] || 0;
+          const bTs = lastInteraction[b.key] || 0;
+          return bTs - aTs; // most recent first
+        });
+        return items;
+      });
 
       const launcherOpen = ref(false);
       const launcherTargetId = ref('');
@@ -2289,6 +2255,13 @@ body {
         onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal,
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
         onCloudSave,
+        viewTab, spiritsList, spiritCount, allPlugins,
+        selectedSpirit, selectedPlugin, toggleSpiritFeature,
+        spiritStoreKeys, spiritUIVisible, toggleSpiritUI, spiritWidgetName,
+        unifiedGridItems, touch, lastInteraction, pluginThumbs,
+        favorites, toggleFavorite, isFavorite,
+        fullscreenSpirit, openSpiritFullscreen, closeSpiritFullscreen,
+        targetDropdownOpen, activeTargetLabel, activeTargetIcon,
       };
     },
   };
@@ -2577,6 +2550,24 @@ body {
       <hort-viewer ref="viewer"></hort-viewer>
       <hort-terminal></hort-terminal>
       <hort-group-modal></hort-group-modal>
+      <!-- Fullscreen spirit view -->
+      <div v-if="state.view === 'spirit-fullscreen' && fullscreenSpirit"
+           style="position:fixed;inset:0;z-index:400;background:var(--el-bg);overflow-y:auto;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--el-surface);border-bottom:1px solid var(--el-border);flex-shrink:0">
+          <button @click="closeSpiritFullscreen()" class="header-btn" style="padding:6px 10px">
+            <i class="ph ph-arrow-left" style="font-size:18px"></i>
+          </button>
+          <div style="flex:1;font-size:14px;font-weight:600">{{ fullscreenSpirit }}</div>
+          <button @click="closeSpiritFullscreen()" class="header-btn" style="padding:6px 10px">
+            <i class="ph ph-x" style="font-size:16px"></i>
+          </button>
+        </div>
+        <div style="flex:1;padding:16px;overflow-y:auto;display:flex;justify-content:center">
+          <div style="width:100%;max-width:600px">
+            <component v-if="fullscreenSpiritWidget" :is="fullscreenSpiritWidget" />
+          </div>
+        </div>
+      </div>
     `,
     setup() {
       const viewer = ref(null);
@@ -2625,7 +2616,10 @@ body {
         startPickerRefresh();
       });
 
-      return { viewer, onSelectWindow };
+      return {
+        state, viewer, onSelectWindow,
+        fullscreenSpirit, fullscreenSpiritWidget, closeSpiritFullscreen,
+      };
     },
   };
 
@@ -2658,8 +2652,19 @@ body {
   if (typeof HortExtension !== 'undefined') {
     HortExtension.activateAll(app, Quasar, {});
   }
+  if (typeof HortPlugins !== 'undefined') {
+    HortPlugins.registerPluginManager(app);
+  }
 
   app.mount('#q-app');
+
+  // Load plugin UI scripts asynchronously after mount
+  if (typeof HortPlugins !== 'undefined') {
+    HortPlugins.discoverAndLoadPlugins().then(() => {
+      if (typeof HortExtension !== 'undefined') HortExtension.activateAll(app, Quasar, {});
+      pluginsLoaded.value++;  // trigger reactive re-evaluation of spirit grids
+    });
+  }
 
   // Reconnect on tab visibility change (macOS Space switching suspends tabs)
   document.addEventListener('visibilitychange', () => {
@@ -2671,9 +2676,14 @@ body {
     }
   });
 
-  // Register service worker for PWA installability (skip on localhost/self-signed)
-  if ('serviceWorker' in navigator && location.hostname !== 'localhost' && !location.hostname.match(/^(\d+\.){3}\d+$/)) {
-    navigator.serviceWorker.register((_basePath || '') + '/sw.js').catch(() => {});
+  // PWA: manifest + service worker (skip when proxied)
+  if (!_basePath) {
+    const ml = document.createElement('link');
+    ml.rel = 'manifest'; ml.href = 'manifest.json';
+    document.head.appendChild(ml);
+    if ('serviceWorker' in navigator && location.hostname !== 'localhost' && !location.hostname.match(/^(\d+\.){3}\d+$/)) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
   }
 })();
 </script>

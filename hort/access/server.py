@@ -83,14 +83,16 @@ class HostTunnel:
         }))
         try:
             resp = await asyncio.wait_for(future, timeout=30.0)
-            # Normalize body: decode base64 variants to raw "body" string
+            # Normalize body: decode base64 to raw bytes (stored as "body_bytes")
             if "body_b64" in resp:
-                resp["body"] = base64.b64decode(resp["body_b64"]).decode("utf-8", errors="replace")
-                del resp["body_b64"]
+                resp["body_bytes"] = base64.b64decode(resp["body_b64"])
+                resp.pop("body_b64", None)
             elif "body_zb64" in resp:
                 import zlib
-                resp["body"] = zlib.decompress(base64.b64decode(resp["body_zb64"])).decode("utf-8", errors="replace")
-                del resp["body_zb64"]
+                resp["body_bytes"] = zlib.decompress(base64.b64decode(resp["body_zb64"]))
+                resp.pop("body_zb64", None)
+            elif "body" in resp:
+                resp["body_bytes"] = resp["body"].encode("latin-1")
             return resp
         except asyncio.TimeoutError:
             logger.error("Tunnel request timeout: req=%s %s %s", req_id, method, path)
@@ -317,7 +319,8 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             if resp.get("status") != 200:
                 raise HTTPException(401, "Invalid or expired token")
 
-            body = json.loads(resp.get("body", "{}"))
+            body_raw = resp.get("body_bytes", b"{}")
+            body = json.loads(body_raw if isinstance(body_raw, (str, bytes)) else "{}")
             if not body.get("valid"):
                 raise HTTPException(401, "Invalid or expired token")
         except (ConnectionError, asyncio.TimeoutError):
@@ -529,17 +532,17 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             logger.error("Proxy error for /%s: %s", path, e)
             raise HTTPException(502, "Host not responding")
 
-        # Body is already decoded by proxy_request
-        body_str = resp.get("body", "")
-        body_bytes = body_str.encode("utf-8")
+        # Body as raw bytes (binary-safe)
+        body_bytes = resp.get("body_bytes", b"")
         resp_headers = resp.get("headers", {})
         content_type = resp_headers.get("content-type", "")
 
-        # Inject <base> tag into HTML so absolute paths resolve through proxy
+        # Inject <base> tag into HTML (text only — binary is untouched)
         if "text/html" in content_type:
+            html = body_bytes.decode("utf-8", errors="replace")
             base_tag = f'<base href="/proxy/{host_id}/">'
-            body_str = body_str.replace("<head>", f"<head>{base_tag}", 1)
-            body_bytes = body_str.encode("utf-8")
+            html = html.replace("<head>", f"<head>{base_tag}", 1)
+            body_bytes = html.encode("utf-8")
             resp_headers["content-type"] = "text/html; charset=utf-8"
         # Remove content-length — body may have been modified
         resp_headers.pop("content-length", None)

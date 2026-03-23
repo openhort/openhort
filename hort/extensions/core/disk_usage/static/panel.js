@@ -10,6 +10,54 @@
     static llmingTitle = 'Disk Usage';
     static llmingIcon = 'ph ph-hard-drive';
     static llmingDescription = 'Disk partition usage monitoring';
+    static llmingWidgets = ['disk-usage-panel'];
+
+    // Cached disk data for thumbnail
+    _lastDisks = null;
+
+    renderThumbnail(ctx, w, h) {
+      const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff';
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+
+      const disks = this._lastDisks;
+      if (!disks || !disks.length) {
+        ctx.fillStyle = dim; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText('Disk Usage', w / 2, h / 2);
+        return;
+      }
+
+      function barColor(pct) {
+        if (pct >= 90) return '#ef4444';
+        if (pct >= 80) return '#f59e0b';
+        return '#22c55e';
+      }
+
+      const maxBars = Math.min(disks.length, 5);
+      const barH = 24, gap = 10, startY = 20;
+      ctx.font = 'bold 11px system-ui';
+      ctx.textAlign = 'left';
+      for (let i = 0; i < maxBars; i++) {
+        const p = disks[i];
+        const y = startY + i * (barH + gap);
+        const pct = p.percent || 0;
+        // Background bar
+        ctx.fillStyle = '#1e293b'; ctx.fillRect(20, y, w - 40, barH);
+        // Fill bar
+        ctx.fillStyle = barColor(pct);
+        ctx.fillRect(20, y, (w - 40) * pct / 100, barH);
+        // Mount label
+        const label = p.mountpoint || p.device || '?';
+        ctx.fillStyle = text;
+        ctx.fillText(label.length > 16 ? label.substring(0, 16) + '..' : label, 26, y + 16);
+        // Percentage
+        ctx.textAlign = 'right';
+        ctx.fillText(Math.round(pct) + '%', w - 26, y + 16);
+        ctx.textAlign = 'left';
+      }
+      // Title
+      ctx.fillStyle = dim; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('Disk Usage', w / 2, h - 8);
+    }
 
     setup(app) {
       app.component('disk-usage-panel', {
@@ -20,11 +68,14 @@
 
           async function refresh() {
             try {
-              const store = await fetch(bp + '/api/plugin/store').then(r => r.json()).catch(() => null);
+              const store = await fetch(bp + '/api/plugins/disk-usage/store').catch(() => fetch(bp + '/api/plugin/store')).then(r => r.json()).catch(() => null);
               if (store && store.latest) {
                 const data = store.latest;
                 partitions.value = data.partitions || [];
                 timestamp.value = data.timestamp ? new Date(data.timestamp * 1000).toLocaleTimeString() : null;
+                // Cache for thumbnail rendering
+                const inst = HortExtension.get('disk-usage');
+                if (inst) inst._lastDisks = data.partitions || [];
               }
             } catch {}
           }

@@ -54,10 +54,10 @@ class TestLocalFileStoreListing:
         assert names == {"a.txt", "b.jpg"}
 
     async def test_list_files_prefix(self, store: LocalFileStore) -> None:
-        await store.save("photo/1.jpg", b"a")
-        await store.save("photo/2.jpg", b"b")
-        await store.save("doc/1.pdf", b"c")
-        files = await store.list_files(prefix="photo/")
+        await store.save("photo_1.jpg", b"a")
+        await store.save("photo_2.jpg", b"b")
+        await store.save("doc_1.pdf", b"c")
+        files = await store.list_files(prefix="photo_")
         assert len(files) == 2
 
     async def test_list_files_empty(self, store: LocalFileStore) -> None:
@@ -77,7 +77,7 @@ class TestLocalFileStoreListing:
 
 class TestLocalFileStoreTTL:
     async def test_load_expired_returns_none(self, store: LocalFileStore) -> None:
-        with patch("hort.ext.file_store.time") as mock_time:
+        with patch("hort.ext.blobstore.time") as mock_time:
             mock_time.time.return_value = 1000.0
             await store.save("temp.txt", b"data", ttl_seconds=60)
 
@@ -89,7 +89,7 @@ class TestLocalFileStoreTTL:
             assert await store.load("temp.txt") is None
 
     async def test_list_excludes_expired(self, store: LocalFileStore) -> None:
-        with patch("hort.ext.file_store.time") as mock_time:
+        with patch("hort.ext.blobstore.time") as mock_time:
             mock_time.time.return_value = 1000.0
             await store.save("keep.txt", b"a")
             await store.save("expire.txt", b"b", ttl_seconds=10)
@@ -100,7 +100,7 @@ class TestLocalFileStoreTTL:
             assert files[0].name == "keep.txt"
 
     async def test_cleanup_expired(self, store: LocalFileStore) -> None:
-        with patch("hort.ext.file_store.time") as mock_time:
+        with patch("hort.ext.blobstore.time") as mock_time:
             mock_time.time.return_value = 1000.0
             await store.save("keep.txt", b"a")
             await store.save("exp1.txt", b"b", ttl_seconds=10)
@@ -120,19 +120,21 @@ class TestLocalFileStoreTTL:
 class TestLocalFileStoreEdgeCases:
     async def test_default_base_dir(self) -> None:
         store = LocalFileStore("test-default")
-        # Just verify it doesn't crash; uses ~/.hort/plugins/
-        assert store._dir.name == "files"
+        assert store._blobs._dir.name == "test-default.files"
 
     async def test_corrupt_meta(self, tmp_path: Path) -> None:
         store = LocalFileStore("bad", base_dir=tmp_path)
-        (tmp_path / "bad" / "files" / "_meta.json").write_text("not json")
+        blob_dir = tmp_path / "bad.files"
+        blob_dir.mkdir(parents=True, exist_ok=True)
+        (blob_dir / "test").write_bytes(b"data")
+        (blob_dir / "test._meta").write_text("not json")
         assert await store.list_files() == []
 
     async def test_load_file_missing_on_disk(self, store: LocalFileStore) -> None:
-        """Meta has entry but actual file was deleted externally."""
+        """Blob file was deleted externally."""
         await store.save("ghost.txt", b"data")
-        # Delete the file but leave meta
-        (store._dir / "ghost.txt").unlink()
+        # Delete the blob but leave meta
+        (store._blobs._dir / "ghost.txt").unlink()
         assert await store.load("ghost.txt") is None
 
 

@@ -22,6 +22,7 @@
     static llmingTitle = 'Camera Scanner';
     static llmingIcon = 'ph ph-qr-code';
     static llmingDescription = 'Scan QR codes and analyze photos';
+    static llmingWidgets = ['camera-scan-panel'];
 
     setup(app) {
       app.component('camera-scan-panel', {

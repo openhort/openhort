@@ -82,6 +82,8 @@ class PluginContext:
     scheduler: PluginScheduler
     logger: logging.Logger
     shared_stores: dict[str, PluginStore] = field(default_factory=dict)
+    last_interaction: float = 0.0  # timestamp of last user interaction
+    is_favorite: bool = False  # user-pinned to top of grid
 
 
 class PluginBase(ExtensionBase):

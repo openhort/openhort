@@ -82,7 +82,7 @@ class TestFilePluginStoreQuery:
 
 class TestFilePluginStoreTTL:
     async def test_get_expired_returns_none(self, store: FilePluginStore) -> None:
-        with patch("hort.ext.store.time") as mock_time:
+        with patch("hort.ext.blobstore.time") as mock_time:
             mock_time.time.return_value = 1000.0
             await store.put("temp", {"v": 1}, ttl_seconds=60)
 
@@ -95,7 +95,7 @@ class TestFilePluginStoreTTL:
             assert await store.get("temp") is None
 
     async def test_list_keys_excludes_expired(self, store: FilePluginStore) -> None:
-        with patch("hort.ext.store.time") as mock_time:
+        with patch("hort.ext.blobstore.time") as mock_time:
             mock_time.time.return_value = 1000.0
             await store.put("keep", {"v": 1})
             await store.put("expire", {"v": 2}, ttl_seconds=10)
@@ -105,7 +105,7 @@ class TestFilePluginStoreTTL:
             assert keys == ["keep"]
 
     async def test_query_excludes_expired(self, store: FilePluginStore) -> None:
-        with patch("hort.ext.store.time") as mock_time:
+        with patch("hort.ext.blobstore.time") as mock_time:
             mock_time.time.return_value = 1000.0
             await store.put("a", {"v": 1})
             await store.put("b", {"v": 2}, ttl_seconds=5)
@@ -116,7 +116,7 @@ class TestFilePluginStoreTTL:
             assert results[0] == {"v": 1}
 
     async def test_cleanup_expired(self, store: FilePluginStore) -> None:
-        with patch("hort.ext.store.time") as mock_time:
+        with patch("hort.ext.blobstore.time") as mock_time:
             mock_time.time.return_value = 1000.0
             await store.put("keep", {"v": 1})
             await store.put("exp1", {"v": 2}, ttl_seconds=10)
@@ -136,13 +136,16 @@ class TestFilePluginStoreTTL:
 class TestFilePluginStoreDefaults:
     async def test_default_base_dir(self) -> None:
         store = FilePluginStore("test-default")
-        assert store._path.name == "data.json"
+        assert store._blobs._dir.name == "test-default.data"
 
 
 class TestFilePluginStoreEdgeCases:
     async def test_corrupt_file(self, tmp_path: Path) -> None:
         store = FilePluginStore("bad", base_dir=tmp_path)
-        (tmp_path / "bad" / "data.json").write_text("not json")
+        # Write a corrupt blob
+        blob_dir = tmp_path / "bad.data"
+        blob_dir.mkdir(parents=True, exist_ok=True)
+        (blob_dir / "x").write_text("not json")
         assert await store.get("x") is None
 
     async def test_put_no_ttl(self, store: FilePluginStore) -> None:
