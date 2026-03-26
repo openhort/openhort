@@ -176,9 +176,8 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
             token = store.create_permanent("Cloud Access Key")
             app.state.cloud_tokens["permanent"] = token
         else:
-            # Revoke old temp tokens and create a new one
-            store.revoke_all_temporary()
-            token = store.create_temporary("Cloud Session", duration_seconds=86400)
+            # Create a new temp token (old ones stay valid until they expire)
+            token = store.create_temporary("Cloud QR Session", duration_seconds=86400)
             app.state.cloud_tokens["temporary"] = token
             _TEMP_TOKEN_FILE.write_text(token)
         return Response(
@@ -221,7 +220,6 @@ def _create_startup_tokens(app: FastAPI) -> None:  # pragma: no cover
 
     # Create new one only if no valid token
     if not temp_token:
-        store.revoke_all_temporary()
         temp_token = store.create_temporary("Cloud Session", duration_seconds=86400)
         _TEMP_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
         _TEMP_TOKEN_FILE.write_text(temp_token)

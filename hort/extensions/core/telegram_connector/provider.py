@@ -319,7 +319,7 @@ class TelegramConnector(PluginBase, ConnectorBase):
         return ConnectorResponse(text="\n".join(text_lines), html="\n".join(html_lines))
 
     async def _cmd_link(self) -> ConnectorResponse:
-        """Generate a temporary access link (same as QR code)."""
+        """Generate a fresh temporary access link (24h). Multiple links can coexist."""
         from hort.config import get_store
         cloud = get_store().get("connector.cloud")
         server = cloud.get("server", "")
@@ -328,13 +328,10 @@ class TelegramConnector(PluginBase, ConnectorBase):
         if not server or not host_id:
             return ConnectorResponse.simple("Cloud connector not configured. Access locally.")
 
-        # Read current temp token
-        from pathlib import Path
-        token_file = Path("~/.hort/current-temp-token").expanduser()
-        token = token_file.read_text().strip() if token_file.exists() else ""
-
-        if not token:
-            return ConnectorResponse.simple("No access token available. Restart the server.")
+        # Create a fresh token every time (old ones stay valid until they expire)
+        from hort.access.tokens import TokenStore
+        store = TokenStore()
+        token = store.create_temporary("Telegram /link", duration_seconds=86400)
 
         url = f"{server}/api/access/token/login?token={token}&host={host_id}"
         return ConnectorResponse(
