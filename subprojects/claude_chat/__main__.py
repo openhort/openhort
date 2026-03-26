@@ -1,4 +1,4 @@
-"""Entry point: python -m subprojects.claude_chat"""
+"""Entry point: poetry run python -m subprojects.claude_chat"""
 
 from __future__ import annotations
 
@@ -20,8 +20,17 @@ def main() -> None:
         dest="system_prompt",
         help="System prompt for the conversation",
     )
+    parser.add_argument(
+        "--container", "-c",
+        action="store_true",
+        help="Run Claude inside a Docker sandbox container",
+    )
     args = parser.parse_args()
-    run_chat(model=args.model, system_prompt=args.system_prompt)
+    run_chat(
+        model=args.model,
+        system_prompt=args.system_prompt,
+        container=args.container,
+    )
 
 
 if __name__ == "__main__":
