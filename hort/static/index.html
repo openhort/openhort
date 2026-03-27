@@ -87,6 +87,7 @@
       messaging: {},  // {telegram: {active, token_set, allowed_users, polling, plugin_id}, ...}
     },
     connectorPanelOpen: null,  // null | 'lan' | 'cloud' | 'telegram'
+    sidebarOpen: false,
 
     // Windows
     allWindows: [],
@@ -1528,6 +1529,11 @@
               <animate attributeName="opacity" values="0.15;0.25;0.15" dur="2s" repeatCount="indefinite"/>OpenHORT</text>
           </svg>
 
+          <!-- Sidebar toggle -->
+          <div class="header-btn" @click="state.sidebarOpen = !state.sidebarOpen">
+            <i class="ph ph-list"></i>
+          </div>
+
           <!-- Lemming icon -->
           <svg viewBox="0 0 24 24" style="width:28px;height:28px;flex-shrink:0;opacity:0.5;margin-left:4px" fill="none" stroke="#d4a017" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 4c-2 0-3.5 1-4 2.5C7.5 8 7 9.5 7 11c0 2 .5 3.5 1 4.5l-.5 3c0 .5.3 1 .8 1.2l1.2.3c.3 0 .5-.2.5-.5v-2c.3.2.8.5 2 .5s1.7-.3 2-.5v2c0 .3.2.5.5.5l1.2-.3c.5-.2.8-.7.8-1.2l-.5-3c.5-1 1-2.5 1-4.5 0-1.5-.5-3-1-4.5C14.5 5 13 4 12 4z"/>
@@ -2707,6 +2713,57 @@
       <hort-viewer ref="viewer"></hort-viewer>
       <hort-terminal></hort-terminal>
       <hort-group-modal></hort-group-modal>
+
+      <!-- Sidebar drawer (root-level, above everything) -->
+      <teleport to="body">
+        <div v-if="state.sidebarOpen" class="sidebar-overlay" @click.self="state.sidebarOpen = false">
+          <nav class="sidebar">
+            <div class="sidebar-header">
+              <svg viewBox="0 0 24 24" style="width:24px;height:24px" fill="none" stroke="#d4a017" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 4c-2 0-3.5 1-4 2.5C7.5 8 7 9.5 7 11c0 2 .5 3.5 1 4.5l-.5 3c0 .5.3 1 .8 1.2l1.2.3c.3 0 .5-.2.5-.5v-2c.3.2.8.5 2 .5s1.7-.3 2-.5v2c0 .3.2.5.5.5l1.2-.3c.5-.2.8-.7.8-1.2l-.5-3c.5-1 1-2.5 1-4.5 0-1.5-.5-3-1-4.5C14.5 5 13 4 12 4z"/>
+                <circle cx="10" cy="9" r="1" fill="#d4a017"/>
+                <path d="M8 6.5C7 5.5 6 5 5 5M16 6.5C17 5.5 18 5 19 5"/>
+              </svg>
+              <span style="font-weight:600;font-size:16px">openhort</span>
+              <span style="flex:1"></span>
+              <button class="connector-panel-close" @click="state.sidebarOpen = false"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="sidebar-body">
+              <a class="sidebar-item" @click="state.sidebarOpen = false; state.view = 'picker'">
+                <i class="ph ph-house"></i> Home
+              </a>
+              <div class="sidebar-divider"></div>
+              <a class="sidebar-item" :href="guideUrl" target="_blank">
+                <i class="ph ph-book-open"></i> Documentation
+                <i class="ph ph-arrow-square-out" style="margin-left:auto;opacity:0.4;font-size:14px"></i>
+              </a>
+              <a class="sidebar-item" @click="openHelp()">
+                <i class="ph ph-question"></i> Help
+              </a>
+              <div class="sidebar-divider"></div>
+              <div class="sidebar-section-label">Connectors</div>
+              <a class="sidebar-item" @click="state.connectorPanelOpen = 'lan'; state.sidebarOpen = false">
+                <i class="ph ph-wifi-high"></i> LAN
+                <span class="dot on" style="margin-left:auto"></span>
+              </a>
+              <a class="sidebar-item" @click="state.connectorPanelOpen = 'cloud'; state.sidebarOpen = false">
+                <i class="ph ph-cloud"></i> Cloud
+                <span class="dot" :class="state.connectors.cloud.active ? 'on' : 'off'" style="margin-left:auto"></span>
+              </a>
+              <a v-if="state.connectors.messaging.telegram" class="sidebar-item" @click="state.connectorPanelOpen = 'telegram'; state.sidebarOpen = false">
+                <i class="ph ph-telegram-logo"></i> Telegram
+                <span class="dot" :class="state.connectors.messaging.telegram.active ? 'on' : 'off'" style="margin-left:auto"></span>
+              </a>
+              <div class="sidebar-divider"></div>
+              <div class="sidebar-item" style="opacity:0.4;cursor:default;font-size:12px">
+                <i class="ph ph-info"></i> openhort v0.1.0
+              </div>
+            </div>
+          </nav>
+        </div>
+
+      </teleport>
+
       <!-- Fullscreen spirit view -->
       <div v-if="state.view === 'spirit-fullscreen' && fullscreenSpirit"
            style="position:fixed;inset:0;z-index:400;background:var(--el-bg);overflow-y:auto;display:flex;flex-direction:column">
@@ -2728,6 +2785,12 @@
     `,
     setup() {
       const viewer = ref(null);
+      const guideUrl = computed(() => _basePath + '/guide/');
+
+      function openHelp() {
+        state.sidebarOpen = false;
+        window.open(guideUrl.value, '_blank');
+      }
 
       function onSelectWindow(idx) {
         if (viewer.value) {
@@ -2776,6 +2839,7 @@
       return {
         state, viewer, onSelectWindow,
         fullscreenSpirit, fullscreenSpiritWidget, closeSpiritFullscreen,
+        guideUrl, openHelp,
       };
     },
   };

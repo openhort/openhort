@@ -43,3 +43,9 @@ screenshots/
 # OS
 .DS_Store
 Thumbs.db
+
+# mkdocs build output
+docs/_site/
+
+# Node modules (Dockerfile builds)
+node_modules/

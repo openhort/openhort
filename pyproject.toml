@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 hort = "hort.app:main"
+claude-chat = "hort.extensions.llms.claude_code.__main__:main"
 
 [tool.poetry]
 packages = [{include = "hort"}]
@@ -33,6 +34,11 @@ llming-com = {path = "../llming-com", develop = true}
 playwright = "^1.58.0"
 pytest-playwright = "^0.7.2"
 aiogram = "^3.26.0"
+llming-models = {path = "../llming-models"}
+
+
+[tool.poetry.group.docs.dependencies]
+mkdocs-material = "^9.7.6"
 
 [tool.mypy]
 strict = true

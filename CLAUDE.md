@@ -67,14 +67,32 @@ from playwright.sync_api import sync_playwright
 Note: xterm.js keyboard input doesn't work in headless Playwright (canvas-based rendering).
 Use Playwright for visual verification; use the Chrome MCP tools or real browser for interactive terminal testing.
 
+## Documentation Strategy
+
+**This file (CLAUDE.md)** contains compressed essential rules and quick-reference pointers. It is the single source of truth for AI assistants and must stay concise.
+
+**`docs/`** contains detailed human-readable documentation (mkdocs-material, serves as HTML with search). The detail definitions live there and are LINKED from here — never duplicated.
+
+**`docs/ai/`** contains AI-specific reference material (writing guides, conventions) that lives in the repo so it works on any machine. Not for humans, not in the mkdocs nav — just for AI context.
+
+**Rules:**
+- CLAUDE.md = compressed rules + links. Never duplicate full docs content here.
+- `docs/` = canonical detail. If CLAUDE.md and docs/ disagree, docs/ wins — update CLAUDE.md.
+- `docs/coding/` = AI/developer reference material (writing guides, conventions). Checked into repo, not in `.claude/memory`.
+- When changing behavior, update docs/ first, then update the CLAUDE.md summary/link.
+- Before adding content to CLAUDE.md, check if it already exists in docs/ and link instead.
+- When writing documentation, follow [docs/coding/docs-writing-guide.md](docs/coding/docs-writing-guide.md) — mermaid diagrams, admonitions, code blocks, tabs, all mkdocs-material features with syntax.
+
 ## Guidelines
 
-- [UX Guidelines](docs/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
-- [Plugin Ecosystem](docs/plugins.md) — plugin development guide, storage, scheduler, MCP, intents, widgets
-- [Extension System](docs/extensions.md) — provider interfaces, manifest, registry, creating extensions
-- [Llmings](docs/llmings.md) — panel architecture, shared components, plugin lifecycle
-- [Access Server](docs/access-server.md) — remote proxy, Azure deployment, tunnel protocol
-- [Container Environments](docs/containers.md) — Docker/Azure container management, preview panel
+- [UX Guidelines](docs/coding/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
+- [Plugin Ecosystem](docs/coding/plugins.md) — plugin development guide, storage, scheduler, MCP, intents, widgets
+- [Extension System](docs/coding/extensions.md) — provider interfaces, manifest, registry, creating extensions
+- [Llmings](docs/coding/llmings.md) — panel architecture, shared components, plugin lifecycle
+- [Access Server](docs/coding/access-server.md) — remote proxy, Azure deployment, tunnel protocol
+- [Container Environments](docs/coding/containers.md) — Docker/Azure container management, preview panel
+- [Agent Framework](docs/manual/index.md) — AI agent sandboxing, permissions, budget, multi-node orchestration
+- [Docs Writing Guide](docs/coding/docs-writing-guide.md) — mkdocs-material features, mermaid, admonitions, syntax reference
 
 ## Critical Rules
 
@@ -193,6 +211,62 @@ pgrep -af "python.*telegram\|python.*hort"        # Find any hort-related Python
 docker compose -f hort/access/docker-compose.yml up -d   # Start access server on port 8400
 poetry run python -m hort.access.tunnel_client --server=http://localhost:8400 --key=<KEY> --local=http://localhost:8940
 ```
+
+## Sandbox Sessions (hort/sandbox/)
+
+Core infrastructure for isolated Docker execution environments with session lifecycle, MCP server support, and automatic cleanup. See [sandbox docs](docs/manual/developer/reference/sandbox-sessions.md) and [MCP docs](docs/manual/developer/reference/mcp-servers.md).
+
+Key files: `hort/sandbox/{session,reaper,mcp,mcp_proxy}.py`
+Tests: `poetry run pytest tests/test_sandbox*.py -v`
+
+## LLM Framework (hort/llm/)
+
+Provider interfaces and conversation management for both CLI-executed LLMs (Claude Code, Codex) and API-based LLMs (Anthropic, OpenAI, Mistral). API providers store/refetch conversation history from a unified store with timeout-based cleanup.
+
+Key files: `hort/llm/{base,cli_provider,api_provider,history}.py`
+Tests: `poetry run pytest tests/test_llm*.py -v`
+
+## Claude Code Extension (hort/extensions/llms/claude_code/)
+
+First LLM extension — Claude Code CLI. Extends `CLIProvider`. Others (Mistral, Gemini, Codex) follow the same pattern.
+
+```bash
+# Local chat
+poetry run python -m hort.extensions.llms.claude_code
+
+# Container chat (sandboxed, auth from macOS Keychain)
+poetry run python -m hort.extensions.llms.claude_code --container
+
+# Container with resource limits + MCP servers
+poetry run python -m hort.extensions.llms.claude_code -c --memory 512m --cpus 2 \
+  --mcp "fs=npx -y @anthropic/mcp-filesystem /tmp"
+
+# Session management
+poetry run python -m hort.extensions.llms.claude_code --list-sessions
+poetry run python -m hort.extensions.llms.claude_code -c --session <id>  # resume
+poetry run python -m hort.extensions.llms.claude_code --cleanup
+```
+
+Key files: `hort/extensions/llms/claude_code/{provider,chat,stream,typewriter,auth}.py`
+Tests: `poetry run pytest hort/extensions/llms/claude_code/tests/ -v`
+
+## Documentation Site
+
+Pre-built mkdocs-material site served at `/guide/` from the openhort server. Also accessible via the cloud proxy at `/proxy/{host_id}/guide/`.
+
+```bash
+# Rebuild after editing docs
+cd docs && poetry run mkdocs build -f mkdocs.yml
+
+# Live preview with hot-reload
+cd docs && poetry run mkdocs serve -f mkdocs.yml
+
+# Served automatically by openhort at /guide/ (if built)
+```
+
+Config: `docs/mkdocs.yml`
+Source: `docs/manual/`
+Output: `docs/_site/` (gitignored)
 
 ## Environment
 

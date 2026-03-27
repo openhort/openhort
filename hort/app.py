@@ -118,6 +118,16 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
                     name=f"ext-{ext_path.name}",
                 )
 
+    # Mount documentation site (pre-built mkdocs HTML)
+    _docs_site = Path(__file__).parent.parent / "docs" / "_site"
+    if _docs_site.is_dir():
+        app.mount(
+            "/guide",
+            StaticFiles(directory=str(_docs_site), html=True),
+            name="guide",
+        )
+        logger.info("Documentation mounted at /guide")
+
     _register_targets()
     _register_routes(app)
 

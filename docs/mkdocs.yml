@@ -1,0 +1,108 @@
+site_name: OpenHORT User Guide
+site_description: Remote window viewer and AI agent execution framework.
+repo_url: https://github.com/openhort/openhort
+docs_dir: manual
+site_dir: _site
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.tabs.link
+    - toc.follow
+  icon:
+    admonition:
+      note: fontawesome/solid/note-sticky
+      warning: fontawesome/solid/triangle-exclamation
+      danger: fontawesome/solid/skull-crossbones
+      tip: fontawesome/solid/lightbulb
+      info: fontawesome/solid/circle-info
+      example: fontawesome/solid/flask
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.mark
+  - pymdownx.keys
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - tables
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: guide/quickstart.md
+    - Configuration: guide/configuration.md
+    - Multi-Agent Setups: guide/multi-agent.md
+    - Running Across Machines: guide/multi-node.md
+    - Cloud Providers:
+      - Overview: guide/cloud/index.md
+      - Oracle Cloud:
+        - Account Setup: guide/cloud/oracle/account.md
+        - CLI Setup: guide/cloud/oracle/cli.md
+        - VM & Networking: guide/cloud/oracle/vm.md
+      - Azure:
+        - CLI & VM Setup: guide/cloud/azure/setup.md
+        - App Service Containers: guide/cloud/azure/containers.md
+  - Developer:
+    - Core Concepts:
+      - Hort Model: developer/reference/hort-model.md
+      - Tool System: developer/reference/tool-system.md
+      - Export / Import: developer/reference/export-import.md
+    - Protocols:
+      - H2H (Hort-to-Hort): developer/reference/h2h-protocol.md
+      - A2A (Agent-to-Agent): developer/reference/a2a-integration.md
+      - Signals & Triggers: developer/reference/signals.md
+      - Wire Protocol: developer/reference/wire-protocol.md
+    - Reference:
+      - Permissions: developer/reference/permissions.md
+      - Access Sources: developer/reference/source-policies.md
+      - Budget Limits: developer/reference/budget.md
+      - MCP Servers: developer/reference/mcp-servers.md
+      - Model Providers: developer/reference/providers.md
+      - LLM Extensions: developer/reference/llm-extensions.md
+      - Sandbox Sessions: developer/reference/sandbox-sessions.md
+    - Security:
+      - Threat Model: developer/security/threat-model.md
+      - Container Security: developer/reference/container-security.md
+      - Safety Rails: developer/security/safety-rails.md
+    - Internals:
+      - Architecture: developer/internals/architecture.md
+      - Roadmap: developer/internals/roadmap.md
