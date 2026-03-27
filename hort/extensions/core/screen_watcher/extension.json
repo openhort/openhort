@@ -1,0 +1,15 @@
+{
+  "name": "screen-watcher",
+  "version": "0.1.0",
+  "description": "Monitor windows for visual changes. Emit signals on change and idle. Supports app/name filtering and screen region selection.",
+  "provider": "core",
+  "platforms": ["darwin"],
+  "capabilities": ["tool", "mcp"],
+  "entry_point": "provider:ScreenWatcher",
+  "icon": "ph ph-eye",
+  "author": "openhort",
+  "plugin_type": "tool",
+  "features": {},
+  "mcp": true,
+  "signals": true
+}
