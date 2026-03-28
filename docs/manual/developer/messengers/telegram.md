@@ -191,7 +191,7 @@ The bot constructs the Mini App URL dynamically with config via query parameters
 
 ```python
 # Remote access (signaling through Telegram)
-url = f"https://user.github.io/openhort/p2p/viewer.html?signal=telegram"
+url = f"https://openhort.github.io/openhort/hort/extensions/core/peer2peer/static/viewer.html?signal=telegram"
 
 # LAN access (direct HTTP to server)
 url = f"https://192.168.1.10:8950/p2p?signal=http"
@@ -201,6 +201,24 @@ url = f"https://192.168.1.10:8950/p2p?signal=http"
 |-----------|--------|---------|
 | `signal` | `telegram`, `http` | Signaling mode |
 | `server` | URL | Server URL (only for `signal=http`) |
+
+### Hosting the Viewer (GitHub Pages)
+
+The viewer HTML must be served over HTTPS. GitHub Pages is free and takes 30 seconds:
+
+1. Go to **github.com/openhort/openhort/settings/pages**
+2. Set **Source:** Deploy from a branch
+3. Set **Branch:** `main`, **Folder:** `/ (root)`
+4. Save
+
+The viewer is then available at:
+
+```
+https://openhort.github.io/openhort/hort/extensions/core/peer2peer/static/viewer.html
+```
+
+!!! note "Why not raw.githubusercontent.com?"
+    Raw GitHub links serve files with `Content-Type: text/plain`. Telegram's WebView needs `text/html` — only GitHub Pages serves with the correct content type.
 
 ### Setting Up the Mini App
 
@@ -213,7 +231,7 @@ from aiogram.types import MenuButtonWebApp, WebAppInfo
 await bot.set_chat_menu_button(
     menu_button=MenuButtonWebApp(
         text="Open openhort",
-        web_app=WebAppInfo(url="https://user.github.io/openhort/p2p/viewer.html?signal=telegram")
+        web_app=WebAppInfo(url="https://openhort.github.io/openhort/hort/extensions/core/peer2peer/static/viewer.html?signal=telegram")
     )
 )
 ```
@@ -226,7 +244,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 keyboard = InlineKeyboardMarkup(inline_keyboard=[[
     InlineKeyboardButton(
         text="Open openhort",
-        web_app=WebAppInfo(url="https://user.github.io/openhort/p2p/viewer.html?signal=telegram")
+        web_app=WebAppInfo(url="https://openhort.github.io/openhort/hort/extensions/core/peer2peer/static/viewer.html?signal=telegram")
     )
 ]])
 await message.answer("Tap to connect:", reply_markup=keyboard)
