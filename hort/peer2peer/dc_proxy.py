@@ -55,8 +55,8 @@ class DataChannelProxy:
         self._ws_connections: dict[str, Any] = {}  # id → websocket
         self._http_client: httpx.AsyncClient | None = None
         self._video_track: Any = None  # ScreenCaptureTrack, set externally
-        # Static cache is shared across all sessions (class-level)
-        # Assets like Vue, Quasar, CSS don't change between connections
+        self._reconnect_token: str = ""  # set externally by relay listener
+        self._reconnect_store: Any = None  # ReconnectTokenStore, set externally
 
     async def start(self) -> None:
         """Start the proxy. Call after DataChannel is open."""
@@ -87,8 +87,15 @@ class DataChannelProxy:
         msg_type = msg.get("type", "")
 
         if msg_type == "ping":
-            # Immediate echo — no async, no processing
-            await self._peer.send(json.dumps({"type": "pong", "ts": msg.get("ts", 0)}))
+            pong = {"type": "pong", "ts": msg.get("ts", 0)}
+            # Include reconnect token in pong (issued on first ping, refreshed after)
+            if self._reconnect_store:
+                if not self._reconnect_token:
+                    self._reconnect_token = self._reconnect_store.generate()
+                else:
+                    self._reconnect_store.refresh(self._reconnect_token)
+                pong["reconnect_token"] = self._reconnect_token
+            await self._peer.send(json.dumps(pong))
             return
         elif msg_type == "http":
             asyncio.create_task(self._handle_http(msg))

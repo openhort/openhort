@@ -602,6 +602,8 @@ def _register_routes(app: FastAPI) -> None:
 
     # Active P2P sessions from HTTP mode (LAN)
     _p2p_sessions: dict[str, tuple[Any, Any]] = {}  # session_id -> (peer, proxy)
+    from hort.peer2peer.relay_listener import ReconnectTokenStore
+    _http_reconnect_tokens = ReconnectTokenStore()
 
     @app.post("/api/p2p/offer")
     async def p2p_offer(request: Request) -> dict[str, Any]:
@@ -630,6 +632,7 @@ def _register_routes(app: FastAPI) -> None:
 
         peer = WebRTCPeer(on_message=on_message, on_state_change=on_state_change)
         proxy._peer = peer
+        proxy._reconnect_store = _http_reconnect_tokens
 
         answer_sdp = await peer.accept_offer(sdp)
         await proxy.start()

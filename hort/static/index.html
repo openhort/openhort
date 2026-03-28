@@ -534,21 +534,43 @@
         _sourceBuffer = _mediaSource.addSourceBuffer('video/webm; codecs="' + codec + '"');
         _sourceBuffer.mode = 'sequence';
         _sourceBuffer.addEventListener('updateend', () => {
+          // Drain queue first
           if (_mseQueue.length > 0 && !_sourceBuffer.updating) {
             try { _sourceBuffer.appendBuffer(_mseQueue.shift()); }
             catch (e) { _mseQueue = []; }
           }
-          // Trim buffer to keep latency low
+          // Aggressively trim — keep max 1s of buffer
           try {
-            if (_sourceBuffer.buffered.length > 0) {
+            if (_sourceBuffer.buffered.length > 0 && !_sourceBuffer.updating) {
               const end = _sourceBuffer.buffered.end(0);
-              if (end > 3 && !_sourceBuffer.updating) _sourceBuffer.remove(0, end - 2);
+              if (end > 1.5) _sourceBuffer.remove(0, end - 1);
+            }
+          } catch(e) {}
+          // Seek to live edge — prevent video from falling behind
+          try {
+            if (video.buffered.length > 0) {
+              const liveEdge = video.buffered.end(video.buffered.length - 1);
+              if (liveEdge - video.currentTime > 0.5) {
+                video.currentTime = liveEdge - 0.1;
+              }
             }
           } catch(e) {}
         });
         _sourceBuffer.appendBuffer(initData);
         _mseReady = true;
         state.mseActive = true;
+
+        // Force video to live edge every 500ms — prevents drift
+        const liveSeeker = setInterval(() => {
+          if (!_mseReady || !video.buffered.length) return;
+          try {
+            const liveEdge = video.buffered.end(video.buffered.length - 1);
+            if (liveEdge - video.currentTime > 0.3) {
+              video.currentTime = liveEdge;
+            }
+          } catch(e) {}
+        }, 500);
+        video._liveSeeker = liveSeeker;
       } catch (e) {
         console.error('MSE init error:', e);
       }
@@ -676,6 +698,11 @@
     _droppedStale = 0;
 
     // Clean up MSE
+    const mseVid = document.getElementById('mse-video');
+    if (mseVid && mseVid._liveSeeker) {
+      clearInterval(mseVid._liveSeeker);
+      mseVid._liveSeeker = null;
+    }
     if (_mediaSource && _mediaSource.readyState === 'open') {
       try { _mediaSource.endOfStream(); } catch(e) {}
     }

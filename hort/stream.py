@@ -132,7 +132,13 @@ class _VideoEncoder:
             pil_image = pil_image.resize((self._width, self._height), Image.Resampling.LANCZOS)
 
         frame = av.VideoFrame.from_image(pil_image)
-        frame.pts = self._enc["fc"]
+        # Use wall-clock PTS to prevent drift between encode rate and playback rate
+        import time as _time
+        if self._enc["start"] == 0:
+            self._enc["start"] = _time.monotonic()
+        elapsed = _time.monotonic() - self._enc["start"]
+        # PTS in timebase units (1/fps). Use wall clock so MSE plays at real speed.
+        frame.pts = int(elapsed * self._fps)
         self._enc["fc"] += 1
 
         buf = self._enc["buf"]
@@ -165,7 +171,7 @@ class _VideoEncoder:
         if self._codec == "vp9":
             opts["row-mt"] = "1"
         stream.options = opts
-        return {"container": container, "stream": stream, "buf": buf, "fc": 0}
+        return {"container": container, "stream": stream, "buf": buf, "fc": 0, "start": 0}
 
     def _make_init(self) -> bytes:
         """Generate MSE-compatible init segment (EBML + Segment + Tracks, NO clusters).

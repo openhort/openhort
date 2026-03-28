@@ -162,6 +162,13 @@ function handleDcMessage(evt) {
       window.__hortState.p2pHealthy = lastRtt < 2000;
       window.__hortState.p2pConnected = true;
     }
+    // Store reconnect token in sessionStorage (survives page reload within tab)
+    if (msg.reconnect_token) {
+      sessionStorage.setItem('p2p_reconnect_token', msg.reconnect_token);
+      sessionStorage.setItem('p2p_reconnect_room', roomId);
+      sessionStorage.setItem('p2p_reconnect_relay', relayUrl);
+      sessionStorage.setItem('p2p_reconnect_time', String(Date.now()));
+    }
     return;
   } else if (msg.type === 'http_response') {
     const pending = pendingRequests.get(msg.id);
@@ -487,8 +494,14 @@ function signalingWs(offer) {
     let answered = false;
     ws.onopen = () => {
       log('Relay connected');
-      ws.send(JSON.stringify({ type: 'offer', sdp: offer, token: authToken }));
-      log('SDP offer sent to relay' + (authToken ? ' (authenticated)' : ' (no token)'));
+      const reconnectToken = sessionStorage.getItem('p2p_reconnect_token') || '';
+      ws.send(JSON.stringify({
+        type: 'offer', sdp: offer,
+        token: authToken,
+        reconnect_token: reconnectToken,
+      }));
+      const authMethod = reconnectToken ? 'reconnect' : (authToken ? 'token' : 'none');
+      log('SDP offer sent (' + authMethod + ')');
     };
     ws.onmessage = (evt) => {
       try {
@@ -534,21 +547,27 @@ async function startConnection() {
     dc.binaryType = 'arraybuffer';
 
     dc.onopen = () => {
+      // Cancel any pending reconnect timer and hide overlay
+      if (_reconnectTimer) { clearInterval(_reconnectTimer); _reconnectTimer = null; }
+      _hideReconnectOverlay();
       log('DataChannel open', 'ok');
       setState('connected', 'Connected — loading UI...');
-      // Start ping/pong heartbeat (2s interval) + dead connection detection
+      // Ping/pong heartbeat (30s) + dead connection detection
+      // Send first ping immediately to get reconnect token
       let _lastPongTime = performance.now();
+      if (dc && dc.readyState === 'open') {
+        dc.send(JSON.stringify({ type: 'ping', ts: performance.now() }));
+      }
       pingInterval = setInterval(() => {
         if (dc && dc.readyState === 'open') {
           dc.send(JSON.stringify({ type: 'ping', ts: performance.now() }));
-          // Detect dead connection: no pong for >6s
           const sinceLastPong = performance.now() - _lastPongTime;
-          if (sinceLastPong > 6000 && window.__hortState) {
+          if (sinceLastPong > 60000 && window.__hortState) {
             window.__hortState.p2pHealthy = false;
             window.__hortState.p2pRttMs = Math.round(sinceLastPong);
           }
         }
-      }, 2000);
+      }, 30000);
       // Update _lastPongTime when pong arrives
       window._p2pUpdatePong = () => { _lastPongTime = performance.now(); };
       // Check if server changed (busts stale cache)
@@ -559,8 +578,22 @@ async function startConnection() {
 
     dc.onclose = () => {
       log('DataChannel closed');
-      setState('idle', 'Disconnected');
-      showConnectUI();
+      // Try to reconnect if we have a valid reconnect token
+      const rToken = sessionStorage.getItem('p2p_reconnect_token');
+      const rTime = parseInt(sessionStorage.getItem('p2p_reconnect_time') || '0', 10);
+      const tokenAge = Date.now() - rTime;
+      const TOKEN_TTL = 240000; // 4 minutes
+
+      if (rToken && tokenAge < TOKEN_TTL) {
+        log('Reconnecting (token valid for ' + Math.round((TOKEN_TTL - tokenAge) / 1000) + 's)...');
+        setState('connecting', 'Reconnecting...');
+        _showReconnectOverlay(TOKEN_TTL - tokenAge);
+        _autoReconnect(TOKEN_TTL - tokenAge);
+      } else {
+        setState('failed', 'Disconnected — send /p2p for new link');
+        _showReconnectOverlay(0); // show expired
+        sessionStorage.removeItem('p2p_reconnect_token');
+      }
     };
 
     const offer = await pc.createOffer();
@@ -585,11 +618,104 @@ async function startConnection() {
   } catch (err) {
     log('Error: ' + err.message, 'err');
     if (err.message.includes('invalid') || err.message.includes('expired') || err.message.includes('rejected')) {
-      setState('failed', 'Link expired or already used. Send /p2p again.');
+      // Check if we have a reconnect token to retry
+      const rToken = sessionStorage.getItem('p2p_reconnect_token');
+      const rTime = parseInt(sessionStorage.getItem('p2p_reconnect_time') || '0', 10);
+      const tokenAge = Date.now() - rTime;
+      if (rToken && tokenAge < 240000) {
+        log('Retrying with reconnect token...');
+        setState('connecting', 'Reconnecting...');
+        _autoReconnect(240000 - tokenAge);
+      } else {
+        setState('failed', 'Link expired. Send /p2p again.');
+        sessionStorage.removeItem('p2p_reconnect_token');
+      }
     } else {
       setState('failed', err.message);
     }
   }
+}
+
+let _reconnectTimer = null;
+let _overlayTimer = null;
+
+function _showReconnectOverlay(remainingMs) {
+  _hideReconnectOverlay();
+  const overlay = document.createElement('div');
+  overlay.id = 'p2p-reconnect-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;' +
+    'background:rgba(0,0,0,0.85);display:flex;flex-direction:column;align-items:center;' +
+    'justify-content:center;font-family:-apple-system,sans-serif;color:#e0e0e0;';
+
+  const icon = document.createElement('div');
+  icon.style.cssText = 'font-size:48px;margin-bottom:16px;animation:spin 2s linear infinite;';
+  icon.textContent = '⟳';
+  overlay.appendChild(icon);
+
+  const msg = document.createElement('div');
+  msg.id = 'p2p-reconnect-msg';
+  msg.style.cssText = 'font-size:18px;margin-bottom:8px;';
+  msg.textContent = remainingMs > 0 ? 'Reconnecting...' : 'Connection lost';
+  overlay.appendChild(msg);
+
+  const sub = document.createElement('div');
+  sub.id = 'p2p-reconnect-sub';
+  sub.style.cssText = 'font-size:13px;color:#999;';
+  sub.textContent = remainingMs > 0 ? Math.round(remainingMs / 1000) + 's remaining' : 'Send /p2p for a new link';
+  overlay.appendChild(sub);
+
+  const style = document.createElement('style');
+  style.textContent = '@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}';
+  overlay.appendChild(style);
+
+  document.body.appendChild(overlay);
+
+  // Update countdown
+  if (remainingMs > 0) {
+    const start = Date.now();
+    _overlayTimer = setInterval(() => {
+      const left = Math.max(0, Math.round((remainingMs - (Date.now() - start)) / 1000));
+      const subEl = document.getElementById('p2p-reconnect-sub');
+      if (subEl) subEl.textContent = left + 's remaining';
+      if (left <= 0) {
+        clearInterval(_overlayTimer);
+        const msgEl = document.getElementById('p2p-reconnect-msg');
+        if (msgEl) msgEl.textContent = 'Session expired';
+        if (subEl) subEl.textContent = 'Send /p2p for a new link';
+      }
+    }, 1000);
+  }
+}
+
+function _hideReconnectOverlay() {
+  if (_overlayTimer) { clearInterval(_overlayTimer); _overlayTimer = null; }
+  const el = document.getElementById('p2p-reconnect-overlay');
+  if (el) el.remove();
+}
+
+function _autoReconnect(remainingMs) {
+  if (_reconnectTimer) clearInterval(_reconnectTimer);
+
+  let elapsed = 0;
+  const interval = 5000; // retry every 5s
+
+  _reconnectTimer = setInterval(() => {
+    elapsed += interval;
+    if (elapsed > remainingMs) {
+      clearInterval(_reconnectTimer);
+      _reconnectTimer = null;
+      setState('failed', 'Session expired. Send /p2p again.');
+      sessionStorage.removeItem('p2p_reconnect_token');
+      return;
+    }
+
+    const remaining = Math.round((remainingMs - elapsed) / 1000);
+    log('Reconnect attempt (' + remaining + 's remaining)...');
+    setState('connecting', 'Reconnecting (' + remaining + 's)...');
+
+    // Try to reconnect — startConnection will use the reconnect token from sessionStorage
+    startConnection();
+  }, interval);
 }
 
 function waitForIceGathering(pc, timeout) {

@@ -265,6 +265,118 @@ To connect without authorization:
 2. Have a valid one-time token (expires in 60s, consumed on use)
 3. Beat the brute force backoff (exponential, up to 60s per attempt)
 
+## Reconnect Tokens
+
+P2P connections survive page reloads and server restarts without requiring a new Telegram `/p2p` link.
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    participant C as Client (browser tab)
+    participant S as Home Machine
+    participant SS as sessionStorage
+
+    Note over C,S: Initial connection via /p2p
+    C->>S: SDP offer + one-time token
+    S-->>C: SDP answer
+    Note over C,S: DataChannel open
+    C->>S: ping (immediate)
+    S-->>C: pong + reconnect_token
+    C->>SS: store reconnect_token
+
+    Note over C,S: Every 30s
+    C->>S: ping
+    S-->>C: pong + refreshed reconnect_token
+    C->>SS: update reconnect_token
+
+    Note over S: Server restarts
+    C->>C: DataChannel closes
+    C->>C: Show "Reconnecting..." overlay
+    loop Every 5s (up to 4 minutes)
+        C->>S: SDP offer + reconnect_token
+        S-->>C: SDP answer (if token valid)
+    end
+    Note over C,S: DataChannel open — overlay disappears
+    C->>S: ping
+    S-->>C: pong + new reconnect_token
+```
+
+### Token Lifecycle
+
+| Event | Action |
+|-------|--------|
+| DataChannel opens | First ping sent immediately |
+| First pong received | Server generates reconnect token, sends in pong |
+| Every 30s | Ping/pong refreshes token TTL on server |
+| Page reload | `sessionStorage` has token, auto-connects with it |
+| Server restart | Client retries every 5s with stored token |
+| 4 minutes without refresh | Token expires, user must send `/p2p` again |
+| New tab | No token (sessionStorage is per-tab) |
+
+### Token Properties
+
+| Property | Value |
+|----------|-------|
+| Entropy | 256-bit (`secrets.token_urlsafe(32)`) |
+| TTL | 4 minutes (refreshed on every ping/pong) |
+| Storage (server) | `ReconnectTokenStore` in-memory dict |
+| Storage (client) | `sessionStorage` (per-tab, survives reload) |
+| Multi-session | Yes — each tab gets its own token |
+| Consumed on use | No — reusable until expired |
+
+### Reconnect Overlay
+
+When the DataChannel closes and a valid reconnect token exists, a full-screen overlay appears:
+
+```
+┌──────────────────────────────┐
+│                              │
+│            ⟳                │  ← spinning icon
+│                              │
+│      Reconnecting...         │
+│      187s remaining          │  ← countdown to token expiry
+│                              │
+└──────────────────────────────┘
+```
+
+The overlay:
+- Appears instantly when the connection drops
+- Shows a countdown until the reconnect token expires
+- Disappears automatically when reconnection succeeds
+- Changes to "Session expired — send /p2p" when the token runs out
+- Covers the entire page (z-index 99999) so the user knows the state
+
+### Server-Side Store
+
+`ReconnectTokenStore` manages tokens separately from one-time connection tokens:
+
+```python
+class ReconnectTokenStore:
+    def generate(self) -> str       # New 256-bit token
+    def refresh(self, token) -> bool # Extend TTL (called on every pong)
+    def verify(self, token) -> bool  # Check validity (without consuming)
+    def revoke(self, token) -> None  # Explicit revoke
+```
+
+The relay listener accepts both one-time tokens (`token`) and reconnect tokens (`reconnect_token`) in the SDP offer:
+
+```json
+{"type": "offer", "sdp": "...", "token": "", "reconnect_token": "abc123..."}
+```
+
+If `reconnect_token` is valid, the one-time `token` is not checked — the client can reconnect without Telegram.
+
+### Why sessionStorage (not localStorage or IndexedDB)
+
+| Storage | Scope | Survives reload | Survives new tab | Use case |
+|---------|-------|----------------|-----------------|----------|
+| **sessionStorage** | Per tab | Yes | No | Reconnect tokens — each tab is an independent session |
+| localStorage | All tabs | Yes | Yes | Wrong — token from tab A shouldn't work in tab B |
+| IndexedDB | All tabs | Yes | Yes | Wrong — same issue as localStorage |
+
+Each tab has its own P2P connection with its own WebRTC peer on the server. The reconnect token maps to that specific server-side session. Using localStorage would let tab B steal tab A's session.
+
 ## DataChannel Proxy Protocol
 
 The proxy multiplexes HTTP and WebSocket traffic over a single WebRTC DataChannel.

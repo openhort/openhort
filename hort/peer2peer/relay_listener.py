@@ -35,11 +35,59 @@ logger = logging.getLogger(__name__)
 
 PeerCallback = Callable[[str, WebRTCPeer], Coroutine[Any, Any, None]]
 
-TOKEN_EXPIRY = 60.0  # seconds
+TOKEN_EXPIRY = 60.0  # seconds (one-time connect tokens)
+RECONNECT_TOKEN_TTL = 240.0  # 4 minutes
 MAX_FAILURES_BEFORE_BACKOFF = 3
 BACKOFF_BASE = 2.0  # seconds
 BACKOFF_MAX = 60.0  # seconds
 CLEANUP_INTERVAL = 30.0  # seconds
+
+
+class ReconnectTokenStore:
+    """Manages reconnect tokens — long-lived (4min), refreshable, multi-session.
+
+    Each active P2P session gets a reconnect token. The token is sent to the
+    client on connect and refreshed every 30s via ping/pong. The client stores
+    it in sessionStorage. On disconnect, the client reconnects using this token
+    instead of generating a new one via Telegram.
+    """
+
+    def __init__(self) -> None:
+        self._tokens: dict[str, float] = {}  # token → last_refreshed_at
+
+    def generate(self) -> str:
+        """Generate a new reconnect token."""
+        token = secrets.token_urlsafe(32)
+        self._tokens[token] = time.monotonic()
+        self._cleanup()
+        return token
+
+    def refresh(self, token: str) -> bool:
+        """Refresh a token's TTL. Returns False if expired/unknown."""
+        if token in self._tokens:
+            self._tokens[token] = time.monotonic()
+            return True
+        return False
+
+    def verify(self, token: str) -> bool:
+        """Check if a reconnect token is valid (without consuming it)."""
+        self._cleanup()
+        return token in self._tokens
+
+    def revoke(self, token: str) -> None:
+        """Explicitly revoke a token."""
+        self._tokens.pop(token, None)
+
+    def _cleanup(self) -> None:
+        now = time.monotonic()
+        expired = [t for t, ts in self._tokens.items() if now - ts > RECONNECT_TOKEN_TTL]
+        for t in expired:
+            del self._tokens[t]
+
+    @property
+    def active_count(self) -> int:
+        self._cleanup()
+        return len(self._tokens)
 
 
 class TokenStore:
@@ -137,6 +185,7 @@ class RelayListener:
         self._sessions: dict[str, PeerSession] = {}
         self._ws: Any = None
         self.tokens = TokenStore()
+        self.reconnect_tokens = ReconnectTokenStore()
 
     async def start(self) -> None:
         """Start listening on the relay in a background task."""
@@ -230,9 +279,17 @@ class RelayListener:
                 except (json.JSONDecodeError, TypeError):
                     continue
 
-                if msg.get("type") == "offer" and msg.get("sdp"):
+                msg_type = msg.get("type", "")
+
+                if msg_type == "offer" and msg.get("sdp"):
+                    # Check one-time token OR reconnect token
                     token = msg.get("token", "")
-                    if not self.tokens.verify(token):
+                    reconnect_token = msg.get("reconnect_token", "")
+
+                    if reconnect_token and self.reconnect_tokens.verify(reconnect_token):
+                        # Valid reconnect — no one-time token needed
+                        logger.info("reconnect accepted (token valid)")
+                    elif not self.tokens.verify(token):
                         await ws.send(json.dumps({
                             "type": "error",
                             "message": "invalid or expired token",
@@ -276,6 +333,9 @@ class RelayListener:
 
         await ws.send(json.dumps({"type": "answer", "sdp": answer_sdp}))
         logger.info("SDP answer sent for session %s (%d bytes)", session_id, len(answer_sdp))
+
+        # Wire reconnect token store into proxy
+        proxy._reconnect_store = self.reconnect_tokens
 
         await proxy.start()
 
