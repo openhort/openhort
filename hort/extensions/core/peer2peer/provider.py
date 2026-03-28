@@ -1,9 +1,11 @@
-"""Holepunch plugin — P2P hole punching with Azure VM provisioning."""
+"""P2P plugin — WebRTC hole punching with relay signaling and Azure VM provisioning."""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
 from typing import Any
 
 from hort.ext.connectors import (
@@ -66,6 +68,9 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     _vm_status: Any = None
     _vm_manager: Any = None
     _stun_client: StunClient | None = None
+    _relay_listener: Any = None
+    _room_id: str = ""
+    _relay_url: str = "wss://relay.openhort.ai"
     _VMStatus: Any = None  # lazy-loaded class ref
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -73,6 +78,15 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         AzureVMManager, VMStatus = _load_azure_vm()
         self._VMStatus = VMStatus
         self._vm_status = VMStatus(exists=False)
+
+        # Room ID: hash of bot token (unique per bot, no secret leaked)
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        if bot_token:
+            self._room_id = hashlib.sha256(bot_token.encode()).hexdigest()[:12]
+        else:
+            self._room_id = hashlib.sha256(os.urandom(16)).hexdigest()[:12]
+
+        self._relay_url = config.get("relay_url", "wss://relay.openhort.ai")
 
         # Parse STUN servers from config
         stun_servers_raw = config.get("stun_servers", ["stun.l.google.com:19302"])
@@ -85,6 +99,9 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                 stun_servers.append((s, 3478))
         self._stun_client = StunClient(stun_servers=stun_servers)
 
+        # Start relay listener (connects to relay, waits for SDP offers)
+        self._start_relay_listener()
+
         # Azure VM manager
         self._vm_manager = AzureVMManager(
             resource_group=config.get("azure_resource_group", "openhort-peer2peer-rg"),
@@ -94,7 +111,37 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         )
         self.log.info("peer2peer plugin activated")
 
+    def _start_relay_listener(self) -> None:
+        """Start the relay listener in the background."""
+        from hort.peer2peer.relay_listener import RelayListener
+
+        async def on_peer_connected(session_id: str, peer: Any) -> None:
+            self.log.info("P2P peer connected via relay: %s", session_id)
+
+        async def on_message(data: bytes | str) -> None:
+            self.log.debug("P2P message from relay peer: %d bytes", len(data) if isinstance(data, bytes) else len(str(data)))
+
+        self._relay_listener = RelayListener(
+            relay_url=self._relay_url,
+            room_id=self._room_id,
+            on_peer_connected=on_peer_connected,
+            on_message=on_message,
+        )
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(self._relay_listener.start())
+            self.log.info("relay listener starting on room %s", self._room_id)
+        except RuntimeError:
+            self.log.warning("no event loop — relay listener not started")
+
     def deactivate(self) -> None:
+        if self._relay_listener:
+            try:
+                loop = asyncio.get_event_loop()
+                loop.create_task(self._relay_listener.stop())
+            except RuntimeError:
+                pass
         self.log.info("peer2peer plugin deactivated")
 
     def get_status(self) -> dict[str, Any]:

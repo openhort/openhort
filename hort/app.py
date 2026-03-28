@@ -604,10 +604,10 @@ def _register_routes(app: FastAPI) -> None:
     async def p2p_offer(request: Request) -> dict[str, Any]:
         """Accept a WebRTC SDP offer from a browser and return the answer.
 
-        The browser sends its SDP offer, we create a server-side WebRTC peer
-        (aiortc) and return the SDP answer. Once ICE completes, a direct
-        DataChannel is established for frames and input events.
+        Creates a server-side WebRTC peer with a DataChannel proxy that
+        forwards HTTP and WebSocket traffic to localhost.
         """
+        from hort.peer2peer.dc_proxy import DataChannelProxy
         from hort.peer2peer.webrtc import WebRTCPeer
 
         body = await request.json()
@@ -616,33 +616,22 @@ def _register_routes(app: FastAPI) -> None:
         if not sdp or not session_id:
             return {"error": "sdp and session_id required"}
 
-        # Get or create the registry (stored on app state)
-        if not hasattr(app.state, "p2p_registry"):
-            from hort.peer2peer.webrtc import WebRTCPeerRegistry
-            app.state.p2p_registry = WebRTCPeerRegistry()
-
-        registry = app.state.p2p_registry
+        # Create proxy and peer, wire them together
+        proxy = DataChannelProxy(peer=None)  # type: ignore[arg-type]
 
         async def on_message(data: bytes | str) -> None:
-            """Handle messages from browser DataChannel."""
-            # Forward to the session's controller
-            from hort.session import HortRegistry
-            hr = HortRegistry.get()
-            entry = hr.get(session_id)
-            if entry and entry.controller:
-                if isinstance(data, str):
-                    import json as _json
-                    try:
-                        msg = _json.loads(data)
-                        await entry.controller.handle_message(msg)
-                    except Exception:
-                        pass
+            await proxy.handle_message(data)
 
-        answer_sdp = await registry.create_peer(
-            session_id=session_id,
-            offer_sdp=sdp,
-            on_message=on_message,
-        )
+        peer = WebRTCPeer(on_message=on_message)
+        proxy._peer = peer
+
+        answer_sdp = await peer.accept_offer(sdp)
+        await proxy.start()
+
+        # Store for cleanup
+        if not hasattr(app.state, "p2p_peers"):
+            app.state.p2p_peers = {}
+        app.state.p2p_peers[session_id] = (peer, proxy)
 
         return {"sdp": answer_sdp, "type": "answer", "session_id": session_id}
 

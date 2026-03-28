@@ -24,6 +24,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     padding: 16px;
   }
   h1 { font-size: 20px; margin-bottom: 8px; }
@@ -45,22 +46,6 @@
   .dot.failed { background: var(--error); }
   .dot.idle { background: var(--muted); }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-  #viewport {
-    width: 100%;
-    max-width: 800px;
-    flex: 1;
-    background: #000;
-    border-radius: 8px;
-    overflow: hidden;
-    position: relative;
-    touch-action: none;
-  }
-  #viewport canvas {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
   .controls {
     margin-top: 12px;
     display: flex;
@@ -79,7 +64,6 @@
   }
   button:active { background: var(--accent); }
   button:disabled { opacity: 0.4; cursor: default; }
-
   .log {
     margin-top: 12px;
     width: 100%;
@@ -96,37 +80,37 @@
   .log div { margin-bottom: 2px; }
   .log .err { color: var(--error); }
   .log .ok { color: var(--success); }
+  /* SPA container — fills entire viewport once loaded */
+  #spa-container { display: none; width: 100vw; height: 100vh; }
+  #spa-container iframe { width: 100%; height: 100%; border: none; }
+  #connect-ui { width: 100%; max-width: 400px; text-align: center; }
 </style>
 </head>
 <body>
 
-<h1>openhort</h1>
-<div class="status">
-  <span class="dot idle" id="dot"></span>
-  <span id="state">Ready to connect</span>
+<div id="connect-ui">
+  <h1>openhort</h1>
+  <div class="status">
+    <span class="dot idle" id="dot"></span>
+    <span id="state">Ready to connect</span>
+  </div>
+  <div class="controls">
+    <button id="btnConnect" onclick="startConnection()">Connect</button>
+    <button id="btnDisconnect" onclick="disconnect()" disabled>Disconnect</button>
+  </div>
+  <div class="log" id="log"></div>
 </div>
 
-<div id="viewport">
-  <canvas id="canvas"></canvas>
-</div>
-
-<div class="controls">
-  <button id="btnConnect" onclick="startConnection()">Connect</button>
-  <button id="btnDisconnect" onclick="disconnect()" disabled>Disconnect</button>
-</div>
-
-<div class="log" id="log"></div>
+<div id="spa-container"></div>
 
 <script>
 // ====== Config ======
 const tg = window.Telegram && window.Telegram.WebApp;
 const params = new URLSearchParams(location.search);
-
-// Signaling mode: "http" (direct to server) or "ws" (via relay)
 const signalMode = params.get('signal') || 'http';
-const serverUrl = params.get('server') || '';  // for signal=http
+const serverUrl = params.get('server') || '';
 const relayUrl = params.get('relay') || 'wss://relay.openhort.ai';
-const roomId = params.get('room') || '';  // for signal=ws
+const roomId = params.get('room') || '';
 
 if (tg) {
   tg.ready();
@@ -150,53 +134,224 @@ function log(msg, cls) {
 // ====== State ======
 let pc = null;
 let dc = null;
-let sessionId = null;
 let relayWs = null;
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
+
+// Pending HTTP requests waiting for responses
+const pendingRequests = new Map(); // id → {resolve, reject}
+// Pending WebSocket connections
+const pendingWsConnections = new Map(); // id → {resolve, onmessage, onclose}
+// Active proxied WebSocket instances
+const activeWs = new Map(); // id → FakeWebSocket
+
+let requestCounter = 0;
+let wsCounter = 0;
 
 function setState(state, text) {
   document.getElementById('dot').className = 'dot ' + state;
   document.getElementById('state').textContent = text;
 }
 
-// ====== Signaling: HTTP mode ======
-async function signalingHttp(offer) {
-  // Create session on the server
-  const sessResp = await fetch(serverUrl + '/api/session', { method: 'POST' });
-  const sessData = await sessResp.json();
-  sessionId = sessData.session_id;
-  log('Session: ' + sessionId.substring(0, 8) + '...');
+// ====== DataChannel message handler ======
+function handleDcMessage(evt) {
+  if (typeof evt.data !== 'string') {
+    // Binary — WebSocket binary frame
+    // First 4 bytes = ws ID
+    const buf = new Uint8Array(evt.data);
+    const idBytes = buf.slice(0, 4);
+    const wsId = new TextDecoder().decode(idBytes).replace(/\0/g, '');
+    const payload = buf.slice(4);
+    const ws = activeWs.get(wsId);
+    if (ws && ws._onmessage) {
+      ws._onmessage({ data: payload.buffer });
+    }
+    return;
+  }
 
-  // Send offer, get answer
-  const resp = await fetch(serverUrl + '/api/p2p/offer', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sdp: offer, session_id: sessionId }),
-  });
-  const data = await resp.json();
-  if (data.error) throw new Error(data.error);
-  return data.sdp;
+  let msg;
+  try { msg = JSON.parse(evt.data); } catch (e) { return; }
+
+  if (msg.type === 'http_response') {
+    const pending = pendingRequests.get(msg.id);
+    if (pending) {
+      pendingRequests.delete(msg.id);
+      pending.resolve(msg);
+    }
+  } else if (msg.type === 'ws_ready') {
+    const pending = pendingWsConnections.get(msg.id);
+    if (pending) {
+      pendingWsConnections.delete(msg.id);
+      pending.resolve();
+    }
+  } else if (msg.type === 'ws_text') {
+    const ws = activeWs.get(msg.id);
+    if (ws && ws._onmessage) {
+      ws._onmessage({ data: msg.data });
+    }
+  } else if (msg.type === 'ws_close') {
+    const ws = activeWs.get(msg.id);
+    if (ws) {
+      activeWs.delete(msg.id);
+      ws._readyState = 3; // CLOSED
+      if (ws._onclose) ws._onclose({ code: 1000, reason: msg.reason || '' });
+    }
+  }
 }
 
-// ====== Signaling: WebSocket relay mode ======
+// ====== Proxied fetch() ======
+function proxyFetch(input, init) {
+  const url = typeof input === 'string' ? input : input.url;
+  const parsed = new URL(url, 'http://localhost');
+  const method = (init && init.method) || 'GET';
+  const headers = {};
+  if (init && init.headers) {
+    const h = init.headers instanceof Headers ? init.headers : new Headers(init.headers);
+    h.forEach((v, k) => { headers[k] = v; });
+  }
+
+  const reqId = 'r' + (++requestCounter);
+
+  return new Promise(async (resolve, reject) => {
+    let body = null;
+    if (init && init.body) {
+      body = typeof init.body === 'string' ? init.body : await new Response(init.body).text();
+    }
+
+    pendingRequests.set(reqId, {
+      resolve: (resp) => {
+        let bodyContent = resp.body || '';
+        if (resp.binary) {
+          // Decode base64 binary response
+          const raw = atob(bodyContent);
+          const arr = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+          bodyContent = arr.buffer;
+        }
+        const response = new Response(bodyContent, {
+          status: resp.status,
+          headers: resp.headers,
+        });
+        resolve(response);
+      },
+      reject,
+    });
+
+    dc.send(JSON.stringify({
+      id: reqId,
+      type: 'http',
+      method,
+      path: parsed.pathname + parsed.search,
+      headers,
+      body,
+    }));
+  });
+}
+
+// ====== Proxied WebSocket ======
+class ProxiedWebSocket {
+  constructor(url) {
+    const parsed = new URL(url, 'http://localhost');
+    this._id = 'w' + (++wsCounter);
+    this._readyState = 0; // CONNECTING
+    this._onopen = null;
+    this._onmessage = null;
+    this._onclose = null;
+    this._onerror = null;
+    this._path = parsed.pathname + parsed.search;
+
+    activeWs.set(this._id, this);
+
+    // Request WS open via DataChannel
+    const openPromise = new Promise((resolve) => {
+      pendingWsConnections.set(this._id, { resolve });
+    });
+
+    dc.send(JSON.stringify({
+      id: this._id,
+      type: 'ws_open',
+      path: this._path,
+    }));
+
+    openPromise.then(() => {
+      this._readyState = 1; // OPEN
+      if (this._onopen) this._onopen({});
+    });
+  }
+
+  get readyState() { return this._readyState; }
+  get CONNECTING() { return 0; }
+  get OPEN() { return 1; }
+  get CLOSING() { return 2; }
+  get CLOSED() { return 3; }
+
+  set onopen(fn) { this._onopen = fn; if (this._readyState === 1 && fn) fn({}); }
+  set onmessage(fn) { this._onmessage = fn; }
+  set onclose(fn) { this._onclose = fn; }
+  set onerror(fn) { this._onerror = fn; }
+
+  get onopen() { return this._onopen; }
+  get onmessage() { return this._onmessage; }
+  get onclose() { return this._onclose; }
+  get onerror() { return this._onerror; }
+
+  send(data) {
+    if (this._readyState !== 1) return;
+    if (typeof data === 'string') {
+      dc.send(JSON.stringify({ id: this._id, type: 'ws_text', data }));
+    } else {
+      // Binary: prepend 4-byte ws ID
+      const idBytes = new TextEncoder().encode(this._id.padEnd(4, '\0')).slice(0, 4);
+      const payload = new Uint8Array(data instanceof ArrayBuffer ? data : data.buffer);
+      const frame = new Uint8Array(4 + payload.length);
+      frame.set(idBytes, 0);
+      frame.set(payload, 4);
+      dc.send(frame.buffer);
+    }
+  }
+
+  close(code, reason) {
+    if (this._readyState >= 2) return;
+    this._readyState = 2; // CLOSING
+    dc.send(JSON.stringify({ id: this._id, type: 'ws_close' }));
+    activeWs.delete(this._id);
+    this._readyState = 3;
+    if (this._onclose) this._onclose({ code: code || 1000, reason: reason || '' });
+  }
+
+  addEventListener(type, fn) {
+    if (type === 'open') this._onopen = fn;
+    else if (type === 'message') this._onmessage = fn;
+    else if (type === 'close') this._onclose = fn;
+    else if (type === 'error') this._onerror = fn;
+  }
+
+  removeEventListener() {}
+}
+
+// ====== Signaling ======
+function signalingHttp(offer) {
+  return fetch(serverUrl + '/api/p2p/offer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sdp: offer, session_id: 'p2p' }),
+  }).then(r => r.json()).then(d => {
+    if (d.error) throw new Error(d.error);
+    return d.sdp;
+  });
+}
+
 function signalingWs(offer) {
   return new Promise((resolve, reject) => {
     const room = roomId || 'r-' + Math.random().toString(36).substring(2, 10);
     const wsUrl = relayUrl + '/' + room;
     log('Relay: ' + wsUrl);
-
     const ws = new WebSocket(wsUrl);
     relayWs = ws;
     let answered = false;
-
     ws.onopen = () => {
       log('Relay connected');
-      // Send our offer
       ws.send(JSON.stringify({ type: 'offer', sdp: offer }));
       log('SDP offer sent to relay');
     };
-
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
@@ -207,90 +362,56 @@ function signalingWs(offer) {
           relayWs = null;
           resolve(msg.sdp);
         }
-      } catch (e) {
-        log('Relay message error: ' + e.message, 'err');
-      }
+      } catch (e) {}
     };
-
-    ws.onerror = (e) => {
-      log('Relay error', 'err');
-      reject(new Error('Relay connection failed'));
-    };
-
-    ws.onclose = () => {
-      if (!answered) {
-        reject(new Error('Relay closed before answer received'));
-      }
-    };
-
-    // Timeout
-    setTimeout(() => {
-      if (!answered) {
-        ws.close();
-        reject(new Error('Relay timeout — no answer within 30s'));
-      }
-    }, 30000);
+    ws.onerror = () => reject(new Error('Relay connection failed'));
+    ws.onclose = () => { if (!answered) reject(new Error('Relay closed before answer')); };
+    setTimeout(() => { if (!answered) { ws.close(); reject(new Error('Relay timeout')); } }, 30000);
   });
 }
 
-// ====== WebRTC ======
+// ====== WebRTC + SPA loading ======
 async function startConnection() {
   document.getElementById('btnConnect').disabled = true;
-  setState('connecting', 'Creating connection...');
+  setState('connecting', 'Connecting...');
   log('Starting P2P connection (signal=' + signalMode + ')');
 
   try {
-    // 1. Create RTCPeerConnection
     pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
 
     pc.oniceconnectionstatechange = () => {
       log('ICE: ' + pc.iceConnectionState);
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        setState('connected', 'Connected (P2P)');
-        document.getElementById('btnDisconnect').disabled = false;
-        log('P2P connection established!', 'ok');
-      } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-        setState('failed', 'Connection lost');
-        log('Connection failed', 'err');
+      if (pc.iceConnectionState === 'failed') {
+        setState('failed', 'Connection failed');
       }
     };
 
-    // 2. Create DataChannel
     dc = pc.createDataChannel('hort', { ordered: true });
     dc.binaryType = 'arraybuffer';
 
     dc.onopen = () => {
       log('DataChannel open', 'ok');
-      dc.send(JSON.stringify({ type: 'list_windows' }));
+      setState('connected', 'Connected — loading UI...');
+      document.getElementById('btnDisconnect').disabled = false;
+      loadSPA();
     };
 
-    dc.onmessage = (evt) => {
-      if (typeof evt.data === 'string') {
-        try { handleControlMessage(JSON.parse(evt.data)); }
-        catch (e) { log('Bad JSON: ' + e.message, 'err'); }
-      } else {
-        renderFrame(evt.data);
-      }
-    };
+    dc.onmessage = handleDcMessage;
 
     dc.onclose = () => {
       log('DataChannel closed');
       setState('idle', 'Disconnected');
-      document.getElementById('btnConnect').disabled = false;
-      document.getElementById('btnDisconnect').disabled = true;
+      showConnectUI();
     };
 
-    // 3. Create offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     await waitForIceGathering(pc, 3000);
 
-    setState('connecting', 'Sending offer...');
     log('SDP offer ready (' + pc.localDescription.sdp.length + ' bytes)');
 
-    // 4. Exchange SDP via selected signaling mode
     let answerSdp;
     if (signalMode === 'ws' || signalMode === 'telegram') {
       answerSdp = await signalingWs(pc.localDescription.sdp);
@@ -299,14 +420,9 @@ async function startConnection() {
     }
 
     log('SDP answer received (' + answerSdp.length + ' bytes)');
-    setState('connecting', 'Connecting...');
+    setState('connecting', 'ICE negotiation...');
 
-    // 5. Set remote description
-    await pc.setRemoteDescription(new RTCSessionDescription({
-      type: 'answer',
-      sdp: answerSdp,
-    }));
-
+    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
     log('ICE negotiation started');
 
   } catch (err) {
@@ -321,64 +437,91 @@ function waitForIceGathering(pc, timeout) {
     if (pc.iceGatheringState === 'complete') return resolve();
     const timer = setTimeout(resolve, timeout);
     pc.onicegatheringstatechange = () => {
-      if (pc.iceGatheringState === 'complete') {
-        clearTimeout(timer);
-        resolve();
-      }
+      if (pc.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); }
     };
   });
 }
 
 function disconnect() {
   if (relayWs) { relayWs.close(); relayWs = null; }
+  // Close all proxied WebSockets
+  for (const [id, ws] of activeWs) { ws.close(); }
+  activeWs.clear();
+  pendingRequests.clear();
+  pendingWsConnections.clear();
   if (dc) dc.close();
   if (pc) pc.close();
-  pc = null; dc = null; sessionId = null;
+  pc = null; dc = null;
+  showConnectUI();
   setState('idle', 'Disconnected');
   document.getElementById('btnConnect').disabled = false;
   document.getElementById('btnDisconnect').disabled = true;
   log('Disconnected');
 }
 
-// ====== Frame rendering ======
-function renderFrame(data) {
-  const blob = new Blob([data], { type: 'image/jpeg' });
-  const url = URL.createObjectURL(blob);
-  const img = new Image();
-  img.onload = () => {
-    if (canvas.width !== img.width || canvas.height !== img.height) {
-      canvas.width = img.width;
-      canvas.height = img.height;
-    }
-    ctx.drawImage(img, 0, 0);
-    URL.revokeObjectURL(url);
-  };
-  img.src = url;
-}
+// ====== SPA Loading ======
+async function loadSPA() {
+  log('Loading full UI via P2P...');
 
-// ====== Control messages ======
-function handleControlMessage(msg) {
-  if (msg.type === 'windows') {
-    log('Windows: ' + (msg.windows || []).length);
-  } else if (msg.type === 'error') {
-    log('Server: ' + msg.message, 'err');
-  } else {
-    log('Msg: ' + msg.type);
+  try {
+    // Fetch the main page through the DataChannel
+    const resp = await proxyFetch('/viewer');
+    let html = await resp.text();
+
+    // Inject the P2P shim into the HTML before it executes
+    const shimScript = `<script>
+      // Override fetch and WebSocket to route through P2P DataChannel
+      window._p2pFetch = window.parent._p2pProxyFetch;
+      window._p2pWebSocket = window.parent._p2pProxyWebSocket;
+      window._origFetch = window.fetch;
+      window.fetch = function(input, init) {
+        if (window._p2pFetch) return window._p2pFetch(input, init);
+        return window._origFetch(input, init);
+      };
+      window._OrigWebSocket = window.WebSocket;
+      window.WebSocket = function(url, protocols) {
+        if (window._p2pWebSocket) return new window._p2pWebSocket(url);
+        return new window._OrigWebSocket(url, protocols);
+      };
+      window.WebSocket.CONNECTING = 0;
+      window.WebSocket.OPEN = 1;
+      window.WebSocket.CLOSING = 2;
+      window.WebSocket.CLOSED = 3;
+    <` + `/script>`;
+
+    // Insert shim as the first script in <head>
+    html = html.replace('<head>', '<head>' + shimScript);
+
+    // Expose proxy functions on parent window
+    window._p2pProxyFetch = proxyFetch;
+    window._p2pProxyWebSocket = ProxiedWebSocket;
+
+    // Create iframe with the SPA
+    document.getElementById('connect-ui').style.display = 'none';
+    const container = document.getElementById('spa-container');
+    container.style.display = 'block';
+    container.innerHTML = '';
+
+    const iframe = document.createElement('iframe');
+    iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
+    container.appendChild(iframe);
+
+    // Write the modified HTML into the iframe
+    iframe.contentDocument.open();
+    iframe.contentDocument.write(html);
+    iframe.contentDocument.close();
+
+    log('Full UI loaded via P2P!', 'ok');
+
+  } catch (err) {
+    log('Failed to load UI: ' + err.message, 'err');
   }
 }
 
-// ====== Touch/mouse input ======
-canvas.addEventListener('pointerdown', (e) => sendInput(e, 'click'));
-canvas.addEventListener('pointermove', (e) => {
-  if (e.buttons) sendInput(e, 'move');
-});
-
-function sendInput(e, type) {
-  if (!dc || dc.readyState !== 'open') return;
-  const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / rect.width;
-  const y = (e.clientY - rect.top) / rect.height;
-  dc.send(JSON.stringify({ type: 'input', input_type: type, x, y }));
+function showConnectUI() {
+  document.getElementById('connect-ui').style.display = '';
+  document.getElementById('spa-container').style.display = 'none';
+  document.getElementById('spa-container').innerHTML = '';
 }
 
 // ====== Init ======

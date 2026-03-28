@@ -26,6 +26,7 @@ from typing import Any, Callable, Coroutine
 
 import websockets  # type: ignore[import-untyped]
 
+from hort.peer2peer.dc_proxy import DataChannelProxy
 from hort.peer2peer.webrtc import WebRTCPeer
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ class RelayListener:
         self._task: asyncio.Task[None] | None = None
         self._running = False
         self._current_peer: WebRTCPeer | None = None
+        self._current_proxy: DataChannelProxy | None = None
         self._ws: Any = None
 
     async def start(self) -> None:
@@ -114,18 +116,28 @@ class RelayListener:
                     await self._handle_offer(ws, msg["sdp"])
 
     async def _handle_offer(self, ws: Any, offer_sdp: str) -> None:
-        """Accept an SDP offer, create a peer, send the answer back."""
+        """Accept an SDP offer, create a peer with proxy, send the answer back."""
         logger.info("received SDP offer (%d bytes)", len(offer_sdp))
 
-        # Clean up previous peer
+        # Clean up previous peer and proxy
+        if self._current_proxy:
+            await self._current_proxy.stop()
         if self._current_peer:
             await self._current_peer.close()
 
+        # Create proxy first so we can wire it as the message handler
+        proxy = DataChannelProxy(peer=None)  # type: ignore[arg-type]
+
+        async def on_message(data: bytes | str) -> None:
+            await proxy.handle_message(data)
+
         peer = WebRTCPeer(
-            on_message=self._on_message,
+            on_message=on_message,
             stun_servers=self._stun_servers,
         )
+        proxy._peer = peer  # wire the peer into the proxy
         self._current_peer = peer
+        self._current_proxy = proxy
 
         try:
             answer_sdp = await peer.accept_offer(offer_sdp)
@@ -137,6 +149,10 @@ class RelayListener:
         # Send answer back through relay
         await ws.send(json.dumps({"type": "answer", "sdp": answer_sdp}))
         logger.info("SDP answer sent via relay (%d bytes)", len(answer_sdp))
+
+        # Start the proxy (HTTP client)
+        await proxy.start()
+        logger.info("DataChannel proxy started")
 
         # Notify callback
         if self._on_peer_connected:
