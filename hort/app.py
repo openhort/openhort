@@ -50,10 +50,8 @@ from hort.network import generate_qr_data_uri, get_lan_ip
 STATIC_DIR = Path(__file__).parent / "static"
 CERTS_DIR = Path(__file__).parent.parent / "certs"
 _ENV_FILE = Path(__file__).parent.parent / ".env"
-HTTP_PORT = 8940
-HTTPS_PORT = 8950
 
-# Load .env if present (before reading DEV_MODE)
+# Load .env if present (before reading any config)
 if _ENV_FILE.exists():
     for line in _ENV_FILE.read_text().splitlines():
         line = line.strip()
@@ -61,6 +59,8 @@ if _ENV_FILE.exists():
             key, _, value = line.partition("=")
             os.environ.setdefault(key.strip(), value.strip())
 
+HTTP_PORT = int(os.environ.get("HORT_HTTP_PORT", "8940"))
+HTTPS_PORT = int(os.environ.get("HORT_HTTPS_PORT", "8950"))
 DEV_MODE = os.environ.get("LLMING_DEV", "0") == "1"
 
 
