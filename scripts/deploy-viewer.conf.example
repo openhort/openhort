@@ -1,0 +1,3 @@
+# Path to the website repo that hosts the P2P viewer.
+# Copy this to deploy-viewer.conf and set your path.
+WEBSITE_DIR=/path/to/website-repo

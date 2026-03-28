@@ -49,3 +49,4 @@ docs/_site/
 
 # Node modules (Dockerfile builds)
 node_modules/
+scripts/deploy-viewer.conf
