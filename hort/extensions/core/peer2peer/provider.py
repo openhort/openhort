@@ -326,7 +326,12 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         return [
             ConnectorCommand(
                 name="connect",
-                description="Generate a secure P2P connection link",
+                description="Connect via Telegram",
+                plugin_id="peer2peer",
+            ),
+            ConnectorCommand(
+                name="p2p",
+                description="Get a direct P2P link for any browser",
                 plugin_id="peer2peer",
             ),
             ConnectorCommand(
@@ -350,6 +355,8 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     ) -> ConnectorResponse | None:
         if command == "connect":
             return await self._cmd_connect(message)
+        if command == "p2p":
+            return await self._cmd_p2p(message)
         if command == "stun":
             return await self._cmd_stun()
         if command == "vm":
@@ -367,16 +374,23 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
 
         self.log.info("generated connection token for user %s", message.username or message.user_id)
 
-        # Return with inline button for Telegram
-        from hort.ext.connectors import ResponseButton
         return ConnectorResponse(
-            text=f"Tap to connect (link expires in 60s):\n{url}",
-            html=f"Tap the button below to connect.\n<i>Link expires in 60 seconds.</i>",
-            buttons=[[ResponseButton(
-                label="Open openhort",
-                callback_data=f"p2p_webapp:{url}",
-            )]],
+            text=f"Tap to connect (expires in 60s):\n{url}",
+            html=f'<a href="{url}">Open openhort</a>\n<i>Link expires in 60 seconds.</i>',
         )
+
+    async def _cmd_p2p(self, message: IncomingMessage) -> ConnectorResponse:
+        """Generate a plain URL for opening in any browser."""
+        if not self._relay_listener:
+            return ConnectorResponse.simple("P2P relay not connected")
+
+        token = self._relay_listener.tokens.generate()
+        viewer_base = "https://openhort.ai/p2p/viewer.html"
+        url = f"{viewer_base}?signal=ws&room={self._room_id}&token={token}"
+
+        self.log.info("generated browser link for user %s", message.username or message.user_id)
+
+        return ConnectorResponse.simple(f"{url}\n\nOpen in any browser. Expires in 60s.")
 
     async def _cmd_stun(self) -> ConnectorResponse:
         if not self._stun_client:

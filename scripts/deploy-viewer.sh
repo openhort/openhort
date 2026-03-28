@@ -1,6 +1,7 @@
 #!/bin/bash
-# Deploy the P2P viewer to openhort.ai.
-# Copies viewer.html to the website repo and runs its deploy script.
+# Deploy the P2P viewer to the website.
+# The viewer is a thin proxy — only WebRTC + DataChannel code.
+# No static assets, no vendor libs, no UI code.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

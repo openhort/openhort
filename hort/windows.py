@@ -116,10 +116,32 @@ def list_windows(app_filter: str | None = None) -> list[WindowInfo]:
 
     Each window includes its space_index (1-based) indicating which
     Space it belongs to. Windows on the current Space have is_on_screen=True.
+
+    The list always starts with a virtual "Desktop" entry (window_id=-1)
+    that captures the entire screen composited (like TeamViewer/Remote Desktop).
     """
     raw_list = _raw_window_list()
     space_map = _get_space_index_map()
     windows: list[WindowInfo] = []
+
+    # Virtual Desktop entry — full-screen capture
+    if not app_filter:
+        from hort.screen import DESKTOP_WINDOW_ID
+        # Use actual main display dimensions for correct coordinate mapping
+        main_display = Quartz.CGMainDisplayID()
+        screen_w = Quartz.CGDisplayPixelsWide(main_display)
+        screen_h = Quartz.CGDisplayPixelsHigh(main_display)
+        windows.append(WindowInfo(
+            window_id=DESKTOP_WINDOW_ID,
+            owner_name="Desktop",
+            window_name="Full Screen",
+            bounds=WindowBounds(x=0, y=0, width=float(screen_w), height=float(screen_h)),
+            layer=0,
+            owner_pid=0,
+            is_on_screen=True,
+            space_index=0,
+        ))
+
     for raw in raw_list:
         wid = int(raw.get("kCGWindowNumber", 0))
         space_idx = _get_window_space(wid, space_map)
@@ -132,8 +154,11 @@ def list_windows(app_filter: str | None = None) -> list[WindowInfo]:
             continue
         windows.append(win)
 
-    windows.sort(key=lambda w: (w.space_index, w.owner_name.lower(), w.window_name.lower()))
-    return windows
+    # Sort real windows by space/app/name, Desktop stays first
+    real = [w for w in windows if w.window_id != -1]
+    real.sort(key=lambda w: (w.space_index, w.owner_name.lower(), w.window_name.lower()))
+    desktop = [w for w in windows if w.window_id == -1]
+    return desktop + real
 
 
 def get_app_names() -> list[str]:

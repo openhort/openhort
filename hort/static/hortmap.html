@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenHORT — Hort Map</title>
+<link rel="stylesheet" href="static/vendor/phosphor/regular.css">
+<link rel="stylesheet" href="static/vendor/phosphor/bold.css">
+<link rel="stylesheet" href="static/vendor/quasar.prod.css">
+<link rel="stylesheet" href="static/vendor/drawflow.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap">
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   Hort Map — visual Hort configurator with fence-style enclosures
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg: #0a0e1a; --surface: #111827; --surface2: #1e293b;
+  --border: #1e3a5f; --primary: #3b82f6; --text: #f0f4ff;
+  --text-dim: #94a3b8; --danger: #ef4444; --success: #22c55e;
+  --fence: #d4a017; --fence-bg: rgba(212,160,23,0.04);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Roboto', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; height: 100vh; }
+
+/* ── Layout ───────────────────────────────────────────────────────── */
+.hm-layout { display: flex; height: 100vh; }
+.hm-sidebar {
+  width: 240px; background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto;
+}
+.hm-canvas { flex: 1; position: relative; }
+.hm-config {
+  width: 300px; background: var(--surface); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────── */
+.hm-sidebar-header {
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.hm-sidebar-header h2 { font-size: 15px; font-weight: 600; flex: 1; }
+.hm-section { padding: 8px 14px; font-size: 10px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.08em; font-weight: 600; }
+
+.hm-block-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  cursor: grab; transition: background 0.1s; border-bottom: 1px solid rgba(255,255,255,0.02);
+}
+.hm-block-item:hover { background: rgba(255,255,255,0.04); }
+.hm-block-item:active { cursor: grabbing; }
+.hm-block-icon {
+  width: 30px; height: 30px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0;
+}
+.hm-block-label { font-size: 12px; font-weight: 500; }
+.hm-block-desc { font-size: 10px; color: var(--text-dim); line-height: 1.3; }
+
+/* ── Toolbar ──────────────────────────────────────────────────────── */
+.hm-toolbar {
+  position: absolute; top: 12px; left: 12px; z-index: 10;
+  display: flex; gap: 8px; align-items: center;
+}
+.hm-toolbar select, .hm-toolbar input, .hm-toolbar button {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+}
+.hm-toolbar button:hover { background: var(--surface2); }
+
+/* ── Config panel ─────────────────────────────────────────────────── */
+.hm-config-header {
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.hm-config-header h3 { font-size: 13px; font-weight: 600; flex: 1; }
+.hm-config-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.hm-field label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 3px; }
+.hm-field input, .hm-field select, .hm-field textarea {
+  width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  padding: 7px 9px; border-radius: 5px; font-size: 12px; font-family: inherit;
+}
+.hm-field textarea { min-height: 70px; resize: vertical; }
+.hm-field small { color: var(--text-dim); font-size: 10px; margin-top: 1px; display: block; }
+.hm-config-empty { padding: 40px 16px; text-align: center; color: var(--text-dim); font-size: 12px; line-height: 1.6; }
+
+/* ── Drawflow overrides ───────────────────────────────────────────── */
+#drawflow {
+  width: 100%; height: 100%;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(circle, rgba(212,160,23,0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ── Node styles ──────────────────────────────────────────────────── */
+.drawflow .drawflow-node {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 10px; padding: 0; min-width: 150px;
+  color: var(--text); font-family: 'Roboto', sans-serif;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.drawflow .drawflow-node.selected {
+  border-color: var(--fence); box-shadow: 0 0 0 2px rgba(212,160,23,0.3);
+}
+.drawflow .drawflow-node .input, .drawflow .drawflow-node .output {
+  width: 12px; height: 12px; border-radius: 50%;
+}
+.drawflow .drawflow-node .input { background: var(--primary); border: 2px solid var(--primary); }
+.drawflow .drawflow-node .output { background: var(--success); border: 2px solid var(--success); }
+.drawflow .connection .main-path { stroke: var(--fence); stroke-width: 2; opacity: 0.7; }
+.drawflow .drawflow-delete { display: none; }
+
+/* Node content (rendered inside Drawflow nodes) */
+.node-content { display: flex; align-items: center; gap: 8px; padding: 9px 12px; }
+.node-icon {
+  width: 26px; height: 26px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0;
+}
+.node-info { flex: 1; min-width: 0; }
+.node-label { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node-type { font-size: 10px; color: var(--text-dim); }
+
+/* ── Hort fence node (group container) ────────────────────────────── */
+.drawflow .drawflow-node.hort-fence {
+  background: var(--fence-bg);
+  border: 2px dashed var(--fence);
+  border-radius: 14px;
+  min-width: 300px; min-height: 200px;
+  box-shadow: none;
+}
+.drawflow .drawflow-node.hort-fence.selected {
+  border-style: solid;
+  box-shadow: 0 0 0 3px rgba(212,160,23,0.2);
+}
+.fence-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-bottom: 1px dashed rgba(212,160,23,0.3);
+}
+.fence-icon { font-size: 18px; color: var(--fence); }
+.fence-label { font-size: 13px; font-weight: 600; color: var(--fence); }
+.fence-badge {
+  font-size: 9px; padding: 2px 6px; border-radius: 4px;
+  background: rgba(212,160,23,0.15); color: var(--fence); margin-left: auto;
+}
+.fence-body { padding: 8px 14px 14px; color: var(--text-dim); font-size: 11px; }
+
+/* ── Back link ────────────────────────────────────────────────────── */
+.back-link { color: var(--text-dim); text-decoration: none; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.back-link:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="hm-layout">
+    <!-- ═══ Sidebar: component catalog ═══ -->
+    <div class="hm-sidebar">
+      <div class="hm-sidebar-header">
+        <a href="/" class="back-link"><i class="ph ph-arrow-left"></i></a>
+        <h2>Hort Map</h2>
+      </div>
+
+      <div v-for="cat in categories" :key="cat">
+        <div class="hm-section">{{ catLabels[cat] || cat }}</div>
+        <div v-for="bt in blocksByCategory(cat)" :key="bt.block_type"
+             class="hm-block-item" draggable="true"
+             @dragstart="onDragStart($event, bt)">
+          <div class="hm-block-icon" :style="{background: bt.color + '22', color: bt.color}">
+            <i :class="bt.icon"></i>
+          </div>
+          <div>
+            <div class="hm-block-label">{{ bt.label }}</div>
+            <div class="hm-block-desc">{{ bt.description }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Canvas ═══ -->
+    <div class="hm-canvas" @drop="onDrop($event)" @dragover.prevent>
+      <div class="hm-toolbar">
+        <select v-model="currentConfigId" @change="onConfigSelect">
+          <option value="">+ New Hort Map</option>
+          <option v-for="c in configs" :key="c.hort_id" :value="c.hort_id">{{ c.name }}</option>
+        </select>
+        <input v-if="currentConfig" v-model="currentConfig.name" placeholder="Hort name"
+               @change="save" style="width:150px">
+        <button @click="save"><i class="ph ph-floppy-disk"></i> Save</button>
+        <button v-if="currentConfig && !currentConfig._isNew" @click="remove" style="color:var(--danger)">
+          <i class="ph ph-trash"></i>
+        </button>
+      </div>
+      <div id="drawflow"></div>
+    </div>
+
+    <!-- ═══ Config panel ═══ -->
+    <div class="hm-config">
+      <template v-if="selectedBlock">
+        <div class="hm-config-header">
+          <div class="node-icon" :style="{background: selectedType.color + '22', color: selectedType.color}">
+            <i :class="selectedType.icon"></i>
+          </div>
+          <h3>{{ selectedType.label }}</h3>
+          <button @click="deleteSelected" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px">
+            <i class="ph ph-trash"></i>
+          </button>
+        </div>
+        <div class="hm-config-body">
+          <div class="hm-field">
+            <label>Label</label>
+            <input v-model="selectedBlock.label" @input="updateNodeLabel">
+          </div>
+          <div v-for="f in selectedType.fields" :key="f.name" class="hm-field">
+            <label>{{ f.label }}</label>
+            <select v-if="f.field_type === 'select'"
+                    :value="blockConfig(f.name, f.default)"
+                    @change="setConfig(f.name, $event.target.value)">
+              <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+            </select>
+            <textarea v-else-if="f.field_type === 'textarea'"
+                      :value="blockConfig(f.name, f.default)"
+                      @input="setConfig(f.name, $event.target.value)"></textarea>
+            <input v-else-if="f.field_type === 'number'" type="number" step="any"
+                   :value="blockConfig(f.name, f.default)"
+                   @input="setConfig(f.name, parseFloat($event.target.value))">
+            <input v-else :value="blockConfig(f.name, f.default)"
+                   @input="setConfig(f.name, $event.target.value)">
+            <small v-if="f.description">{{ f.description }}</small>
+          </div>
+        </div>
+      </template>
+      <div v-else class="hm-config-empty">
+        <i class="ph ph-cursor-click" style="font-size:28px;display:block;margin-bottom:10px;opacity:0.4"></i>
+        Drag components from the sidebar<br>to build your Hort.
+        <br><br>
+        <span style="font-size:11px">Click a component to configure it.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="static/vendor/vue.global.prod.js"></script>
+<script src="static/vendor/drawflow.min.js"></script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   Hort Map Editor
+
+   Visual editor for Hort configurations using Drawflow canvas.
+   Horts are rendered as fenced enclosures (dashed gold borders).
+   Components (MCPs, LLMings, watchers, notifiers) are nodes inside.
+   Connections represent data/signal flow between components.
+   ═══════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
+
+  /* ── API helper ───────────────────────────────────────────────── */
+  const _b = document.querySelector('base');
+  const _bp = _b ? new URL(_b.href).pathname.replace(/\/$/, '') : '';
+  const api = (path) => _bp + path;
+
+  createApp({
+    setup() {
+      /* ── State ────────────────────────────────────────────────── */
+      const catalog = ref([]);
+      const configs = ref([]);
+      const currentConfigId = ref('');
+      const currentConfig = ref(null);
+      const selectedNodeId = ref(null);
+
+      let editor = null;
+      let dfToUid = {};   // drawflow ID → component uid
+      let uidToDf = {};   // component uid → drawflow ID
+      let _noSync = false;
+
+      /* Category labels for the sidebar */
+      const catLabels = { hort: 'Horts', input: 'Inputs', agent: 'Agents', tool: 'Tools', output: 'Outputs' };
+
+      const categories = computed(() => {
+        const order = { hort: 0, input: 1, agent: 2, tool: 3, output: 4 };
+        return [...new Set(catalog.value.map(b => b.category))].sort((a, b) => (order[a] ?? 9) - (order[b] ?? 9));
+      });
+      const blocksByCategory = (cat) => catalog.value.filter(b => b.category === cat);
+
+      /* ── Selected node ────────────────────────────────────────── */
+      const selectedBlock = computed(() => {
+        if (!selectedNodeId.value || !currentConfig.value) return null;
+        const uid = dfToUid[selectedNodeId.value];
+        return currentConfig.value.components.find(c => c.component_id === uid) || null;
+      });
+      const selectedType = computed(() => {
+        if (!selectedBlock.value) return null;
+        return catalog.value.find(b => b.block_type === selectedBlock.value.component_type) || null;
+      });
+
+      function blockConfig(field, fallback) {
+        if (!selectedBlock.value) return fallback;
+        const v = selectedBlock.value[field];
+        return v !== undefined ? v : fallback;
+      }
+      function setConfig(field, value) {
+        if (!selectedBlock.value) return;
+        selectedBlock.value[field] = value;
+      }
+
+      /* ── API calls ────────────────────────────────────────────── */
+      async function loadCatalog() { catalog.value = await (await fetch(api('/api/hortmap/catalog'))).json(); }
+      async function loadConfigs() { configs.value = await (await fetch(api('/api/hortmap/configs'))).json(); }
+
+      async function save() {
+        if (!currentConfig.value) return;
+        syncPositions();
+        syncConnections();
+        const isNew = currentConfig.value._isNew;
+        const method = isNew ? 'POST' : 'PUT';
+        const url = isNew ? api('/api/hortmap/configs') : api('/api/hortmap/configs/' + currentConfig.value.hort_id);
+        const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentConfig.value) });
+        currentConfig.value = await r.json();
+        currentConfigId.value = currentConfig.value.hort_id;
+        await loadConfigs();
+      }
+
+      async function remove() {
+        if (!currentConfig.value || currentConfig.value._isNew) return;
+        if (!confirm('Delete this Hort Map?')) return;
+        await fetch(api('/api/hortmap/configs/' + currentConfig.value.hort_id), { method: 'DELETE' });
+        currentConfig.value = null;
+        currentConfigId.value = '';
+        clearCanvas();
+        await loadConfigs();
+      }
+
+      /* ── Config selection ─────────────────────────────────────── */
+      async function onConfigSelect() {
+        if (!currentConfigId.value) {
+          currentConfig.value = {
+            hort_id: 'hort_' + Date.now().toString(36),
+            name: 'My Hort',
+            components: [], connections: [], sub_horts: [], exports: [], imports: [],
+            _isNew: true,
+          };
+          clearCanvas();
+          return;
+        }
+        const r = await fetch(api('/api/hortmap/configs/' + currentConfigId.value));
+        currentConfig.value = await r.json();
+        renderConfig(currentConfig.value);
+      }
+
+      /* ── Drawflow setup ───────────────────────────────────────── */
+      function initDrawflow() {
+        editor = new Drawflow(document.getElementById('drawflow'));
+        editor.reroute = false;
+        editor.curvature = 0.5;
+        editor.start();
+        editor.on('nodeSelected', (id) => { selectedNodeId.value = id; });
+        editor.on('nodeUnselected', () => { selectedNodeId.value = null; });
+        editor.on('nodeRemoved', (id) => {
+          if (_noSync) return;
+          const uid = dfToUid[id];
+          if (uid && currentConfig.value) {
+            currentConfig.value.components = currentConfig.value.components.filter(c => c.component_id !== uid);
+          }
+          delete dfToUid[id];
+          delete uidToDf[uid];
+        });
+      }
+
+      function clearCanvas() {
+        if (!editor) return;
+        _noSync = true;
+        editor.clear();
+        dfToUid = {};
+        uidToDf = {};
+        selectedNodeId.value = null;
+        _noSync = false;
+      }
+
+      /* ── Render a config into the canvas ──────────────────────── */
+      function renderConfig(cfg) {
+        clearCanvas();
+        _noSync = true;
+        for (const comp of cfg.components) {
+          const bt = catalog.value.find(b => b.block_type === comp.component_type);
+          if (!bt) continue;
+          addNodeToCanvas(comp, bt);
+        }
+        for (const conn of cfg.connections || []) {
+          const src = uidToDf[conn.source_id];
+          const tgt = uidToDf[conn.target_id];
+          if (src && tgt) {
+            try { editor.addConnection(src, tgt, 'output_1', 'input_1'); } catch (e) {}
+          }
+        }
+        _noSync = false;
+      }
+
+      /* ── Add a single node ────────────────────────────────────── */
+      function addNodeToCanvas(comp, bt) {
+        const isFence = bt.block_type === 'sub_hort';
+        const html = isFence ? fenceHtml(comp.label || bt.label) : nodeHtml(bt, comp.label || bt.label);
+        const cls = isFence ? 'hort-fence' : '';
+        const x = comp.position?.x || 200;
+        const y = comp.position?.y || 200;
+        const dfId = editor.addNode(
+          comp.component_type, bt.inputs, bt.outputs,
+          x, y, cls, {}, html,
+        );
+        dfToUid[dfId] = comp.component_id;
+        uidToDf[comp.component_id] = dfId;
+      }
+
+      function nodeHtml(bt, label) {
+        return '<div class="node-content">' +
+          '<div class="node-icon" style="background:' + bt.color + '22;color:' + bt.color + '">' +
+            '<i class="' + bt.icon + '"></i>' +
+          '</div>' +
+          '<div class="node-info">' +
+            '<div class="node-label">' + label + '</div>' +
+            '<div class="node-type">' + bt.label + '</div>' +
+          '</div>' +
+        '</div>';
+      }
+
+      function fenceHtml(label) {
+        return '<div class="fence-header">' +
+          '<i class="ph ph-fence fence-icon"></i>' +
+          '<span class="fence-label">' + label + '</span>' +
+          '<span class="fence-badge">Sub-Hort</span>' +
+        '</div>' +
+        '<div class="fence-body">Drop components here</div>';
+      }
+
+      /* ── Drag & Drop ──────────────────────────────────────────── */
+      function onDragStart(ev, bt) { ev.dataTransfer.setData('block_type', bt.block_type); }
+
+      function onDrop(ev) {
+        ev.preventDefault();
+        const blockType = ev.dataTransfer.getData('block_type');
+        const bt = catalog.value.find(b => b.block_type === blockType);
+        if (!bt || !editor) return;
+
+        if (!currentConfig.value) {
+          currentConfig.value = {
+            hort_id: 'hort_' + Date.now().toString(36),
+            name: 'My Hort', components: [], connections: [],
+            sub_horts: [], exports: [], imports: [], _isNew: true,
+          };
+        }
+
+        const rect = document.getElementById('drawflow').getBoundingClientRect();
+        const zoom = editor.zoom || 1;
+        const x = (ev.clientX - rect.left) / zoom;
+        const y = (ev.clientY - rect.top) / zoom;
+        const uid = 'c_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5);
+
+        const comp = { component_id: uid, component_type: blockType, label: bt.label, position: { x, y } };
+        // Set defaults from catalog fields
+        for (const f of bt.fields) {
+          if (f.default !== '' && f.default !== undefined) comp[f.name] = f.default;
+        }
+
+        currentConfig.value.components.push(comp);
+        addNodeToCanvas(comp, bt);
+      }
+
+      /* ── Sync helpers ─────────────────────────────────────────── */
+      function syncPositions() {
+        if (!editor || !currentConfig.value) return;
+        const data = editor.export().drawflow?.Home?.data || {};
+        for (const [dfId, node] of Object.entries(data)) {
+          const uid = dfToUid[dfId];
+          const comp = uid && currentConfig.value.components.find(c => c.component_id === uid);
+          if (comp) comp.position = { x: node.pos_x, y: node.pos_y };
+        }
+      }
+
+      function syncConnections() {
+        if (!editor || !currentConfig.value) return;
+        const data = editor.export().drawflow?.Home?.data || {};
+        const conns = [];
+        for (const [dfId, node] of Object.entries(data)) {
+          const srcUid = dfToUid[dfId];
+          if (!srcUid) continue;
+          for (const [, out] of Object.entries(node.outputs || {})) {
+            for (const c of out.connections || []) {
+              const tgtUid = dfToUid[c.node];
+              if (tgtUid) conns.push({ source_id: srcUid, target_id: tgtUid });
+            }
+          }
+        }
+        currentConfig.value.connections = conns;
+      }
+
+      function updateNodeLabel() {
+        if (!selectedBlock.value || !selectedNodeId.value || !selectedType.value) return;
+        const bt = selectedType.value;
+        const html = bt.block_type === 'sub_hort'
+          ? fenceHtml(selectedBlock.value.label || bt.label)
+          : nodeHtml(bt, selectedBlock.value.label || bt.label);
+        const el = document.querySelector('#node-' + selectedNodeId.value + ' .drawflow_content_node');
+        if (el) el.innerHTML = html;
+      }
+
+      function deleteSelected() {
+        if (!selectedNodeId.value) return;
+        editor.removeNodeId('node-' + selectedNodeId.value);
+        selectedNodeId.value = null;
+      }
+
+      /* ── Init ─────────────────────────────────────────────────── */
+      onMounted(async () => {
+        initDrawflow();
+        await loadCatalog();
+        await loadConfigs();
+      });
+
+      return {
+        catalog, configs, currentConfigId, currentConfig,
+        selectedBlock, selectedType, categories, catLabels,
+        blocksByCategory, blockConfig, setConfig,
+        onConfigSelect, save, remove,
+        onDragStart, onDrop, updateNodeLabel, deleteSelected,
+      };
+    },
+  }).mount('#app');
+})();
+</script>
+</body>
+</html>

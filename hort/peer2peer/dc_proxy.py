@@ -112,12 +112,14 @@ class DataChannelProxy:
                 content=body.encode() if body else None,
             )
 
-            # Try to decode body as text, fall back to base64 for binary
-            try:
+            # Detect binary content and base64-encode it
+            import base64
+            content_type = resp.headers.get("content-type", "")
+            is_text = any(t in content_type for t in ("text/", "application/json", "application/javascript", "/xml", "/svg"))
+            if is_text or not content_type:
                 resp_body = resp.text
                 is_binary = False
-            except Exception:
-                import base64
+            else:
                 resp_body = base64.b64encode(resp.content).decode()
                 is_binary = True
 

@@ -554,19 +554,30 @@
     sendControl({ type: 'input', ...data });
   }
 
-  // ===== THUMBNAIL REFRESH =====
-  let thumbRefreshTimer = null;
+  // ===== THUMBNAIL SUBSCRIPTION =====
+  // Instead of requesting all thumbnails individually (N concurrent
+  // captures), subscribe to the server's rotation scheduler which
+  // captures one window at a time at a fixed rate.
+  let _thumbSubscribed = false;
 
-  function startThumbRefresh() {
-    stopThumbRefresh();
-    thumbRefreshTimer = setInterval(() => {
-      if (state.view !== 'viewer' || state.overviewOpen) return;
-      state.navWindows.forEach(w => requestThumbnail(w.window_id));
-    }, 5000);
+  function subscribeThumbnails() {
+    if (_thumbSubscribed) return;
+    sendControl({ type: 'subscribe_thumbnails', subscribe: true });
+    _thumbSubscribed = true;
   }
 
+  function unsubscribeThumbnails() {
+    if (!_thumbSubscribed) return;
+    sendControl({ type: 'subscribe_thumbnails', subscribe: false });
+    _thumbSubscribed = false;
+  }
+
+  // Legacy: still allow individual thumbnail requests for on-demand use
+  function startThumbRefresh() {
+    subscribeThumbnails();
+  }
   function stopThumbRefresh() {
-    clearInterval(thumbRefreshTimer);
+    // Don't unsubscribe here — scheduler handles its own lifecycle
   }
 
   // ===== PICKER REFRESH =====
@@ -590,10 +601,10 @@
     requestSpaces();
     requestTerminalList();
     if (state.isLocal) fetchConnectors();
-    // Request thumbnails for current nav windows after a short delay for windows_list to arrive
+    // Subscribe to thumbnail rotation (server pushes them one at a time)
     setTimeout(() => {
       if (state.view === 'picker') {
-        state.navWindows.forEach(w => requestThumbnail(w.window_id));
+        subscribeThumbnails();
       }
     }, 300);
   }
@@ -825,13 +836,7 @@
       watch(() => state.overviewOpen, (open) => {
         if (open) {
           state.thumbCounter++;
-          state.allWindows.forEach(w => requestThumbnail(w.window_id));
-          overviewRefreshTimer = setInterval(() => {
-            if (!state.overviewOpen) { clearInterval(overviewRefreshTimer); return; }
-            state.allWindows.forEach(w => requestThumbnail(w.window_id));
-          }, 5000);
-        } else {
-          clearInterval(overviewRefreshTimer);
+          subscribeThumbnails(); // server rotation handles the refresh
         }
       });
 
@@ -895,7 +900,13 @@
           <button class="llming-action" @click="applyFitVertical" title="Fit vertical (V)"><i class="ph-bold ph-arrows-out-line-vertical"></i></button>
           <button class="llming-action" @click="state.overviewOpen = true" title="Overview (G)"><i class="ph ph-squares-four"></i></button>
           <button class="llming-action" :class="{ active: state.settingsOpen }" @click.stop="toggleSettings" title="Settings"><i class="ph ph-gear-six"></i></button>
+          <button class="llming-action hide-desktop" @click="toggleMobileKeyboard" title="Toggle keyboard (K)"><i class="ph ph-keyboard"></i></button>
         </div>
+
+        <!-- Hidden input for mobile keyboard — triggers on-screen keyboard -->
+        <input ref="mobileKeyInput" class="mobile-key-input"
+               @input="onMobileKeyInput" @keydown="onMobileKeyDown"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
 
         <!-- Nav arrows -->
         <button class="nav-arrow prev" @click="navPrevWindow"><i class="ph-bold ph-caret-left"></i></button>
@@ -940,6 +951,7 @@
     setup() {
       const viewerEl = ref(null);
       const streamContainer = ref(null);
+      const mobileKeyInput = ref(null);
       const streamImg = ref(null);
       const remoteCursor = ref(null);
       const clickRipple = ref(null);
@@ -1131,6 +1143,31 @@
         state.settingsOpen = !state.settingsOpen;
       }
 
+      function toggleMobileKeyboard() {
+        if (mobileKeyInput.value) {
+          mobileKeyInput.value.focus();
+          // On iOS, we need to set value to trigger keyboard
+          mobileKeyInput.value.value = '';
+        }
+      }
+
+      function onMobileKeyInput(e) {
+        const text = e.target.value;
+        if (text && state.activeMode) {
+          sendControl({ type: 'input', event_type: 'key', key: text, modifiers: [] });
+        }
+        e.target.value = ''; // clear for next input
+      }
+
+      function onMobileKeyDown(e) {
+        if (!state.activeMode) return;
+        const key = e.key;
+        if (['Backspace', 'Enter', 'Escape', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+          e.preventDefault();
+          sendControl({ type: 'input', event_type: 'key', key: key, modifiers: [] });
+        }
+      }
+
       function spacePrev() {
         const target = state.spacesData.current > 1 ? state.spacesData.current - 1 : state.spacesData.count;
         switchSpace(target);
@@ -1150,8 +1187,8 @@
           if (idx >= 0) state.navIndex = idx;
           else state.navIndex = 0;
         }
-        // Re-request thumbnails for the new set
-        state.navWindows.forEach(w => requestThumbnail(w.window_id));
+        // Scheduler handles thumbnail rotation — no bulk request needed
+        subscribeThumbnails();
       }
 
       // ===== COORDS =====
@@ -1489,9 +1526,10 @@
         state, groups, curWindow, viewerTitle, navCounterText, observerText,
         showMinimap, minimapImgHeight, minimapViewportStyle,
         viewerEl, streamContainer, streamImg, remoteCursor, clickRipple,
-        minimapEl, minimapWrap, minimapImg,
+        minimapEl, minimapWrap, minimapImg, mobileKeyInput,
         goBack, navPrevWindow, navNextWindow, doSwitchWindow,
         toggleActiveMode, toggleSettings, applyAutoFit, applyFitVertical,
+        toggleMobileKeyboard, onMobileKeyInput, onMobileKeyDown,
         jumpTo, spacePrev, spaceNext, onNavModeChange,
         onMouseDown, onDblClick, onStreamClick, onContextMenu,
         onTouchStart, onTouchMove, onTouchEnd,
@@ -2732,6 +2770,10 @@
               <a class="sidebar-item" @click="state.sidebarOpen = false; state.view = 'picker'">
                 <i class="ph ph-house"></i> Home
               </a>
+              <a class="sidebar-item" :href="hortmapUrl">
+                <i class="ph ph-tree-structure"></i> Hort Map
+                <i class="ph ph-arrow-square-out" style="margin-left:auto;opacity:0.4;font-size:14px"></i>
+              </a>
               <div class="sidebar-divider"></div>
               <a class="sidebar-item" :href="guideUrl" target="_blank">
                 <i class="ph ph-book-open"></i> Documentation
@@ -2786,6 +2828,7 @@
     setup() {
       const viewer = ref(null);
       const guideUrl = computed(() => _basePath + '/guide/');
+      const hortmapUrl = computed(() => _basePath + '/hortmap');
 
       function openHelp() {
         state.sidebarOpen = false;
@@ -2839,7 +2882,7 @@
       return {
         state, viewer, onSelectWindow,
         fullscreenSpirit, fullscreenSpiritWidget, closeSpiritFullscreen,
-        guideUrl, openHelp,
+        guideUrl, hortmapUrl, openHelp,
       };
     },
   };

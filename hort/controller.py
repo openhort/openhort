@@ -111,6 +111,8 @@ class HortController(BaseController):
             await self._handle_list_windows(msg)
         elif msg_type == "get_thumbnail":
             await self._handle_get_thumbnail(msg)
+        elif msg_type == "subscribe_thumbnails":
+            await self._handle_subscribe_thumbnails(msg)
         elif msg_type == "get_status":
             await self._handle_get_status()
         elif msg_type == "get_spaces":
@@ -211,6 +213,10 @@ class HortController(BaseController):
                     d["target_name"] = info.name
                     all_win.append(d)
 
+            # Feed the thumbnail scheduler with the full window list
+            from hort.thumbnailer import ThumbnailScheduler
+            ThumbnailScheduler.get().set_windows(all_win)
+
             await self.send({
                 "type": "windows_list",
                 "windows": all_win,
@@ -231,6 +237,10 @@ class HortController(BaseController):
                 d["target_id"] = self._target_id
                 d["target_name"] = target_info.name if target_info else self._target_id
                 win_dicts.append(d)
+            # Feed the thumbnail scheduler
+            from hort.thumbnailer import ThumbnailScheduler
+            ThumbnailScheduler.get().set_windows(win_dicts)
+
             await self.send({
                 "type": "windows_list",
                 "windows": win_dicts,
@@ -259,6 +269,24 @@ class HortController(BaseController):
                 "window_id": window_id,
                 "data": None,
             })
+
+    async def _handle_subscribe_thumbnails(self, msg: dict[str, Any]) -> None:
+        """Subscribe to the thumbnail rotation scheduler.
+
+        The client receives a stream of thumbnail updates instead of
+        requesting them individually. Much more efficient for many windows.
+        """
+        from hort.thumbnailer import ThumbnailScheduler
+
+        scheduler = ThumbnailScheduler.get()
+        subscribe = msg.get("subscribe", True)
+        if subscribe:
+            scheduler.subscribe(self)
+            # Send all cached thumbnails immediately so the UI isn't blank
+            for wid, b64 in scheduler.get_all_cached().items():
+                await self.send({"type": "thumbnail", "window_id": wid, "data": b64})
+        else:
+            scheduler.unsubscribe(self)
 
     async def _handle_get_status(self) -> None:
         from hort.session import HortRegistry
@@ -327,6 +355,7 @@ class HortController(BaseController):
             win = self._cached_window
             provider = self._cached_provider
             if win is None or provider is None:
+                logger.warning("Input dropped: cached_window=%s cached_provider=%s", win, provider)
                 return
             event_data: dict[str, Any] = {
                 k: v for k, v in msg.items() if k != "type"
@@ -334,10 +363,23 @@ class HortController(BaseController):
             if "event_type" in event_data:
                 event_data["type"] = event_data.pop("event_type")
             event = InputEvent(**event_data)
+
+            # Debug: log coordinate mapping for clicks
+            if event.type in ("click", "double_click", "right_click"):
+                sx = win.bounds.x + event.nx * win.bounds.width
+                sy = win.bounds.y + event.ny * win.bounds.height
+                logger.info(
+                    "Input: %s nx=%.3f ny=%.3f → screen=(%.0f, %.0f) "
+                    "bounds=(%.0f,%.0f,%.0f,%.0f) pid=%d window=%s",
+                    event.type, event.nx, event.ny, sx, sy,
+                    win.bounds.x, win.bounds.y, win.bounds.width, win.bounds.height,
+                    win.owner_pid, win.window_name,
+                )
+
             # Run input in executor — may call docker exec for Linux targets
             await _run_sync(provider.handle_input, event, win.bounds, win.owner_pid)
         except Exception:
-            pass
+            logger.exception("Input error")
 
     # ----- Terminal management -----
 

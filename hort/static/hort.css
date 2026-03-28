@@ -555,6 +555,16 @@ body {
     .widget-regions > .widget-region { min-width: 100%; }
 }
 
+/* Mobile keyboard input (hidden off-screen, triggers on-screen keyboard) */
+.mobile-key-input {
+    position: absolute; top: -9999px; left: -9999px;
+    opacity: 0; width: 1px; height: 1px;
+}
+/* Hide keyboard button on desktop (only show on touch/mobile) */
+@media (hover: hover) and (pointer: fine) {
+    .hide-desktop { display: none !important; }
+}
+
 /* Sidebar drawer */
 .sidebar-overlay {
     position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.5);

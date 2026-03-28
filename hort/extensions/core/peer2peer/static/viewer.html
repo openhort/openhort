@@ -460,69 +460,145 @@ function disconnect() {
   log('Disconnected');
 }
 
-// ====== SPA Loading ======
-async function loadSPA() {
-  log('Loading full UI via P2P...');
+// ====== CSS url() inlining ======
+// Font and image references inside CSS use url() which the browser resolves
+// relative to the stylesheet origin (openhort.ai) — not through fetch().
+// We rewrite them to base64 data URIs fetched through the DataChannel.
 
-  try {
-    // Fetch the main page through the DataChannel
-    const resp = await proxyFetch('/viewer');
-    let html = await resp.text();
+async function inlineCssUrls(css, basePath) {
+  const urlRe = /url\(["']?([^"')]+)["']?\)/g;
+  const matches = [...css.matchAll(urlRe)];
+  const seen = new Map();
 
-    // Inject the P2P shim into the HTML before it executes
-    const shimScript = `<script>
-      // Override fetch and WebSocket to route through P2P DataChannel
-      window._p2pFetch = window.parent._p2pProxyFetch;
-      window._p2pWebSocket = window.parent._p2pProxyWebSocket;
-      window._origFetch = window.fetch;
-      window.fetch = function(input, init) {
-        if (window._p2pFetch) return window._p2pFetch(input, init);
-        return window._origFetch(input, init);
-      };
-      window._OrigWebSocket = window.WebSocket;
-      window.WebSocket = function(url, protocols) {
-        if (window._p2pWebSocket) return new window._p2pWebSocket(url);
-        return new window._OrigWebSocket(url, protocols);
-      };
-      window.WebSocket.CONNECTING = 0;
-      window.WebSocket.OPEN = 1;
-      window.WebSocket.CLOSING = 2;
-      window.WebSocket.CLOSED = 3;
-    <` + `/script>`;
+  for (const m of matches) {
+    const ref = m[1];
+    if (ref.startsWith('data:') || ref.startsWith('http://') || ref.startsWith('https://') || seen.has(ref)) continue;
 
-    // Insert shim as the first script in <head>
-    html = html.replace('<head>', '<head>' + shimScript);
+    // Resolve relative path
+    let fullPath;
+    if (ref.startsWith('/')) {
+      fullPath = ref;
+    } else {
+      fullPath = basePath + ref;
+    }
+    // Normalize ../ segments
+    fullPath = new URL(fullPath, 'http://localhost').pathname;
 
-    // Expose proxy functions on parent window
-    window._p2pProxyFetch = proxyFetch;
-    window._p2pProxyWebSocket = ProxiedWebSocket;
+    try {
+      const r = await proxyFetch(fullPath);
+      const buf = await r.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const b64 = btoa(binary);
 
-    // Create iframe with the SPA
-    document.getElementById('connect-ui').style.display = 'none';
-    const container = document.getElementById('spa-container');
-    container.style.display = 'block';
-    container.innerHTML = '';
+      // Guess MIME type from extension
+      const ext = fullPath.split('.').pop().toLowerCase();
+      const mimeMap = {woff2:'font/woff2', woff:'font/woff', ttf:'font/ttf', eot:'application/vnd.ms-fontobject', svg:'image/svg+xml', png:'image/png', jpg:'image/jpeg', gif:'image/gif'};
+      const mime = mimeMap[ext] || 'application/octet-stream';
 
-    const iframe = document.createElement('iframe');
-    iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
-    container.appendChild(iframe);
-
-    // Write the modified HTML into the iframe
-    iframe.contentDocument.open();
-    iframe.contentDocument.write(html);
-    iframe.contentDocument.close();
-
-    log('Full UI loaded via P2P!', 'ok');
-
-  } catch (err) {
-    log('Failed to load UI: ' + err.message, 'err');
+      seen.set(ref, 'data:' + mime + ';base64,' + b64);
+    } catch (e) {
+      seen.set(ref, ref); // keep original on failure
+    }
   }
+
+  // Replace all url() references with data URIs
+  for (const [ref, dataUri] of seen) {
+    css = css.replaceAll('url("' + ref + '")', 'url("' + dataUri + '")');
+    css = css.replaceAll("url('" + ref + "')", "url('" + dataUri + "')");
+    css = css.replaceAll('url(' + ref + ')', 'url(' + dataUri + ')');
+  }
+
+  return css;
 }
 
-function showConnectUI() {
-  document.getElementById('connect-ui').style.display = '';
-  document.getElementById('spa-container').style.display = 'none';
-  document.getElementById('spa-container').innerHTML = '';
+// ====== Transparent Proxy ======
+// Once DataChannel is open, override fetch/WebSocket globally on THIS page,
+// then fetch the full app HTML through the proxy and replace the entire page.
+// All subsequent resource loads (JS, CSS, images) go through proxyFetch.
+// The viewer becomes invisible — everything you see comes from the home machine.
+
+async function loadSPA() {
+  log('Establishing proxy...');
+
+  try {
+    // Override fetch globally — ALL requests go through DataChannel
+    const _origFetch = window.fetch;
+    window.fetch = function(input, init) {
+      return proxyFetch(input, init);
+    };
+
+    // Override WebSocket globally — ALL WebSockets go through DataChannel
+    window.WebSocket = function(url, protocols) {
+      return new ProxiedWebSocket(url);
+    };
+    window.WebSocket.CONNECTING = 0;
+    window.WebSocket.OPEN = 1;
+    window.WebSocket.CLOSING = 2;
+    window.WebSocket.CLOSED = 3;
+
+    // Fetch the main page from the home machine
+    log('Loading app...');
+    const resp = await proxyFetch('/viewer');
+    const html = await resp.text();
+
+    // Parse the HTML to extract CSS links, scripts, and body
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    // Load all CSS files through the proxy, inlining font/image url() references
+    const cssLinks = doc.querySelectorAll('link[rel="stylesheet"], link[href$=".css"]');
+    for (const link of cssLinks) {
+      const href = link.getAttribute('href');
+      if (href) {
+        try {
+          const path = href.startsWith('/') ? href : '/' + href;
+          const basePath = path.substring(0, path.lastIndexOf('/') + 1);
+          const r = await proxyFetch(path);
+          let css = await r.text();
+          css = await inlineCssUrls(css, basePath);
+          const style = document.createElement('style');
+          style.textContent = css;
+          document.head.appendChild(style);
+        } catch (e) { /* skip failed CSS */ }
+      }
+    }
+
+    // Replace document body with the fetched content
+    document.body.innerHTML = doc.body.innerHTML;
+    document.title = doc.title || 'openhort';
+
+    // Copy head meta/title tags
+    for (const meta of doc.querySelectorAll('head meta')) {
+      document.head.appendChild(meta.cloneNode(true));
+    }
+
+    // Load and execute all scripts in order through the proxy
+    const scripts = doc.querySelectorAll('script');
+    for (const script of scripts) {
+      const src = script.getAttribute('src');
+      if (src) {
+        // External script — fetch through proxy and execute
+        try {
+          const path = src.startsWith('/') ? src : '/' + src;
+          const r = await proxyFetch(path);
+          const code = await r.text();
+          const s = document.createElement('script');
+          s.textContent = code;
+          document.body.appendChild(s);
+        } catch (e) { /* skip failed scripts */ }
+      } else if (script.textContent.trim()) {
+        // Inline script — execute directly
+        const s = document.createElement('script');
+        s.textContent = script.textContent;
+        document.body.appendChild(s);
+      }
+    }
+
+  } catch (err) {
+    document.body.innerHTML = '<h1 style="color:#ef5350;padding:20px;">Failed to load: ' + err.message + '</h1>';
+  }
 }
 
 // ====== Init ======

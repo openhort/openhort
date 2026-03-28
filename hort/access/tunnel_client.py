@@ -39,6 +39,7 @@ class TunnelClient:
         self._local_url = local_url.rstrip("/")
         self._ws: Any = None
         self._local_ws_connections: dict[str, Any] = {}  # ws_id → local WS
+        self._http_client: httpx.AsyncClient | None = None
 
     async def run(self) -> None:
         """Connect to the access server and start relaying."""
@@ -107,12 +108,14 @@ class TunnelClient:
         url = f"{self._local_url}{path}"
 
         try:
-            async with httpx.AsyncClient() as client:
+            if self._http_client is None:
+                self._http_client = httpx.AsyncClient(timeout=30.0)
+            client = self._http_client
+            async with asyncio.timeout(30):
                 resp = await client.request(
                     method, url,
                     headers={k: v for k, v in headers.items() if k.lower() not in ("host", "transfer-encoding")},
                     content=body,
-                    timeout=30.0,
                 )
                 # Split large responses into small WS messages
                 # Azure's WS proxy silently drops messages > ~64KB
@@ -157,17 +160,31 @@ class TunnelClient:
             local_ws = await websockets.connect(f"{local_ws_url}{path}")
             self._local_ws_connections[ws_id] = local_ws
 
-            # Forward local WS messages back through the tunnel
+            # Forward local WS messages back through the tunnel.
+            # Binary frames (JPEG stream) are dropped if the tunnel
+            # can't keep up — prevents unbounded memory growth.
             async def forward() -> None:
+                _send_lock = asyncio.Lock()
+                _dropping = False
                 try:
                     async for data in local_ws:
                         if isinstance(data, bytes):
-                            await tunnel_ws.send(json.dumps({
-                                "type": "ws_data",
-                                "ws_id": ws_id,
-                                "binary": base64.b64encode(data).decode(),
-                            }))
+                            # Drop binary frames if previous send is
+                            # still in progress (backpressure).
+                            if _send_lock.locked():
+                                if not _dropping:
+                                    _dropping = True
+                                    logger.debug("Tunnel backpressure: dropping frames for ws %s", ws_id)
+                                continue
+                            _dropping = False
+                            async with _send_lock:
+                                await tunnel_ws.send(json.dumps({
+                                    "type": "ws_data",
+                                    "ws_id": ws_id,
+                                    "binary": base64.b64encode(data).decode(),
+                                }))
                         else:
+                            # Text messages (JSON control) are never dropped
                             await tunnel_ws.send(json.dumps({
                                 "type": "ws_data",
                                 "ws_id": ws_id,

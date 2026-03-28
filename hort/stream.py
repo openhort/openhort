@@ -80,6 +80,27 @@ async def run_stream(
     frame_count = 0
     import time as _time
 
+    # Frame queue: holds at most ONE frame. The capture loop puts
+    # frames in, the send loop takes them out. If a new frame arrives
+    # before the old one was sent, the old one is replaced (dropped).
+    # This guarantees bounded memory: at most 1 frame buffered.
+    _frame_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=1)
+
+    async def _send_loop() -> None:
+        """Send frames from the queue. Runs concurrently with capture."""
+        while True:
+            frame_data = await _frame_queue.get()
+            if frame_data is None:
+                break  # shutdown signal
+            try:
+                await websocket.send_bytes(frame_data)
+            except Exception:
+                break
+            finally:
+                del frame_data
+
+    send_task = asyncio.create_task(_send_loop())
+
     try:
         while True:
             config = entry.stream_config
@@ -94,23 +115,24 @@ async def run_stream(
                 continue
 
             # Raise window when it changes (blocking — can take 1-2s with osascript)
+            # Skip for Desktop (window_id=-1) — it's the full screen, no app to raise
             if config.window_id != prev_window_id:
                 logger.info("Switching to window %d (target=%s)", config.window_id, entry.active_target_id)
-                _raise_window(config.window_id, provider)
+                if config.window_id >= 0:
+                    _raise_window(config.window_id, provider)
                 prev_window_id = config.window_id
 
             effective_width = _effective_max_width(
                 config.screen_width, config.screen_dpr, config.max_width
             )
 
-            # Capture (synchronous — typically < 50ms for local, acceptable for stream FPS)
+            # Capture
             t0 = _time.monotonic()
             frame = provider.capture_window(
                 config.window_id, effective_width, config.quality
             )
             capture_ms = (_time.monotonic() - t0) * 1000
 
-            # Log performance every 100 frames
             frame_count += 1
             if frame_count % 100 == 0:
                 logger.info("Stream: %d frames, last capture %.0fms, window=%d", frame_count, capture_ms, config.window_id)
@@ -132,7 +154,15 @@ async def run_stream(
                 prev_window_id = 0
                 continue
 
-            await websocket.send_bytes(frame)
+            # Put frame in queue, dropping the previous one if still pending
+            if _frame_queue.full():
+                try:
+                    _frame_queue.get_nowait()  # discard old frame
+                except asyncio.QueueEmpty:
+                    pass
+            _frame_queue.put_nowait(frame)
+            del frame  # release our reference
+
             await asyncio.sleep(1.0 / config.fps)
 
     except WebSocketDisconnect:
@@ -140,6 +170,16 @@ async def run_stream(
     except Exception as e:
         logger.exception("Stream error for session %s: %s", session_id[:8], e)
     finally:
+        # Shut down the send loop
+        try:
+            _frame_queue.put_nowait(None)
+        except asyncio.QueueFull:
+            try:
+                _frame_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            _frame_queue.put_nowait(None)
+        send_task.cancel()
         entry.stream_ws = None
         entry.observer_id = 0
 

@@ -648,6 +648,19 @@ def _register_routes(app: FastAPI) -> None:
             "state": peer.connection_state,
         }
 
+    @app.post("/api/p2p/connect")
+    async def p2p_connect() -> dict[str, Any]:
+        """Generate a one-time P2P connection URL (local access only)."""
+        if not hasattr(app.state, "plugin_registry"):
+            return {"error": "plugins not loaded"}
+        plugin = app.state.plugin_registry.get_instance("peer2peer")
+        if not plugin or not hasattr(plugin, "_relay_listener") or not plugin._relay_listener:
+            return {"error": "P2P relay not connected"}
+        token = plugin._relay_listener.tokens.generate()
+        room = plugin._room_id
+        url = f"https://openhort.ai/p2p/viewer.html?signal=ws&room={room}&token={token}"
+        return {"url": url, "token": token, "room": room, "expires_in": 60}
+
     @app.websocket("/ws/control/{session_id}")
     async def control_ws(websocket: WebSocket, session_id: str) -> None:
         """Control channel — all JSON commands flow through here."""

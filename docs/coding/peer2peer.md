@@ -4,9 +4,13 @@ Direct P2P connections via WebRTC, with signaling through Telegram. No external 
 
 ## Design Principles
 
-1. **Zero infrastructure** — No paid hosting, no public servers, no cloud subscriptions. Only free services: Telegram (signaling), GitHub Pages (static hosting), public STUN servers.
+1. **Zero infrastructure** — No paid hosting, no public servers, no cloud subscriptions. Only free services: Telegram (signaling), Cloudflare Pages (static hosting), public STUN servers.
 2. **Layered architecture** — Signaling, transport, and protocol are independent layers. Swap any layer without affecting the others.
 3. **Multi-client** — The same server-side peer works with browsers (Mini App), native Android/iOS apps, and CLI clients.
+4. **Viewer is a thin transparent proxy** — The P2P viewer (`viewer.html`) contains **zero UI code**. No Vue, no Quasar, no CSS frameworks, no vendor libraries. It is purely infrastructure: WebRTC setup, `fetch()`/`WebSocket` interception, and DataChannel proxy. All content — HTML, JS, CSS, images, API responses, WebSocket frames — flows through the DataChannel from the home machine. The viewer should be deployable today and work unchanged for years, regardless of UI framework changes.
+
+!!! warning "Never add UI code to the viewer"
+    The viewer must never import, inline, or bundle any openhort application code. It is a **tunnel**, not an app. If you can see it on screen, it came through the DataChannel — the viewer itself is invisible once connected.
 
 ## Three-Layer Architecture
 
