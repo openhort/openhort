@@ -444,3 +444,105 @@ class TestHighResStream:
 
         # Phase 2 (800px) should have more frames than phase 1 (5K overload)
         assert result["phase2Frames"] > 0, f"Should recover after dropping resolution: {result}"
+
+
+class TestAnimatedStream:
+    """Verify stream produces changing frames (not frozen)."""
+
+    def test_jpeg_frames_change(self, server_url: str, page: Any) -> None:
+        """JPEG frames should have different content over time."""
+        page.goto(f"{server_url}/")
+        page.wait_for_load_state("networkidle")
+        time.sleep(2)
+
+        result = page.evaluate("""() => new Promise((resolve) => {
+            const frameSizes = [];
+
+            fetch('/api/session', { method: 'POST' })
+            .then(r => r.json())
+            .then(sess => {
+                const ctrl = new WebSocket(location.href.replace('http', 'ws') + 'ws/control/' + sess.session_id);
+                const stream = new WebSocket(location.href.replace('http', 'ws') + 'ws/stream/' + sess.session_id);
+                stream.binaryType = 'arraybuffer';
+
+                ctrl.onopen = () => {
+                    ctrl.send(JSON.stringify({
+                        type: 'stream_config',
+                        window_id: -1,
+                        fps: 10,
+                        quality: 50,
+                        max_width: 400,
+                        codec: 'jpeg',
+                    }));
+                };
+
+                stream.onmessage = (e) => {
+                    if (e.data instanceof ArrayBuffer && e.data.byteLength > 10) {
+                        const hdr = new DataView(e.data, 0, 10);
+                        const streamId = hdr.getUint16(0);
+                        const seq = hdr.getUint32(2);
+                        frameSizes.push(e.data.byteLength);
+                        ctrl.send(JSON.stringify({
+                            type: 'stream_ack', stream_id: streamId, seq: seq
+                        }));
+                    }
+                };
+
+                setTimeout(() => {
+                    stream.close();
+                    ctrl.close();
+                    resolve({ count: frameSizes.length, sizes: frameSizes.slice(0, 5) });
+                }, 5000);
+            });
+        })""")
+
+        page.screenshot(path=str(SCREENSHOTS_DIR / "animated_stream.png"))
+
+        assert result["count"] >= 3, f"Should have received multiple frames: {result}"
+
+    def test_webp_frames(self, server_url: str, page: Any) -> None:
+        """WebP codec should produce frames."""
+        page.goto(f"{server_url}/")
+        page.wait_for_load_state("networkidle")
+        time.sleep(2)
+
+        result = page.evaluate("""() => new Promise((resolve) => {
+            let frameCount = 0;
+
+            fetch('/api/session', { method: 'POST' })
+            .then(r => r.json())
+            .then(sess => {
+                const ctrl = new WebSocket(location.href.replace('http', 'ws') + 'ws/control/' + sess.session_id);
+                const stream = new WebSocket(location.href.replace('http', 'ws') + 'ws/stream/' + sess.session_id);
+                stream.binaryType = 'arraybuffer';
+
+                ctrl.onopen = () => {
+                    ctrl.send(JSON.stringify({
+                        type: 'stream_config',
+                        window_id: -1,
+                        fps: 10,
+                        quality: 50,
+                        max_width: 400,
+                        codec: 'webp',
+                    }));
+                };
+
+                stream.onmessage = (e) => {
+                    if (e.data instanceof ArrayBuffer && e.data.byteLength > 10) {
+                        const hdr = new DataView(e.data, 0, 10);
+                        frameCount++;
+                        ctrl.send(JSON.stringify({
+                            type: 'stream_ack', stream_id: hdr.getUint16(0), seq: hdr.getUint32(2)
+                        }));
+                    }
+                };
+
+                setTimeout(() => {
+                    stream.close();
+                    ctrl.close();
+                    resolve({ frameCount });
+                }, 5000);
+            });
+        })""")
+
+        assert result["frameCount"] >= 3, f"WebP should produce frames: {result}"

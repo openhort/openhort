@@ -47,7 +47,7 @@ class StreamConfig(BaseModel):
     max_width: int = Field(default=800, ge=100, le=7680)
     screen_width: int = Field(default=0, ge=0, le=7680)
     screen_dpr: float = Field(default=1.0, ge=0.5, le=4.0)
-    codec: str = Field(default="jpeg")  # "jpeg", "vp8", "vp9"
+    codec: str = Field(default="jpeg")  # "jpeg", "webp"
 
 
 class InputEvent(BaseModel):

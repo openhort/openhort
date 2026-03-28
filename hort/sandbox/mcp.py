@@ -138,7 +138,7 @@ def build_claude_mcp_json(
 
     if proxy_urls:
         for name, url in proxy_urls.items():
-            servers[name] = {"url": url}
+            servers[name] = {"type": "sse", "url": url}
 
     return {"mcpServers": servers}
 

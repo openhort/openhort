@@ -75,6 +75,7 @@
     p2pSessionNum: 0,
     p2pTotalSessions: 0,
     p2pHealthy: true,  // false when RTT > 2000ms
+    mseActive: false,  // true when VP8/VP9 MSE is rendering
 
     // View: 'picker' | 'viewer' | 'terminal'
     view: 'picker',
@@ -301,6 +302,14 @@
         break;
       case 'stream_config_ack':
         break;
+      case 'codec_change':
+        // Server switched codec — reset client frame tracking (seq restarts from 0)
+        console.log('[codec_change] → ' + msg.codec + ', resetting seq from ' + _lastRenderedSeq);
+        _lastRenderedSeq = -1;
+        _pendingFrame = null;
+        _clientStreamStart = 0;
+        _serverTimeOffset = 0;
+        break;
       case 'stream_error':
         handleStreamError(msg);
         break;
@@ -488,11 +497,6 @@
   let fpsTimer = null;
   let statusTimer = null;
 
-  // MSE state for VP8/VP9 streaming
-  let _mediaSource = null;
-  let _sourceBuffer = null;
-  let _mseQueue = [];
-  let _mseReady = false;
 
   let _streamGeneration = 0;
   let _lastRenderedSeq = -1;
@@ -502,6 +506,54 @@
   let _serverTimeOffset = 0;
   let _droppedStale = 0;
   const STALE_THRESHOLD_MS = 2000;
+
+  // MSE state for VP8/VP9 video streaming
+  let _mediaSource = null;
+  let _sourceBuffer = null;
+  let _mseQueue = [];
+  let _mseReady = false;
+
+  function _initMSE(initData) {
+    const video = document.getElementById('mse-video');
+    if (!video) return;
+
+    // Clean up previous MSE
+    if (_mediaSource && _mediaSource.readyState === 'open') {
+      try { _mediaSource.endOfStream(); } catch(e) {}
+    }
+    _sourceBuffer = null;
+    _mseQueue = [];
+    _mseReady = false;
+
+    const codec = state.codec === 'vp9' ? 'vp9' : 'vp8';
+    _mediaSource = new MediaSource();
+    video.src = URL.createObjectURL(_mediaSource);
+
+    _mediaSource.addEventListener('sourceopen', () => {
+      try {
+        _sourceBuffer = _mediaSource.addSourceBuffer('video/webm; codecs="' + codec + '"');
+        _sourceBuffer.mode = 'sequence';
+        _sourceBuffer.addEventListener('updateend', () => {
+          if (_mseQueue.length > 0 && !_sourceBuffer.updating) {
+            try { _sourceBuffer.appendBuffer(_mseQueue.shift()); }
+            catch (e) { _mseQueue = []; }
+          }
+          // Trim buffer to keep latency low
+          try {
+            if (_sourceBuffer.buffered.length > 0) {
+              const end = _sourceBuffer.buffered.end(0);
+              if (end > 3 && !_sourceBuffer.updating) _sourceBuffer.remove(0, end - 2);
+            }
+          } catch(e) {}
+        });
+        _sourceBuffer.appendBuffer(initData);
+        _mseReady = true;
+        state.mseActive = true;
+      } catch (e) {
+        console.error('MSE init error:', e);
+      }
+    });
+  }
 
   function connectStreamWs() {
     disconnectStreamWs();
@@ -526,44 +578,9 @@
       }
     };
 
-    // Client-side frame dropping with timestamp-based staleness.
-    //
-    // Header: [stream_id:2][seq:4][timestamp_ms:4] = 10 bytes
-    // timestamp_ms = server ms since stream start.
-    // Client tracks its own start time. If a frame's server timestamp
-    // is >2s behind the client's elapsed time, it's stale → dropped
-    // without rendering or ACKing.
-    //
-    // Additionally, only the latest frame is rendered per rAF.
-
-    function _scheduleRender() {
-      if (_renderScheduled) return;
-      _renderScheduled = true;
-      requestAnimationFrame(() => {
-        _renderScheduled = false;
-        if (!_pendingFrame) return;
-        const { streamId, seq, payload } = _pendingFrame;
-        _pendingFrame = null;
-
-        const buf = new Uint8Array(payload);
-        const isWebM = buf.length > 4 && buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3;
-        const isWebMFrame = _mseReady && !isWebM && buf[0] !== 0xFF;
-
-        if (isWebM || isWebMFrame) {
-          _handleWebMData(payload, isWebM);
-        } else {
-          const blob = new Blob([payload], { type: 'image/jpeg' });
-          const url = URL.createObjectURL(blob);
-          if (state.prevBlobUrl) URL.revokeObjectURL(state.prevBlobUrl);
-          state.prevBlobUrl = state.streamBlobUrl;
-          state.streamBlobUrl = url;
-        }
-        _lastRenderedSeq = seq;
-        state.frameCount++;
-
-        sendControl({ type: 'stream_ack', stream_id: streamId, seq: seq });
-      });
-    }
+    // Frame handling differs by codec:
+    // JPEG/WebP: drop-safe — only render latest frame per rAF
+    // VP8/VP9: ordered — append every frame to MSE SourceBuffer
 
     ws.onmessage = (e) => {
       if (!(e.data instanceof ArrayBuffer) || e.data.byteLength < 10) return;
@@ -571,33 +588,66 @@
       const hdr = new DataView(e.data, 0, 10);
       const streamId = hdr.getUint16(0);
       const seq = hdr.getUint32(2);
-      const serverTs = hdr.getUint32(6);  // ms since server stream start
+      const serverTs = hdr.getUint32(6);
+      const payload = e.data.slice(10);
+      const b = new Uint8Array(payload);
 
-      // Initialize time sync on first frame
       if (_clientStreamStart === 0) {
         _clientStreamStart = performance.now();
         _serverTimeOffset = serverTs;
       }
 
-      // Calculate frame age: how old is this frame relative to "now"?
       const clientElapsed = performance.now() - _clientStreamStart;
       const serverElapsed = serverTs - _serverTimeOffset;
       const frameAge = clientElapsed - serverElapsed;
 
-      // Drop if frame is more than 2s stale
-      if (frameAge > STALE_THRESHOLD_MS) {
-        _droppedStale++;
-        // ACK it anyway so server knows we received (and can skip ahead)
+      // Detect data type from first 4 bytes of payload
+      const isEBML = b.length > 4 && b[0] === 0x1A && b[1] === 0x45 && b[2] === 0xDF && b[3] === 0xA3;
+      const isCluster = b.length > 4 && b[0] === 0x1F && b[1] === 0x43 && b[2] === 0xB6 && b[3] === 0x75;
+      const isVideo = isEBML || isCluster;
+
+      if (isVideo) {
+        // VP8/VP9 WebM data — append to MSE in order (never drop)
+        if (isEBML) {
+          // Init segment — always initialize/reinitialize MSE
+          _initMSE(payload);
+        } else if (_sourceBuffer && !_sourceBuffer.updating) {
+          try { _sourceBuffer.appendBuffer(payload); }
+          catch(ex) { /* skip on error */ }
+        } else if (_mseQueue.length < 4) {
+          _mseQueue.push(payload);
+        }
+        _lastRenderedSeq = seq;
+        state.frameCount++;
         sendControl({ type: 'stream_ack', stream_id: streamId, seq: seq });
-        return;
+      } else {
+        // JPEG/WebP image — drop stale, render latest via rAF
+        if (frameAge > STALE_THRESHOLD_MS) {
+          _droppedStale++;
+          sendControl({ type: 'stream_ack', stream_id: streamId, seq: seq });
+          return;
+        }
+        if (seq <= _lastRenderedSeq) return;
+
+        _pendingFrame = { streamId, seq, payload };
+        if (!_renderScheduled) {
+          _renderScheduled = true;
+          requestAnimationFrame(() => {
+            _renderScheduled = false;
+            if (!_pendingFrame) return;
+            const { streamId: sid, seq: s, payload: p } = _pendingFrame;
+            _pendingFrame = null;
+            const blob = new Blob([p], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            if (state.prevBlobUrl) URL.revokeObjectURL(state.prevBlobUrl);
+            state.prevBlobUrl = state.streamBlobUrl;
+            state.streamBlobUrl = url;
+            _lastRenderedSeq = s;
+            state.frameCount++;
+            sendControl({ type: 'stream_ack', stream_id: sid, seq: s });
+          });
+        }
       }
-
-      // Drop frames older than what we've already rendered
-      if (seq <= _lastRenderedSeq) return;
-
-      // Keep only the latest frame
-      _pendingFrame = { streamId, seq, payload: e.data.slice(10) };
-      _scheduleRender();
     };
 
     ws.onclose = () => {
@@ -606,67 +656,6 @@
         setTimeout(connectStreamWs, 1000);
       }
     };
-  }
-
-  function _handleWebMData(data, isInit) {
-    if (isInit && !_mseReady) {
-      // Initialize MSE with this WebM init segment
-      _initMSE(data);
-    } else if (_sourceBuffer && !_sourceBuffer.updating) {
-      try {
-        _sourceBuffer.appendBuffer(data);
-      } catch (e) {
-        // Buffer full or error — skip frame
-      }
-    } else {
-      // Queue if sourceBuffer is busy (max 2 queued)
-      if (_mseQueue.length < 2) _mseQueue.push(data);
-    }
-  }
-
-  function _initMSE(initData) {
-    // Create video element
-    let video = document.getElementById('p2p-mse-video');
-    if (!video) {
-      video = document.createElement('video');
-      video.id = 'p2p-mse-video';
-      video.autoplay = true;
-      video.playsInline = true;
-      video.muted = true;
-      video.style.width = '100%';
-      video.style.height = '100%';
-      video.style.objectFit = 'contain';
-    }
-
-    // Move into the stream container
-    const container = document.querySelector('[ref="videoContainer"], .stream-img:not(img)');
-    if (container && !container.contains(video)) {
-      container.innerHTML = '';
-      container.appendChild(video);
-    }
-
-    const codec = state.codec === 'vp9' ? 'vp9' : 'vp8';
-    _mediaSource = new MediaSource();
-    video.src = URL.createObjectURL(_mediaSource);
-
-    _mediaSource.addEventListener('sourceopen', () => {
-      try {
-        _sourceBuffer = _mediaSource.addSourceBuffer('video/webm; codecs="' + codec + '"');
-        _sourceBuffer.mode = 'sequence';
-        _sourceBuffer.addEventListener('updateend', () => {
-          if (_mseQueue.length > 0 && !_sourceBuffer.updating) {
-            try {
-              _sourceBuffer.appendBuffer(_mseQueue.shift());
-            } catch (e) { _mseQueue = []; }
-          }
-        });
-        _sourceBuffer.appendBuffer(initData);
-        _mseReady = true;
-        state.streamVideoEl = video;
-      } catch (e) {
-        console.error('MSE init error:', e);
-      }
-    });
   }
 
   function disconnectStreamWs() {
@@ -688,15 +677,13 @@
 
     // Clean up MSE
     if (_mediaSource && _mediaSource.readyState === 'open') {
-      try { _mediaSource.endOfStream(); } catch (e) {}
+      try { _mediaSource.endOfStream(); } catch(e) {}
     }
     _mediaSource = null;
     _sourceBuffer = null;
     _mseQueue = [];
     _mseReady = false;
-    const mseVideo = document.getElementById('p2p-mse-video');
-    if (mseVideo) mseVideo.remove();
-    state.streamVideoEl = null;
+    state.mseActive = false;
 
     // Clear any displayed frame
     if (state.streamBlobUrl) {
@@ -974,8 +961,9 @@
           <label>Codec</label>
           <select v-model="state.codec" @change="onSettingChange">
             <option value="jpeg">JPEG</option>
-            <option value="vp8">VP8 (WebM)</option>
-            <option value="vp9">VP9 (WebM)</option>
+            <option value="webp">WebP (~30% smaller)</option>
+            <option value="vp8">VP8 (video stream)</option>
+            <option value="vp9">VP9 (video stream)</option>
           </select>
         </div>
         <div class="setting-row">
@@ -1128,10 +1116,11 @@
         <div class="stream-container" ref="streamContainer"
              @mousedown="onMouseDown" @dblclick="onDblClick"
              @click="onStreamClick" @contextmenu="onContextMenu">
-          <img v-show="state.codec === 'jpeg'" class="stream-img" ref="streamImg" alt=""
+          <img v-show="!state.mseActive" class="stream-img" ref="streamImg" alt=""
                :src="state.streamBlobUrl"
                @load="onImgLoad">
-          <div v-show="state.codec !== 'jpeg'" ref="videoContainer" class="stream-img" style="display:flex;align-items:center;justify-content:center;"></div>
+          <video v-show="state.mseActive" id="mse-video" class="stream-img"
+                 autoplay playsinline muted @loadeddata="onImgLoad"></video>
           <div class="remote-cursor" ref="remoteCursor">
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M4 4L10.5 20L13 13L20 10.5L4 4Z" fill="white" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>
