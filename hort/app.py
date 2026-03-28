@@ -600,52 +600,61 @@ def _register_routes(app: FastAPI) -> None:
 
     # --- P2P WebRTC signaling ---
 
+    # Active P2P sessions from HTTP mode (LAN)
+    _p2p_sessions: dict[str, tuple[Any, Any]] = {}  # session_id -> (peer, proxy)
+
     @app.post("/api/p2p/offer")
     async def p2p_offer(request: Request) -> dict[str, Any]:
-        """Accept a WebRTC SDP offer from a browser and return the answer.
+        """Accept a WebRTC SDP offer from a browser and return the answer."""
+        import secrets as _secrets
 
-        Creates a server-side WebRTC peer with a DataChannel proxy that
-        forwards HTTP and WebSocket traffic to localhost.
-        """
         from hort.peer2peer.dc_proxy import DataChannelProxy
         from hort.peer2peer.webrtc import WebRTCPeer
 
         body = await request.json()
         sdp = body.get("sdp", "")
-        session_id = body.get("session_id", "")
-        if not sdp or not session_id:
-            return {"error": "sdp and session_id required"}
+        if not sdp:
+            return {"error": "sdp required"}
 
-        # Create proxy and peer, wire them together
+        session_id = f"http-{_secrets.token_hex(4)}"
         proxy = DataChannelProxy(peer=None)  # type: ignore[arg-type]
 
         async def on_message(data: bytes | str) -> None:
             await proxy.handle_message(data)
 
-        peer = WebRTCPeer(on_message=on_message)
+        async def on_state_change(state: str) -> None:
+            if state in ("failed", "closed"):
+                entry = _p2p_sessions.pop(session_id, None)
+                if entry:
+                    await entry[1].stop()
+
+        peer = WebRTCPeer(on_message=on_message, on_state_change=on_state_change)
         proxy._peer = peer
+
+        # Add video track (VP8 screen capture)
+        from hort.peer2peer.video_track import ScreenCaptureTrack
+        video_track = ScreenCaptureTrack(fps=15, max_width=1920)
+        peer.add_video_track(video_track)
 
         answer_sdp = await peer.accept_offer(sdp)
         await proxy.start()
 
-        # Store for cleanup
-        if not hasattr(app.state, "p2p_peers"):
-            app.state.p2p_peers = {}
-        app.state.p2p_peers[session_id] = (peer, proxy)
+        _p2p_sessions[session_id] = (peer, proxy)
 
         return {"sdp": answer_sdp, "type": "answer", "session_id": session_id}
 
-    @app.get("/api/p2p/status/{session_id}")
-    async def p2p_status(session_id: str) -> dict[str, Any]:
-        """Check if a P2P connection is active for a session."""
-        if not hasattr(app.state, "p2p_registry"):
-            return {"connected": False}
-        peer = app.state.p2p_registry.get_peer(session_id)
-        if not peer:
-            return {"connected": False}
+    @app.get("/api/p2p/status")
+    async def p2p_status() -> dict[str, Any]:
+        """Get P2P connection status."""
+        relay_sessions = 0
+        if getattr(app.state, "plugin_registry", None):
+            plugin = app.state.plugin_registry.get_instance("peer2peer")
+            if plugin and getattr(plugin, "_relay_listener", None):
+                relay_sessions = plugin._relay_listener.active_sessions
         return {
-            "connected": peer.is_connected,
-            "state": peer.connection_state,
+            "http_sessions": len(_p2p_sessions),
+            "relay_sessions": relay_sessions,
+            "total": len(_p2p_sessions) + relay_sessions,
         }
 
     @app.post("/api/p2p/connect")

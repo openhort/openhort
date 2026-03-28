@@ -119,14 +119,11 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         async def on_peer_connected(session_id: str, peer: Any) -> None:
             self.log.info("P2P peer connected via relay: %s", session_id)
 
-        async def on_message(data: bytes | str) -> None:
-            self.log.debug("P2P message from relay peer: %d bytes", len(data) if isinstance(data, bytes) else len(str(data)))
-
         self._relay_listener = RelayListener(
             relay_url=self._relay_url,
             room_id=self._room_id,
             on_peer_connected=on_peer_connected,
-            on_message=on_message,
+            video_enabled=True,
         )
 
         try:

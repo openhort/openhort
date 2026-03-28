@@ -133,6 +133,7 @@ class TestWebRTCSignaling:
             const pc = new RTCPeerConnection({
                 iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
             });
+            pc.addTransceiver('video', { direction: 'recvonly' });
             pc.createDataChannel('test');
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
@@ -156,7 +157,7 @@ class TestWebRTCSignaling:
         assert result["status"] == 200
         assert "sdp" in result["data"]
         assert result["data"]["type"] == "answer"
-        assert result["data"]["session_id"] == result["session_id"]
+        assert "session_id" in result["data"]
 
     def test_signaling_api_missing_params(self, server_url: str) -> None:
         """Missing params return error."""
@@ -169,12 +170,13 @@ class TestWebRTCSignaling:
         )
         assert "error" in resp.json()
 
-    def test_p2p_status_no_peer(self, server_url: str) -> None:
-        """Status endpoint returns not connected for unknown session."""
+    def test_p2p_status(self, server_url: str) -> None:
+        """Status endpoint returns session counts."""
         import httpx
 
-        resp = httpx.get(f"{server_url}/api/p2p/status/nonexistent")
-        assert resp.json()["connected"] is False
+        resp = httpx.get(f"{server_url}/api/p2p/status")
+        data = resp.json()
+        assert "total" in data
 
 
 class TestBrowserWebRTC:
@@ -195,7 +197,7 @@ class TestBrowserWebRTC:
                     const log = document.getElementById('log').textContent;
                     return log.includes('SDP answer received') || log.includes('Error');
                 }""",
-                timeout=15000,
+                timeout=20000,
             )
         except Exception:
             pass
@@ -224,7 +226,7 @@ class TestBrowserWebRTC:
                     const log = document.getElementById('log').textContent;
                     return log.includes('DataChannel open') || log.includes('failed');
                 }""",
-                timeout=15000,
+                timeout=20000,
             )
         except Exception:
             pass

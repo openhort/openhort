@@ -389,6 +389,18 @@ async function startConnection() {
       }
     };
 
+    // Request to receive video from server (VP8/VP9)
+    pc.addTransceiver('video', { direction: 'recvonly' });
+
+    // Handle incoming video track from server
+    pc.ontrack = (evt) => {
+      if (evt.track.kind === 'video') {
+        log('Video track received (VP8)', 'ok');
+        // Store the stream — will be attached to a video element after SPA loads
+        window._p2pVideoStream = evt.streams[0] || new MediaStream([evt.track]);
+      }
+    };
+
     dc = pc.createDataChannel('hort', { ordered: true });
     dc.binaryType = 'arraybuffer';
 
@@ -594,6 +606,17 @@ async function loadSPA() {
         s.textContent = script.textContent;
         document.body.appendChild(s);
       }
+    }
+
+    // Expose P2P video stream to the SPA if available
+    // The SPA can check window._p2pVideoStream and use a <video> element
+    // instead of the JPEG-over-WebSocket canvas rendering
+    if (window._p2pVideoStream) {
+      window._p2pVideoStream = window._p2pVideoStream;
+      // Dispatch event so the SPA knows video is available
+      window.dispatchEvent(new CustomEvent('p2p-video-ready', {
+        detail: { stream: window._p2pVideoStream }
+      }));
     }
 
   } catch (err) {
