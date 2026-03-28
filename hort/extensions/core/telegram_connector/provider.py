@@ -197,15 +197,26 @@ class TelegramConnector(PluginBase, ConnectorBase):
         if not self._bot:
             return
 
-        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
         # Build keyboard if buttons provided
         keyboard = None
         if response.buttons:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=btn.label, callback_data=btn.callback_data) for btn in row]
-                for row in response.buttons
-            ])
+            rows = []
+            for row in response.buttons:
+                btns = []
+                for btn in row:
+                    if btn.callback_data.startswith("p2p_webapp:"):
+                        # Web App button — opens URL in Telegram WebView
+                        url = btn.callback_data[len("p2p_webapp:"):]
+                        btns.append(InlineKeyboardButton(
+                            text=btn.label,
+                            web_app=WebAppInfo(url=url),
+                        ))
+                    else:
+                        btns.append(InlineKeyboardButton(text=btn.label, callback_data=btn.callback_data))
+                rows.append(btns)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
 
         # Send image if provided
         if response.image:

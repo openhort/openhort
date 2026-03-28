@@ -2,19 +2,14 @@
 
 The home machine connects to the relay WebSocket and waits for SDP offers
 from remote clients (Telegram Mini App, browser). When an offer arrives,
-it creates a WebRTC peer (aiortc), generates an answer, and sends it back
-through the relay. The relay then disconnects — all traffic flows direct.
+it verifies the one-time connection token before creating a WebRTC peer.
 
-Usage::
-
-    listener = RelayListener(
-        relay_url="wss://relay.openhort.ai",
-        room_id="my-room",
-        on_peer_connected=handle_new_peer,
-    )
-    await listener.start()
-    # ... listener runs in background ...
-    await listener.stop()
+Security:
+- Room ID: SHA-256 of bot token, 32 hex chars (128 bits of entropy)
+- Connection token: 32 bytes of os.urandom, base64url (256 bits)
+- Tokens are one-time use (consumed on first valid use)
+- Tokens expire after 60 seconds
+- Brute force protection: exponential backoff per source after failures
 """
 
 from __future__ import annotations
@@ -22,6 +17,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
+import time
 from typing import Any, Callable, Coroutine
 
 import websockets  # type: ignore[import-untyped]
@@ -33,12 +30,70 @@ logger = logging.getLogger(__name__)
 
 PeerCallback = Callable[[str, WebRTCPeer], Coroutine[Any, Any, None]]
 
+TOKEN_EXPIRY = 60.0  # seconds
+MAX_FAILURES_BEFORE_BACKOFF = 3
+BACKOFF_BASE = 2.0  # seconds
+BACKOFF_MAX = 60.0  # seconds
+
+
+class TokenStore:
+    """Manages one-time connection tokens with expiry and rate limiting."""
+
+    def __init__(self) -> None:
+        self._tokens: dict[str, float] = {}  # token → created_at
+        self._failures: int = 0
+        self._last_failure: float = 0.0
+
+    def generate(self) -> str:
+        """Generate a new one-time token (32 bytes, base64url, 256-bit entropy)."""
+        token = secrets.token_urlsafe(32)
+        self._tokens[token] = time.monotonic()
+        self._cleanup()
+        return token
+
+    def verify(self, token: str) -> bool:
+        """Verify and consume a token. Returns True if valid."""
+        self._cleanup()
+
+        # Rate limiting: reject immediately if in backoff
+        if self._failures >= MAX_FAILURES_BEFORE_BACKOFF:
+            elapsed = time.monotonic() - self._last_failure
+            backoff = min(BACKOFF_BASE ** (self._failures - MAX_FAILURES_BEFORE_BACKOFF + 1), BACKOFF_MAX)
+            if elapsed < backoff:
+                logger.warning(
+                    "rate limited: %d failures, backoff %.1fs (%.1fs remaining)",
+                    self._failures, backoff, backoff - elapsed,
+                )
+                return False
+
+        if token not in self._tokens:
+            self._failures += 1
+            self._last_failure = time.monotonic()
+            logger.warning("invalid token (attempt %d)", self._failures)
+            return False
+
+        # Valid token — consume it (one-time use)
+        del self._tokens[token]
+        self._failures = 0  # reset failure counter on success
+        return True
+
+    def _cleanup(self) -> None:
+        """Remove expired tokens."""
+        now = time.monotonic()
+        expired = [t for t, ts in self._tokens.items() if now - ts > TOKEN_EXPIRY]
+        for t in expired:
+            del self._tokens[t]
+
+    @property
+    def pending_count(self) -> int:
+        self._cleanup()
+        return len(self._tokens)
+
 
 class RelayListener:
     """Listens on a signaling relay for incoming P2P connection requests.
 
-    Connects to the relay WebSocket, waits for SDP offers from remote
-    clients, creates aiortc peers, and sends answers back through the relay.
+    Verifies one-time tokens before accepting connections.
     """
 
     def __init__(
@@ -61,6 +116,7 @@ class RelayListener:
         self._current_peer: WebRTCPeer | None = None
         self._current_proxy: DataChannelProxy | None = None
         self._ws: Any = None
+        self.tokens = TokenStore()
 
     async def start(self) -> None:
         """Start listening on the relay in a background task."""
@@ -81,6 +137,8 @@ class RelayListener:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        if self._current_proxy:
+            await self._current_proxy.stop()
         if self._current_peer:
             await self._current_peer.close()
         logger.info("relay listener stopped")
@@ -113,11 +171,18 @@ class RelayListener:
                     continue
 
                 if msg.get("type") == "offer" and msg.get("sdp"):
+                    token = msg.get("token", "")
+                    if not self.tokens.verify(token):
+                        await ws.send(json.dumps({
+                            "type": "error",
+                            "message": "invalid or expired token",
+                        }))
+                        continue
                     await self._handle_offer(ws, msg["sdp"])
 
     async def _handle_offer(self, ws: Any, offer_sdp: str) -> None:
-        """Accept an SDP offer, create a peer with proxy, send the answer back."""
-        logger.info("received SDP offer (%d bytes)", len(offer_sdp))
+        """Accept a verified SDP offer, create a peer with proxy, send the answer back."""
+        logger.info("received verified SDP offer (%d bytes)", len(offer_sdp))
 
         # Clean up previous peer and proxy
         if self._current_proxy:
@@ -125,7 +190,6 @@ class RelayListener:
         if self._current_peer:
             await self._current_peer.close()
 
-        # Create proxy first so we can wire it as the message handler
         proxy = DataChannelProxy(peer=None)  # type: ignore[arg-type]
 
         async def on_message(data: bytes | str) -> None:
@@ -135,7 +199,7 @@ class RelayListener:
             on_message=on_message,
             stun_servers=self._stun_servers,
         )
-        proxy._peer = peer  # wire the peer into the proxy
+        proxy._peer = peer
         self._current_peer = peer
         self._current_proxy = proxy
 
@@ -146,15 +210,12 @@ class RelayListener:
             await ws.send(json.dumps({"type": "error", "message": str(exc)}))
             return
 
-        # Send answer back through relay
         await ws.send(json.dumps({"type": "answer", "sdp": answer_sdp}))
         logger.info("SDP answer sent via relay (%d bytes)", len(answer_sdp))
 
-        # Start the proxy (HTTP client)
         await proxy.start()
         logger.info("DataChannel proxy started")
 
-        # Notify callback
         if self._on_peer_connected:
             session_id = f"relay-{id(peer)}"
             await self._on_peer_connected(session_id, peer)

@@ -111,6 +111,7 @@ const signalMode = params.get('signal') || 'http';
 const serverUrl = params.get('server') || '';
 const relayUrl = params.get('relay') || 'wss://relay.openhort.ai';
 const roomId = params.get('room') || '';
+const authToken = params.get('token') || '';
 
 if (tg) {
   tg.ready();
@@ -349,8 +350,8 @@ function signalingWs(offer) {
     let answered = false;
     ws.onopen = () => {
       log('Relay connected');
-      ws.send(JSON.stringify({ type: 'offer', sdp: offer }));
-      log('SDP offer sent to relay');
+      ws.send(JSON.stringify({ type: 'offer', sdp: offer, token: authToken }));
+      log('SDP offer sent to relay' + (authToken ? ' (authenticated)' : ' (no token)'));
     };
     ws.onmessage = (evt) => {
       try {
@@ -528,6 +529,11 @@ function showConnectUI() {
 log('openhort P2P viewer loaded');
 log('Signal mode: ' + signalMode + (signalMode === 'ws' ? ' (relay: ' + relayUrl + ')' : ''));
 if (tg) log('Running inside Telegram (' + tg.platform + ')');
+
+// Auto-connect when token is present (opened from /connect command)
+if (authToken && (signalMode === 'ws' || signalMode === 'telegram')) {
+  startConnection();
+}
 </script>
 </body>
 </html>

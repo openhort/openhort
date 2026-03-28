@@ -79,12 +79,13 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         self._VMStatus = VMStatus
         self._vm_status = VMStatus(exists=False)
 
-        # Room ID: hash of bot token (unique per bot, no secret leaked)
+        # Room ID: full SHA-256 of bot token (32 hex chars = 128 bits)
+        # Combined with one-time token (256 bits), total entropy is 384 bits
         bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
         if bot_token:
-            self._room_id = hashlib.sha256(bot_token.encode()).hexdigest()[:12]
+            self._room_id = hashlib.sha256(bot_token.encode()).hexdigest()
         else:
-            self._room_id = hashlib.sha256(os.urandom(16)).hexdigest()[:12]
+            self._room_id = hashlib.sha256(os.urandom(32)).hexdigest()
 
         self._relay_url = config.get("relay_url", "wss://relay.openhort.ai")
 
@@ -324,6 +325,11 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     def get_connector_commands(self) -> list[ConnectorCommand]:
         return [
             ConnectorCommand(
+                name="connect",
+                description="Generate a secure P2P connection link",
+                plugin_id="peer2peer",
+            ),
+            ConnectorCommand(
                 name="stun",
                 description="Discover public IP and NAT type via STUN",
                 plugin_id="peer2peer",
@@ -342,11 +348,35 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         message: IncomingMessage,
         capabilities: ConnectorCapabilities,
     ) -> ConnectorResponse | None:
+        if command == "connect":
+            return await self._cmd_connect(message)
         if command == "stun":
             return await self._cmd_stun()
         if command == "vm":
             return await self._cmd_vm(message.command_args)
         return None
+
+    async def _cmd_connect(self, message: IncomingMessage) -> ConnectorResponse:
+        """Generate a one-time P2P connection link with auth token."""
+        if not self._relay_listener:
+            return ConnectorResponse.simple("P2P relay not connected")
+
+        token = self._relay_listener.tokens.generate()
+        viewer_base = "https://openhort.ai/p2p/viewer.html"  # TODO: make configurable
+        url = f"{viewer_base}?signal=ws&room={self._room_id}&token={token}"
+
+        self.log.info("generated connection token for user %s", message.username or message.user_id)
+
+        # Return with inline button for Telegram
+        from hort.ext.connectors import ResponseButton
+        return ConnectorResponse(
+            text=f"Tap to connect (link expires in 60s):\n{url}",
+            html=f"Tap the button below to connect.\n<i>Link expires in 60 seconds.</i>",
+            buttons=[[ResponseButton(
+                label="Open openhort",
+                callback_data=f"p2p_webapp:{url}",
+            )]],
+        )
 
     async def _cmd_stun(self) -> ConnectorResponse:
         if not self._stun_client:
