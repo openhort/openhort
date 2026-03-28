@@ -631,11 +631,6 @@ def _register_routes(app: FastAPI) -> None:
         peer = WebRTCPeer(on_message=on_message, on_state_change=on_state_change)
         proxy._peer = peer
 
-        # Add video track (VP8 screen capture)
-        from hort.peer2peer.video_track import ScreenCaptureTrack
-        video_track = ScreenCaptureTrack(fps=15, max_width=1920)
-        peer.add_video_track(video_track)
-
         answer_sdp = await peer.accept_offer(sdp)
         await proxy.start()
 

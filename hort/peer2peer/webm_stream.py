@@ -113,12 +113,16 @@ class WebMStreamer:
 
         start_time = time.monotonic()
 
+        last_frame_time = start_time
+
         try:
             while self._running:
-                target_time = start_time + (self._frame_count / self._fps)
+                # Sleep until next frame — never catch up (drop frames instead)
                 now = time.monotonic()
-                if target_time > now:
-                    await asyncio.sleep(target_time - now)
+                next_time = last_frame_time + (1.0 / self._fps)
+                if next_time > now:
+                    await asyncio.sleep(next_time - now)
+                last_frame_time = max(next_time, time.monotonic())
 
                 # Capture
                 pil_image = await asyncio.get_event_loop().run_in_executor(

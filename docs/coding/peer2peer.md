@@ -308,6 +308,107 @@ Binary frames use a 4-byte WebSocket ID prefix instead of JSON:
 
 This avoids JSON encoding overhead for high-frequency binary data (JPEG frames).
 
+## Client-Side Asset Caching
+
+Static assets (JS, CSS, fonts) are cached in the browser using the **Cache API**. This is critical for LTE connections — without caching, every P2P connection fetches ~2MB of Vue, Quasar, xterm.js, icons, and CSS through the DataChannel tunnel. With caching, the second connection loads in ~2 seconds instead of ~15.
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    participant V as Viewer
+    participant C as Cache API
+    participant DC as DataChannel
+    participant H as Home Machine
+
+    Note over V: First connection (cold cache)
+    V->>C: getCached('/static/vendor/vue.js')
+    C-->>V: null (cache miss)
+    V->>DC: proxyFetch('/static/vendor/vue.js')
+    DC->>H: HTTP GET /static/vendor/vue.js
+    H-->>DC: 200 OK (400KB)
+    DC-->>V: Response
+    V->>V: SHA-256 hash of body
+    V->>C: putCache(path, response, hash)
+    V->>V: Use response
+
+    Note over V: Second connection (warm cache)
+    V->>C: getCached('/static/vendor/vue.js')
+    C-->>V: cached response (instant)
+    V->>V: Use cached — no DataChannel traffic
+```
+
+### Cache Rules
+
+| Rule | Value | Purpose |
+|------|-------|---------|
+| Cache name | `openhort-p2p-v1` | Namespaced, versionable |
+| Max total size | 20 MB | Prevents unbounded storage |
+| Max per-file | 2 MB | Skips huge files |
+| Cacheable paths | `/static/*`, `/ext/*` | Only immutable assets |
+| Content hash | SHA-256 (first 16 hex chars) | Stored as `x-p2p-hash` header |
+| LRU timestamp | `x-p2p-time` header | For eviction ordering |
+| Priority files | `vue.global`, `quasar.umd`, `quasar.prod.css` | Never evicted |
+
+### Cache Invalidation
+
+On every connection, the viewer fetches `/api/hash` through the DataChannel. This returns a hash of the server's static content. If the hash differs from the stored value in `localStorage`, the entire cache is cleared:
+
+```javascript
+// Server updated → clear stale cache
+const serverHash = (await fetch('/api/hash')).json().hash;
+const storedHash = localStorage.getItem('p2p-server-hash');
+if (storedHash && storedHash !== serverHash) {
+    await caches.delete('openhort-p2p-v1');
+}
+localStorage.setItem('p2p-server-hash', serverHash);
+```
+
+This ensures users always get fresh assets after an openhort update, without manual cache clearing.
+
+### LRU Eviction with Priority
+
+When the cache exceeds 20MB, the oldest files are evicted first — but **priority files are never evicted**:
+
+```
+Eviction order:
+1. Non-priority files, oldest first (panel.js, hort.css, icon fonts, ...)
+2. Priority files only as absolute last resort (vue.js, quasar.js, quasar.css)
+```
+
+Priority files are identified by filename pattern (`vue.global`, `quasar.umd`, `quasar.prod.css`). These are the files without which the SPA cannot render at all.
+
+### Does This Work via the HTTP Proxy Too?
+
+**No — but it doesn't need to.** The Cache API caching is specific to the P2P DataChannel path because:
+
+- **P2P mode** (`signal=ws`): Assets flow through the DataChannel tunnel — slow over LTE, caching essential.
+- **HTTP proxy mode** (Azure access server): Assets are served by the proxy as normal HTTP responses with standard `Cache-Control` headers. The **browser's native HTTP cache** handles this automatically — no custom caching needed.
+- **LAN mode** (`signal=http`): Assets load directly from the local server over WiFi. Fast enough that caching adds no benefit.
+
+The custom Cache API layer only activates when `proxyFetch` is used (P2P mode). In proxy and LAN modes, the browser's built-in HTTP cache does the job.
+
+```mermaid
+flowchart TD
+    subgraph P2P["P2P Mode (DataChannel)"]
+        PF[proxyFetch] --> CA[Cache API]
+        CA -->|miss| DC[DataChannel → Home]
+        CA -->|hit| INSTANT[Instant from cache]
+    end
+    subgraph Proxy["HTTP Proxy Mode"]
+        NF[Native fetch] --> HC[Browser HTTP Cache]
+        HC -->|miss| PROXY[Azure Proxy → Home]
+        HC -->|hit| CACHED[Standard cache hit]
+    end
+    subgraph LAN["LAN Mode"]
+        LF[Native fetch] --> LOCAL[localhost:8940]
+    end
+
+    style P2P fill:#1a3a1a
+    style Proxy fill:#1a2a3a
+    style LAN fill:#2a1a3a
+```
+
 ## Multiple Concurrent Connections
 
 The `RelayListener` supports multiple simultaneous P2P sessions:

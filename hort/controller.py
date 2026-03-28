@@ -121,6 +121,19 @@ class HortController(BaseController):
             await self._handle_switch_space(msg)
         elif msg_type == "stream_config":
             await self._handle_stream_config(msg)
+        elif msg_type == "stream_ack":
+            from hort.stream import handle_stream_ack
+            if self._entry:
+                handle_stream_ack(self._entry, msg)
+        elif msg_type == "stream_stop":
+            if self._entry:
+                self._entry.stream_config = None
+                # Force-close the stream WS from server side
+                if self._entry.stream_ws is not None:
+                    try:
+                        await self._entry.stream_ws.close(code=4002, reason="stream_stop")
+                    except Exception:
+                        pass
         elif msg_type == "input":
             await self._handle_input(msg)
         elif msg_type == "terminal_spawn":

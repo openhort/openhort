@@ -46,29 +46,11 @@
   .dot.failed { background: var(--error); }
   .dot.idle { background: var(--muted); }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .controls {
-    margin-top: 12px;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  button {
-    background: var(--surface);
-    color: var(--fg);
-    border: 1px solid #333;
-    border-radius: 6px;
-    padding: 8px 16px;
-    font-size: 14px;
-    cursor: pointer;
-  }
-  button:active { background: var(--accent); }
-  button:disabled { opacity: 0.4; cursor: default; }
   .log {
     margin-top: 12px;
     width: 100%;
     max-width: 800px;
-    max-height: 120px;
+    max-height: 360px;
     overflow-y: auto;
     font-family: monospace;
     font-size: 11px;
@@ -92,11 +74,7 @@
   <h1>openhort</h1>
   <div class="status">
     <span class="dot idle" id="dot"></span>
-    <span id="state">Ready to connect</span>
-  </div>
-  <div class="controls">
-    <button id="btnConnect" onclick="startConnection()">Connect</button>
-    <button id="btnDisconnect" onclick="disconnect()" disabled>Disconnect</button>
+    <span id="state">Connecting...</span>
   </div>
   <div class="log" id="log"></div>
 </div>
@@ -146,6 +124,8 @@ const activeWs = new Map(); // id → FakeWebSocket
 
 let requestCounter = 0;
 let wsCounter = 0;
+let lastRtt = 0;
+let pingInterval = null;
 
 function setState(state, text) {
   document.getElementById('dot').className = 'dot ' + state;
@@ -171,7 +151,19 @@ function handleDcMessage(evt) {
   let msg;
   try { msg = JSON.parse(evt.data); } catch (e) { return; }
 
-  if (msg.type === 'http_response') {
+  if (msg.type === 'pong') {
+    lastRtt = performance.now() - msg.ts;
+    window._p2pRtt = lastRtt;
+    window._p2pHealthy = lastRtt < 2000;
+    window._p2pConnected = true;
+    if (window._p2pUpdatePong) window._p2pUpdatePong();
+    if (window.__hortState) {
+      window.__hortState.p2pRttMs = Math.round(lastRtt);
+      window.__hortState.p2pHealthy = lastRtt < 2000;
+      window.__hortState.p2pConnected = true;
+    }
+    return;
+  } else if (msg.type === 'http_response') {
     const pending = pendingRequests.get(msg.id);
     if (pending) {
       pendingRequests.delete(msg.id);
@@ -198,11 +190,151 @@ function handleDcMessage(evt) {
   }
 }
 
+// ====== Client-side Cache (Cache API) ======
+// Static assets (/static/*, /ext/*) cached with content hash validation.
+// On reconnect over LTE, ~2MB of JS/CSS loads from cache instead of DataChannel.
+// Max 20MB total cache. Files >2MB are not cached. Content hash detects changes.
+const CACHE_NAME = 'openhort-p2p-v1';
+const CACHE_MAX_BYTES = 20 * 1024 * 1024;  // 20MB total
+const CACHE_MAX_FILE = 2 * 1024 * 1024;    // 2MB per file
+const CACHEABLE_PREFIXES = ['/static/', '/ext/'];
+
+function isCacheable(path, method) {
+  return method === 'GET' && CACHEABLE_PREFIXES.some(p => path.startsWith(p));
+}
+
+async function hashContent(data) {
+  // SHA-256 hash of response body for change detection
+  const buf = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
+}
+
+async function getCached(path) {
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const resp = await cache.match(path);
+    return resp || null;
+  } catch (e) { return null; }
+}
+
+// Critical files — never evicted, always cached first
+const PRIORITY_FILES = ['vue.global', 'quasar.umd', 'quasar.prod.css'];
+
+function isPriority(path) {
+  return PRIORITY_FILES.some(f => path.includes(f));
+}
+
+async function putCache(path, response, bodyForHash) {
+  try {
+    const blob = await response.clone().blob();
+    if (blob.size > CACHE_MAX_FILE) return;
+
+    const hash = await hashContent(bodyForHash);
+    const headers = new Headers(response.headers);
+    headers.set('x-p2p-hash', hash);
+    headers.set('x-p2p-time', String(Date.now()));  // LRU timestamp
+    headers.set('x-p2p-priority', isPriority(path) ? '1' : '0');
+    const cachedResp = new Response(blob, { status: response.status, headers });
+
+    const cache = await caches.open(CACHE_NAME);
+
+    // Evict if over size limit — remove oldest non-priority first
+    await evictIfNeeded(cache, blob.size);
+
+    await cache.put(path, cachedResp);
+  } catch (e) { /* Cache API not available */ }
+}
+
+async function evictIfNeeded(cache, newSize) {
+  try {
+    const keys = await cache.keys();
+    let totalSize = newSize;
+    const entries = [];
+
+    for (const req of keys) {
+      const resp = await cache.match(req);
+      if (!resp) continue;
+      const blob = await resp.blob();
+      totalSize += blob.size;
+      entries.push({
+        url: req.url,
+        size: blob.size,
+        time: parseInt(resp.headers.get('x-p2p-time') || '0', 10),
+        priority: resp.headers.get('x-p2p-priority') === '1',
+      });
+    }
+
+    if (totalSize <= CACHE_MAX_BYTES) return;
+
+    // Sort: non-priority first, then oldest first
+    entries.sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority ? 1 : -1;
+      return a.time - b.time;
+    });
+
+    // Evict until under limit
+    for (const entry of entries) {
+      if (totalSize <= CACHE_MAX_BYTES) break;
+      await cache.delete(entry.url);
+      totalSize -= entry.size;
+    }
+  } catch (e) { /* best effort */ }
+}
+
+async function validateCache(path, freshBody) {
+  // Check if cached version matches fresh content
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const cached = await cache.match(path);
+    if (!cached) return false;
+    const cachedHash = cached.headers.get('x-p2p-hash');
+    if (!cachedHash) return false;
+    const freshHash = await hashContent(freshBody);
+    return cachedHash === freshHash;
+  } catch (e) { return false; }
+}
+
 // ====== Proxied fetch() ======
 function proxyFetch(input, init) {
   const url = typeof input === 'string' ? input : input.url;
   const parsed = new URL(url, 'http://localhost');
   const method = (init && init.method) || 'GET';
+  const path = parsed.pathname + parsed.search;
+
+  // Check client-side cache first for static assets
+  if (isCacheable(path, method)) {
+    return getCached(path).then(cached => {
+      if (cached) return cached;
+      return _proxyFetchDC(path, method, init).then(async resp => {
+        // Cache the fresh response (clone since Response can only be read once)
+        const body = await resp.clone().arrayBuffer();
+        putCache(path, resp, body);
+        return resp;
+      });
+    });
+  }
+
+  return _proxyFetchDC(path, method, init);
+}
+
+// Invalidate cache when server version changes
+async function checkCacheVersion() {
+  try {
+    const resp = await _proxyFetchDC('/api/hash', 'GET');
+    const data = await resp.json();
+    const serverHash = data.hash || '';
+    const storedHash = localStorage.getItem('p2p-server-hash') || '';
+    if (storedHash && storedHash !== serverHash) {
+      // Server changed — clear cache
+      await caches.delete(CACHE_NAME);
+      log('Cache cleared (server updated)');
+    }
+    localStorage.setItem('p2p-server-hash', serverHash);
+  } catch (e) { /* ignore — hash endpoint not critical */ }
+}
+
+function _proxyFetchDC(path, method, init) {
   const headers = {};
   if (init && init.headers) {
     const h = init.headers instanceof Headers ? init.headers : new Headers(init.headers);
@@ -221,7 +353,6 @@ function proxyFetch(input, init) {
       resolve: (resp) => {
         let bodyContent = resp.body || '';
         if (resp.binary) {
-          // Decode base64 binary response
           const raw = atob(bodyContent);
           const arr = new Uint8Array(raw.length);
           for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
@@ -231,6 +362,12 @@ function proxyFetch(input, init) {
           status: resp.status,
           headers: resp.headers,
         });
+
+        // Cache static assets
+        if (isCacheable(path, method) && resp.status === 200) {
+          putCache(path, response);
+        }
+
         resolve(response);
       },
       reject,
@@ -240,7 +377,7 @@ function proxyFetch(input, init) {
       id: reqId,
       type: 'http',
       method,
-      path: parsed.pathname + parsed.search,
+      path,
       headers,
       body,
     }));
@@ -362,6 +499,11 @@ function signalingWs(offer) {
           ws.close();
           relayWs = null;
           resolve(msg.sdp);
+        } else if (msg.type === 'error') {
+          answered = true;
+          ws.close();
+          relayWs = null;
+          reject(new Error(msg.message || 'Connection rejected'));
         }
       } catch (e) {}
     };
@@ -373,7 +515,6 @@ function signalingWs(offer) {
 
 // ====== WebRTC + SPA loading ======
 async function startConnection() {
-  document.getElementById('btnConnect').disabled = true;
   setState('connecting', 'Connecting...');
   log('Starting P2P connection (signal=' + signalMode + ')');
 
@@ -389,26 +530,29 @@ async function startConnection() {
       }
     };
 
-    // Request to receive video from server (VP8/VP9)
-    pc.addTransceiver('video', { direction: 'recvonly' });
-
-    // Handle incoming video track from server
-    pc.ontrack = (evt) => {
-      if (evt.track.kind === 'video') {
-        log('Video track received (VP8)', 'ok');
-        // Store the stream — will be attached to a video element after SPA loads
-        window._p2pVideoStream = evt.streams[0] || new MediaStream([evt.track]);
-      }
-    };
-
     dc = pc.createDataChannel('hort', { ordered: true });
     dc.binaryType = 'arraybuffer';
 
     dc.onopen = () => {
       log('DataChannel open', 'ok');
       setState('connected', 'Connected — loading UI...');
-      document.getElementById('btnDisconnect').disabled = false;
-      loadSPA();
+      // Start ping/pong heartbeat (2s interval) + dead connection detection
+      let _lastPongTime = performance.now();
+      pingInterval = setInterval(() => {
+        if (dc && dc.readyState === 'open') {
+          dc.send(JSON.stringify({ type: 'ping', ts: performance.now() }));
+          // Detect dead connection: no pong for >6s
+          const sinceLastPong = performance.now() - _lastPongTime;
+          if (sinceLastPong > 6000 && window.__hortState) {
+            window.__hortState.p2pHealthy = false;
+            window.__hortState.p2pRttMs = Math.round(sinceLastPong);
+          }
+        }
+      }, 2000);
+      // Update _lastPongTime when pong arrives
+      window._p2pUpdatePong = () => { _lastPongTime = performance.now(); };
+      // Check if server changed (busts stale cache)
+      checkCacheVersion().then(() => loadSPA());
     };
 
     dc.onmessage = handleDcMessage;
@@ -440,8 +584,11 @@ async function startConnection() {
 
   } catch (err) {
     log('Error: ' + err.message, 'err');
-    setState('failed', 'Failed: ' + err.message);
-    document.getElementById('btnConnect').disabled = false;
+    if (err.message.includes('invalid') || err.message.includes('expired') || err.message.includes('rejected')) {
+      setState('failed', 'Link expired or already used. Send /p2p again.');
+    } else {
+      setState('failed', err.message);
+    }
   }
 }
 
@@ -456,8 +603,8 @@ function waitForIceGathering(pc, timeout) {
 }
 
 function disconnect() {
+  if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
   if (relayWs) { relayWs.close(); relayWs = null; }
-  // Close all proxied WebSockets
   for (const [id, ws] of activeWs) { ws.close(); }
   activeWs.clear();
   pendingRequests.clear();
@@ -467,8 +614,6 @@ function disconnect() {
   pc = null; dc = null;
   showConnectUI();
   setState('idle', 'Disconnected');
-  document.getElementById('btnConnect').disabled = false;
-  document.getElementById('btnDisconnect').disabled = true;
   log('Disconnected');
 }
 
@@ -550,6 +695,39 @@ async function loadSPA() {
     window.WebSocket.CLOSING = 2;
     window.WebSocket.CLOSED = 3;
 
+    // Intercept dynamic <script src> and <link href> assignments.
+    // The SPA's plugin loader creates script elements with src pointing to
+    // local paths. The browser would try to load from openhort.ai (404).
+    // We intercept the src setter so the load never starts.
+
+    const _origScriptSrcDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+    Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+      set(val) {
+        try {
+          const url = new URL(val, location.href);
+          if (url.pathname.startsWith('/ext/') || url.pathname.startsWith('/static/')) {
+            const path = url.pathname;
+            const el = this;
+            // Prevent native load
+            proxyFetch(path).then(r => r.text()).then(code => {
+              el.textContent = code;
+              // Trigger onload if set
+              if (el.onload) el.onload();
+            }).catch(() => {
+              if (el.onerror) el.onerror();
+            });
+            return;
+          }
+        } catch (e) {}
+        // Non-local script — use original setter
+        _origScriptSrcDesc.set.call(this, val);
+      },
+      get() {
+        return _origScriptSrcDesc.get.call(this);
+      },
+      configurable: true,
+    });
+
     // Fetch the main page from the home machine
     log('Loading app...');
     const resp = await proxyFetch('/viewer');
@@ -608,17 +786,6 @@ async function loadSPA() {
       }
     }
 
-    // Expose P2P video stream to the SPA if available
-    // The SPA can check window._p2pVideoStream and use a <video> element
-    // instead of the JPEG-over-WebSocket canvas rendering
-    if (window._p2pVideoStream) {
-      window._p2pVideoStream = window._p2pVideoStream;
-      // Dispatch event so the SPA knows video is available
-      window.dispatchEvent(new CustomEvent('p2p-video-ready', {
-        detail: { stream: window._p2pVideoStream }
-      }));
-    }
-
   } catch (err) {
     document.body.innerHTML = '<h1 style="color:#ef5350;padding:20px;">Failed to load: ' + err.message + '</h1>';
   }
@@ -629,10 +796,8 @@ log('openhort P2P viewer loaded');
 log('Signal mode: ' + signalMode + (signalMode === 'ws' ? ' (relay: ' + relayUrl + ')' : ''));
 if (tg) log('Running inside Telegram (' + tg.platform + ')');
 
-// Auto-connect when token is present (opened from /connect command)
-if (authToken && (signalMode === 'ws' || signalMode === 'telegram')) {
-  startConnection();
-}
+// Always auto-connect
+startConnection();
 </script>
 </body>
 </html>

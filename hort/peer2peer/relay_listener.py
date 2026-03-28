@@ -118,7 +118,7 @@ class RelayListener:
         stun_servers: list[str] | None = None,
         reconnect_interval: float = 5.0,
         video_enabled: bool = True,
-        video_fps: int = 15,
+        video_fps: int = 10,
         video_max_width: int = 1920,
         capture_fn: Any = None,
     ) -> None:
@@ -266,17 +266,6 @@ class RelayListener:
             stun_servers=self._stun_servers,
         )
         proxy._peer = peer
-
-        # Add video track if enabled
-        video_track = None
-        if self._video_enabled:
-            video_track = ScreenCaptureTrack(
-                fps=self._video_fps,
-                max_width=self._video_max_width,
-            )
-            if self._capture_fn:
-                video_track.set_capture_function(self._capture_fn)
-            peer.add_video_track(video_track)
 
         try:
             answer_sdp = await peer.accept_offer(offer_sdp)

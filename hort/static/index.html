@@ -56,15 +56,25 @@
   // Prefix API paths with base path (for cloud proxy support)
   function apiUrl(path) { return _basePath + path; }
   window.__hortBasePath = _basePath;
+  window.__hortState = null; // set after state is created
 
   // ===== SHARED STATE =====
   const state = reactive({
     // Connection
     sessionId: null,
+    _pendingStreamWindow: null,
     controlWs: null,
     streamWs: null,
     connected: false,
     serverVersion: '',
+
+    // P2P connection health (updated by viewer.html ping/pong)
+    p2pConnected: false,
+    p2pRttMs: 0,
+    p2pRemoteIp: '',
+    p2pSessionNum: 0,
+    p2pTotalSessions: 0,
+    p2pHealthy: true,  // false when RTT > 2000ms
 
     // View: 'picker' | 'viewer' | 'terminal'
     view: 'picker',
@@ -123,6 +133,7 @@
     quality: 70,
     fps: 15,
     maxWidth: 1920,
+    codec: 'jpeg',  // 'jpeg', 'vp8', 'vp9'
     settingsOpen: false,
 
     // Overview
@@ -141,6 +152,7 @@
     // Extension panels
     extensionPanels: [],
   });
+  window.__hortState = state;
 
   // ===== PERSISTENCE HELPERS =====
   function loadGroups() {
@@ -476,40 +488,226 @@
   let fpsTimer = null;
   let statusTimer = null;
 
+  // MSE state for VP8/VP9 streaming
+  let _mediaSource = null;
+  let _sourceBuffer = null;
+  let _mseQueue = [];
+  let _mseReady = false;
+
+  let _streamGeneration = 0;
+  let _lastRenderedSeq = -1;
+  let _pendingFrame = null;
+  let _renderScheduled = false;
+  let _clientStreamStart = 0;
+  let _serverTimeOffset = 0;
+  let _droppedStale = 0;
+  const STALE_THRESHOLD_MS = 2000;
+
   function connectStreamWs() {
     disconnectStreamWs();
+    const gen = ++_streamGeneration;
     const ws = new WebSocket(wsUrl(`/ws/stream/${state.sessionId}`));
     ws.binaryType = 'arraybuffer';
     state.streamWs = ws;
 
     ws.onopen = () => {
       startFpsCounter();
-    };
-
-    ws.onmessage = (e) => {
-      if (e.data instanceof ArrayBuffer) {
-        const blob = new Blob([e.data], { type: 'image/jpeg' });
-        const url = URL.createObjectURL(blob);
-        if (state.prevBlobUrl) URL.revokeObjectURL(state.prevBlobUrl);
-        state.prevBlobUrl = state.streamBlobUrl;
-        state.streamBlobUrl = url;
-        state.frameCount++;
+      // Reset timestamp sync for new stream
+      _clientStreamStart = 0;
+      _serverTimeOffset = 0;
+      _lastRenderedSeq = -1;
+      _pendingFrame = null;
+      _droppedStale = 0;
+      // Send pending stream config now that WS is open
+      if (state._pendingStreamWindow) {
+        const { windowId, targetId } = state._pendingStreamWindow;
+        state._pendingStreamWindow = null;
+        sendStreamConfig(windowId, targetId);
       }
     };
 
+    // Client-side frame dropping with timestamp-based staleness.
+    //
+    // Header: [stream_id:2][seq:4][timestamp_ms:4] = 10 bytes
+    // timestamp_ms = server ms since stream start.
+    // Client tracks its own start time. If a frame's server timestamp
+    // is >2s behind the client's elapsed time, it's stale → dropped
+    // without rendering or ACKing.
+    //
+    // Additionally, only the latest frame is rendered per rAF.
+
+    function _scheduleRender() {
+      if (_renderScheduled) return;
+      _renderScheduled = true;
+      requestAnimationFrame(() => {
+        _renderScheduled = false;
+        if (!_pendingFrame) return;
+        const { streamId, seq, payload } = _pendingFrame;
+        _pendingFrame = null;
+
+        const buf = new Uint8Array(payload);
+        const isWebM = buf.length > 4 && buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3;
+        const isWebMFrame = _mseReady && !isWebM && buf[0] !== 0xFF;
+
+        if (isWebM || isWebMFrame) {
+          _handleWebMData(payload, isWebM);
+        } else {
+          const blob = new Blob([payload], { type: 'image/jpeg' });
+          const url = URL.createObjectURL(blob);
+          if (state.prevBlobUrl) URL.revokeObjectURL(state.prevBlobUrl);
+          state.prevBlobUrl = state.streamBlobUrl;
+          state.streamBlobUrl = url;
+        }
+        _lastRenderedSeq = seq;
+        state.frameCount++;
+
+        sendControl({ type: 'stream_ack', stream_id: streamId, seq: seq });
+      });
+    }
+
+    ws.onmessage = (e) => {
+      if (!(e.data instanceof ArrayBuffer) || e.data.byteLength < 10) return;
+
+      const hdr = new DataView(e.data, 0, 10);
+      const streamId = hdr.getUint16(0);
+      const seq = hdr.getUint32(2);
+      const serverTs = hdr.getUint32(6);  // ms since server stream start
+
+      // Initialize time sync on first frame
+      if (_clientStreamStart === 0) {
+        _clientStreamStart = performance.now();
+        _serverTimeOffset = serverTs;
+      }
+
+      // Calculate frame age: how old is this frame relative to "now"?
+      const clientElapsed = performance.now() - _clientStreamStart;
+      const serverElapsed = serverTs - _serverTimeOffset;
+      const frameAge = clientElapsed - serverElapsed;
+
+      // Drop if frame is more than 2s stale
+      if (frameAge > STALE_THRESHOLD_MS) {
+        _droppedStale++;
+        // ACK it anyway so server knows we received (and can skip ahead)
+        sendControl({ type: 'stream_ack', stream_id: streamId, seq: seq });
+        return;
+      }
+
+      // Drop frames older than what we've already rendered
+      if (seq <= _lastRenderedSeq) return;
+
+      // Keep only the latest frame
+      _pendingFrame = { streamId, seq, payload: e.data.slice(10) };
+      _scheduleRender();
+    };
+
     ws.onclose = () => {
-      // Reconnect only if we're still in viewer mode with an active window
-      if (state.view === 'viewer' && currentWindow()) {
+      // Only reconnect if this WS is still current (not superseded)
+      if (gen === _streamGeneration && state.view === 'viewer' && currentWindow()) {
         setTimeout(connectStreamWs, 1000);
       }
     };
   }
 
+  function _handleWebMData(data, isInit) {
+    if (isInit && !_mseReady) {
+      // Initialize MSE with this WebM init segment
+      _initMSE(data);
+    } else if (_sourceBuffer && !_sourceBuffer.updating) {
+      try {
+        _sourceBuffer.appendBuffer(data);
+      } catch (e) {
+        // Buffer full or error — skip frame
+      }
+    } else {
+      // Queue if sourceBuffer is busy (max 2 queued)
+      if (_mseQueue.length < 2) _mseQueue.push(data);
+    }
+  }
+
+  function _initMSE(initData) {
+    // Create video element
+    let video = document.getElementById('p2p-mse-video');
+    if (!video) {
+      video = document.createElement('video');
+      video.id = 'p2p-mse-video';
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true;
+      video.style.width = '100%';
+      video.style.height = '100%';
+      video.style.objectFit = 'contain';
+    }
+
+    // Move into the stream container
+    const container = document.querySelector('[ref="videoContainer"], .stream-img:not(img)');
+    if (container && !container.contains(video)) {
+      container.innerHTML = '';
+      container.appendChild(video);
+    }
+
+    const codec = state.codec === 'vp9' ? 'vp9' : 'vp8';
+    _mediaSource = new MediaSource();
+    video.src = URL.createObjectURL(_mediaSource);
+
+    _mediaSource.addEventListener('sourceopen', () => {
+      try {
+        _sourceBuffer = _mediaSource.addSourceBuffer('video/webm; codecs="' + codec + '"');
+        _sourceBuffer.mode = 'sequence';
+        _sourceBuffer.addEventListener('updateend', () => {
+          if (_mseQueue.length > 0 && !_sourceBuffer.updating) {
+            try {
+              _sourceBuffer.appendBuffer(_mseQueue.shift());
+            } catch (e) { _mseQueue = []; }
+          }
+        });
+        _sourceBuffer.appendBuffer(initData);
+        _mseReady = true;
+        state.streamVideoEl = video;
+      } catch (e) {
+        console.error('MSE init error:', e);
+      }
+    });
+  }
+
   function disconnectStreamWs() {
+    // Increment generation so no stale callbacks fire
+    _streamGeneration++;
+
     if (state.streamWs) {
       state.streamWs.close();
       state.streamWs = null;
     }
+
+    // Reset ALL client-side stream state
+    _clientStreamStart = 0;
+    _serverTimeOffset = 0;
+    _lastRenderedSeq = -1;
+    _pendingFrame = null;
+    _renderScheduled = false;
+    _droppedStale = 0;
+
+    // Clean up MSE
+    if (_mediaSource && _mediaSource.readyState === 'open') {
+      try { _mediaSource.endOfStream(); } catch (e) {}
+    }
+    _mediaSource = null;
+    _sourceBuffer = null;
+    _mseQueue = [];
+    _mseReady = false;
+    const mseVideo = document.getElementById('p2p-mse-video');
+    if (mseVideo) mseVideo.remove();
+    state.streamVideoEl = null;
+
+    // Clear any displayed frame
+    if (state.streamBlobUrl) {
+      URL.revokeObjectURL(state.streamBlobUrl);
+      state.streamBlobUrl = null;
+    }
+    if (state.prevBlobUrl) {
+      URL.revokeObjectURL(state.prevBlobUrl);
+      state.prevBlobUrl = null;
+    }
+
     stopFpsCounter();
   }
 
@@ -522,6 +720,7 @@
       max_width: state.maxWidth,
       screen_width: window.innerWidth,
       screen_dpr: window.devicePixelRatio || 1,
+      codec: state.codec,
     };
     if (targetId) msg.target_id = targetId;
     sendControl(msg);
@@ -772,6 +971,14 @@
           </select>
         </div>
         <div class="setting-row">
+          <label>Codec</label>
+          <select v-model="state.codec" @change="onSettingChange">
+            <option value="jpeg">JPEG</option>
+            <option value="vp8">VP8 (WebM)</option>
+            <option value="vp9">VP9 (WebM)</option>
+          </select>
+        </div>
+        <div class="setting-row">
           <label>Fullscreen</label>
           <button class="llming-action" style="width:auto;border-radius:6px;padding:4px 12px;font-size:12px" @click="toggleFullscreen">
             <i class="ph ph-arrows-out"></i> Toggle
@@ -893,6 +1100,11 @@
           <span class="nav-counter">{{ navCounterText }}</span>
           <span class="observer-count" v-if="state.observerCount">{{ observerText }}</span>
           <span class="fps-display">{{ state.fpsText }}</span>
+          <span v-if="state.p2pConnected" class="p2p-status" :style="{ color: state.p2pHealthy ? '#66bb6a' : '#ef5350' }" :title="'RTT: ' + state.p2pRttMs + 'ms'">
+            <i :class="state.p2pHealthy ? 'ph-fill ph-wifi-high' : 'ph-fill ph-wifi-slash'"></i>
+            {{ state.p2pRttMs }}ms
+            <template v-if="state.p2pTotalSessions > 1"> #{{ state.p2pSessionNum }}/{{ state.p2pTotalSessions }}</template>
+          </span>
           <button class="llming-action" :class="{ active: state.activeMode }" @click="toggleActiveMode" title="Toggle active mode (I)">
             <i :class="state.activeMode ? 'ph-fill ph-cursor-click' : 'ph ph-eye'"></i>
           </button>
@@ -916,9 +1128,10 @@
         <div class="stream-container" ref="streamContainer"
              @mousedown="onMouseDown" @dblclick="onDblClick"
              @click="onStreamClick" @contextmenu="onContextMenu">
-          <img class="stream-img" ref="streamImg" alt=""
+          <img v-show="state.codec === 'jpeg'" class="stream-img" ref="streamImg" alt=""
                :src="state.streamBlobUrl"
                @load="onImgLoad">
+          <div v-show="state.codec !== 'jpeg'" ref="videoContainer" class="stream-img" style="display:flex;align-items:center;justify-content:center;"></div>
           <div class="remote-cursor" ref="remoteCursor">
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M4 4L10.5 20L13 13L20 10.5L4 4Z" fill="white" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>
@@ -1101,11 +1314,10 @@
 
         requestSpaces();
 
-        if (!isStreamWsConnected) {
-          isStreamWsConnected = true;
-          connectStreamWs();
-        }
-        sendStreamConfig(win.window_id, win.target_id);
+        // Always reconnect the stream WS to ensure a clean connection
+        isStreamWsConnected = true;
+        state._pendingStreamWindow = { windowId: win.window_id, targetId: win.target_id };
+        connectStreamWs();
 
         startThumbRefresh();
       }
@@ -1116,18 +1328,14 @@
       function goBack() {
         const cur = currentWindow();
         if (cur) saveWindowState(cur.window_id);
+        // Tell server to stop streaming IMMEDIATELY via control channel
+        // (the stream WS close might be stuck behind buffered frames)
+        sendControl({ type: 'stream_stop' });
+        // Full teardown — disconnectStreamWs clears everything
         disconnectStreamWs();
         isStreamWsConnected = false;
         state.view = 'picker';
         state.overviewOpen = false;
-        if (state.streamBlobUrl) {
-          URL.revokeObjectURL(state.streamBlobUrl);
-          state.streamBlobUrl = null;
-        }
-        if (state.prevBlobUrl) {
-          URL.revokeObjectURL(state.prevBlobUrl);
-          state.prevBlobUrl = null;
-        }
         state.settingsOpen = false;
         state.activeMode = false;
         localStorage.removeItem('llming-current-window');
@@ -1624,6 +1832,14 @@
 
           <!-- Spacer -->
           <div style="flex:1"></div>
+
+          <!-- P2P connection status (visible on ALL screens) -->
+          <div v-if="state.p2pConnected" class="header-btn" style="cursor:default;gap:4px" :title="'P2P RTT: ' + state.p2pRttMs + 'ms'">
+            <span class="dot" :class="state.p2pHealthy ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+            <i :class="state.p2pHealthy ? 'ph ph-plugs-connected' : 'ph ph-wifi-slash'" :style="{color: state.p2pHealthy ? '#66bb6a' : '#ef5350'}"></i>
+            <span :style="{color: state.p2pHealthy ? '#66bb6a' : '#ef5350', fontSize: '12px'}">{{ state.p2pRttMs }}ms</span>
+            <span v-if="state.p2pTotalSessions > 1" style="font-size:11px;opacity:0.6">#{{ state.p2pSessionNum }}/{{ state.p2pTotalSessions }}</span>
+          </div>
 
           <!-- Connectors -->
           <div v-if="state.isLocal" style="display:flex;gap:4px">
