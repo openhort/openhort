@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>openhort</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --fg: #e0e0e0;
+    --accent: #7c4dff;
+    --success: #66bb6a;
+    --error: #ef5350;
+    --muted: #666;
+    --surface: #16213e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+  }
+  h1 { font-size: 20px; margin-bottom: 8px; }
+  .status {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .status .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .dot.connecting { background: #ffa726; animation: pulse 1s infinite; }
+  .dot.connected { background: var(--success); }
+  .dot.failed { background: var(--error); }
+  .dot.idle { background: var(--muted); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  #viewport {
+    width: 100%;
+    max-width: 800px;
+    flex: 1;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    touch-action: none;
+  }
+  #viewport canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .controls {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:active { background: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: default; }
+
+  .log {
+    margin-top: 12px;
+    width: 100%;
+    max-width: 800px;
+    max-height: 120px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 8px;
+  }
+  .log div { margin-bottom: 2px; }
+  .log .err { color: var(--error); }
+  .log .ok { color: var(--success); }
+</style>
+</head>
+<body>
+
+<h1>openhort</h1>
+<div class="status">
+  <span class="dot idle" id="dot"></span>
+  <span id="state">Ready to connect</span>
+</div>
+
+<div id="viewport">
+  <canvas id="canvas"></canvas>
+</div>
+
+<div class="controls">
+  <button id="btnConnect" onclick="startConnection()">Connect</button>
+  <button id="btnDisconnect" onclick="disconnect()" disabled>Disconnect</button>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+// ====== Config ======
+// When loaded inside Telegram Mini App, the server URL comes from initData.
+// When loaded directly (browser testing), use same-origin or explicit URL.
+const tg = window.Telegram && window.Telegram.WebApp;
+let serverUrl = '';  // same-origin by default
+
+if (tg) {
+  tg.ready();
+  tg.expand();
+  // Apply Telegram theme
+  if (tg.themeParams.bg_color) {
+    document.documentElement.style.setProperty('--bg', tg.themeParams.bg_color);
+    document.documentElement.style.setProperty('--fg', tg.themeParams.text_color || '#fff');
+  }
+}
+
+// Allow override via query param: ?server=http://192.168.1.10:8940
+const params = new URLSearchParams(location.search);
+if (params.get('server')) serverUrl = params.get('server');
+
+// ====== Logging ======
+const logEl = document.getElementById('log');
+function log(msg, cls) {
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ====== State ======
+let pc = null;
+let dc = null;
+let sessionId = null;
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function setState(state, text) {
+  const dot = document.getElementById('dot');
+  dot.className = 'dot ' + state;
+  document.getElementById('state').textContent = text;
+}
+
+// ====== WebRTC ======
+async function startConnection() {
+  document.getElementById('btnConnect').disabled = true;
+  setState('connecting', 'Creating session...');
+  log('Starting P2P connection');
+
+  try {
+    // 1. Create openhort session
+    const sessResp = await fetch(serverUrl + '/api/session', { method: 'POST' });
+    const sessData = await sessResp.json();
+    sessionId = sessData.session_id;
+    log('Session: ' + sessionId.substring(0, 8) + '...');
+
+    // 2. Create RTCPeerConnection
+    pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    pc.oniceconnectionstatechange = () => {
+      log('ICE: ' + pc.iceConnectionState);
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        setState('connected', 'Connected (P2P)');
+        document.getElementById('btnDisconnect').disabled = false;
+        log('P2P connection established!', 'ok');
+      } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        setState('failed', 'Connection lost');
+        log('Connection failed', 'err');
+      }
+    };
+
+    // 3. Create DataChannel
+    dc = pc.createDataChannel('hort', { ordered: true });
+    dc.binaryType = 'arraybuffer';
+
+    dc.onopen = () => {
+      log('DataChannel open', 'ok');
+      // Request initial window list
+      dc.send(JSON.stringify({ type: 'list_windows' }));
+    };
+
+    dc.onmessage = (evt) => {
+      if (typeof evt.data === 'string') {
+        // JSON control message
+        try {
+          const msg = JSON.parse(evt.data);
+          handleControlMessage(msg);
+        } catch (e) {
+          log('Bad JSON: ' + e.message, 'err');
+        }
+      } else {
+        // Binary JPEG frame
+        renderFrame(evt.data);
+      }
+    };
+
+    dc.onclose = () => {
+      log('DataChannel closed');
+      setState('idle', 'Disconnected');
+      document.getElementById('btnConnect').disabled = false;
+      document.getElementById('btnDisconnect').disabled = true;
+    };
+
+    // 4. Create offer
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    // 5. Wait for ICE gathering to complete (or timeout)
+    await waitForIceGathering(pc, 3000);
+
+    setState('connecting', 'Sending offer...');
+    log('SDP offer ready (' + pc.localDescription.sdp.length + ' bytes)');
+
+    // 6. Send offer to server, get answer
+    const resp = await fetch(serverUrl + '/api/p2p/offer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sdp: pc.localDescription.sdp,
+        session_id: sessionId,
+      }),
+    });
+    const answer = await resp.json();
+
+    if (answer.error) {
+      throw new Error(answer.error);
+    }
+
+    log('SDP answer received (' + answer.sdp.length + ' bytes)');
+    setState('connecting', 'Connecting...');
+
+    // 7. Set remote description
+    await pc.setRemoteDescription(new RTCSessionDescription({
+      type: 'answer',
+      sdp: answer.sdp,
+    }));
+
+    log('ICE negotiation started');
+
+  } catch (err) {
+    log('Error: ' + err.message, 'err');
+    setState('failed', 'Failed: ' + err.message);
+    document.getElementById('btnConnect').disabled = false;
+  }
+}
+
+function waitForIceGathering(pc, timeout) {
+  return new Promise((resolve) => {
+    if (pc.iceGatheringState === 'complete') return resolve();
+    const timer = setTimeout(resolve, timeout);
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'complete') {
+        clearTimeout(timer);
+        resolve();
+      }
+    };
+  });
+}
+
+function disconnect() {
+  if (dc) dc.close();
+  if (pc) pc.close();
+  pc = null;
+  dc = null;
+  sessionId = null;
+  setState('idle', 'Disconnected');
+  document.getElementById('btnConnect').disabled = false;
+  document.getElementById('btnDisconnect').disabled = true;
+  log('Disconnected');
+}
+
+// ====== Frame rendering ======
+function renderFrame(data) {
+  const blob = new Blob([data], { type: 'image/jpeg' });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => {
+    if (canvas.width !== img.width || canvas.height !== img.height) {
+      canvas.width = img.width;
+      canvas.height = img.height;
+    }
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+// ====== Control messages ======
+function handleControlMessage(msg) {
+  if (msg.type === 'windows') {
+    log('Windows: ' + (msg.windows || []).length);
+  } else if (msg.type === 'error') {
+    log('Server: ' + msg.message, 'err');
+  } else {
+    log('Msg: ' + msg.type);
+  }
+}
+
+// ====== Touch/mouse input ======
+canvas.addEventListener('pointerdown', (e) => sendInput(e, 'click'));
+canvas.addEventListener('pointermove', (e) => {
+  if (e.buttons) sendInput(e, 'move');
+});
+
+function sendInput(e, type) {
+  if (!dc || dc.readyState !== 'open') return;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  const y = (e.clientY - rect.top) / rect.height;
+  dc.send(JSON.stringify({ type: 'input', input_type: type, x, y }));
+}
+
+// ====== Init ======
+log('openhort P2P viewer loaded');
+if (tg) log('Running inside Telegram (' + tg.platform + ')');
+</script>
+</body>
+</html>

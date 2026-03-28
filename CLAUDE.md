@@ -21,8 +21,11 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/terminal.py` — PTY terminal sessions (spawn, I/O, resize, scrollback)
 - `hort/targets.py` — Target registry (multi-machine management)
 - `hort/models.py` — Pydantic models (strict types, frozen where appropriate)
-- `hort/screen.py` — Window screenshot capture (Quartz → PIL → JPEG)
-- `hort/windows.py` — Window listing/filtering (Quartz + SkyLight)
+- `hort/screen.py` — Window + desktop screenshot capture (Quartz → PIL → JPEG, `DESKTOP_WINDOW_ID=-1` for full screen)
+- `hort/windows.py` — Window listing/filtering (Quartz + SkyLight, includes virtual Desktop entry)
+- `hort/thumbnailer.py` — Thumbnail rotation scheduler (fixed-bandwidth, one capture at a time)
+- `hort/signals/` — Signal system (event bus, processors, triggers, watchers)
+- `hort/hortmap/` — Hort Map (visual config editor, Drawflow UI at `/hortmap`)
 - `hort/input.py` — Input simulation (mouse/keyboard via Quartz CGEvent + AX API)
 - `hort/spaces.py` — macOS Spaces detection and switching (SkyLight)
 - `hort/network.py` — LAN IP detection, QR code generation
@@ -32,6 +35,8 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/ext/connectors.py` — Connector framework (ConnectorBase, CommandRegistry, ConnectorMixin)
 - `hort/plugins.py` — Plugin lifecycle (discovery, loading, scheduler/connector startup, shutdown)
 - `hort/extensions/core/` — Built-in platform extensions (macOS, Linux, LAN/Cloud/Telegram connectors)
+- `hort/peer2peer/` — Reusable P2P hole punching library (STUN, signaling ABC, punch coordinator, UDP tunnel)
+- `hort/extensions/core/peer2peer/` — P2P extension (Azure VM provisioning, connector commands, MCP tools)
 - `hort/access/` — Remote access proxy server (Azure deployment, tunnel protocol, token auth)
 - `hort/access/docker-compose.yml` — Docker Compose for local dev and Azure deployment
 - `hort/static/index.html` — Quasar/Vue 3 mobile-first UI
@@ -92,6 +97,10 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Access Server](docs/coding/access-server.md) — remote proxy, Azure deployment, tunnel protocol
 - [Container Environments](docs/coding/containers.md) — Docker/Azure container management, preview panel
 - [Agent Framework](docs/manual/index.md) — AI agent sandboxing, permissions, budget, multi-node orchestration
+- [Screen Capture](docs/coding/screen-capture.md) — per-window + desktop capture, thumbnail rotation, stream backpressure, mobile keyboard
+- [Memory Safety](docs/coding/memory-safety.md) — CGImage native leaks, WebSocket backpressure, frame queue patterns, debug endpoint
+- [Peer-to-Peer](docs/coding/peer2peer.md) — P2P hole punching library, STUN, signaling, UDP tunnel, Azure test VM
+- [Telegram & Mini Apps](docs/manual/developer/messengers/telegram.md) — Bot API, Mini App WebView, WebRTC signaling, debugging
 - [Docs Writing Guide](docs/coding/docs-writing-guide.md) — mkdocs-material features, mermaid, admonitions, syntax reference
 
 ## Critical Rules
@@ -100,6 +109,8 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - **NEVER use `lsof -ti :PORT | xargs kill`** — this kills Docker containers. Always kill by process name: `pgrep -f "uvicorn hort.app" | xargs kill -9`
 - **NEVER load or start plugins at import time or in `create_app()`.** Plugin loading (`load_plugins_sync`), scheduler start, and connector start MUST happen exclusively in the FastAPI `on_event("startup")` handler. With uvicorn `--reload`, `create_app()` runs multiple times per module import — loading plugins there causes duplicate instances (e.g. multiple Telegram bots competing for the same token via `TelegramConflictError`). Clean shutdown via `stop_plugins()` in `on_event("shutdown")`.
 - **NEVER use `asyncio.create_task` for deferred plugin startup.** Background tasks created in startup events get killed silently on `--reload`. Run plugin startup synchronously in the startup event instead.
+- **ALWAYS release native macOS resources promptly.** `CGWindowListCreateImage` returns Core Foundation objects whose pixel buffers (10-50 MB each) are NOT tracked by Python's GC. Copy pixel data into Python bytes immediately, then `del` the CGImage reference so pyobjc can release native memory. Call `pil_image.close()` after encoding. Do NOT call `CFRelease()` directly — pyobjc owns the ref and double-release causes SIGABRT. See [Memory Safety](docs/coding/memory-safety.md).
+- **Desktop capture uses `CGDisplayCreateImage(CGMainDisplayID())`** — captures the main display only (not all monitors). Window_id `-1` (`DESKTOP_WINDOW_ID`) triggers this path. Desktop bounds come from `CGDisplayBounds()` for correct coordinate mapping. Input clicks go to absolute screen coordinates (no app activation).
 
 ## Quality Standards
 

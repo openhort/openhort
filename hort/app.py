@@ -363,11 +363,29 @@ def _register_targets() -> None:
 
 def _register_routes(app: FastAPI) -> None:
     """Register all HTTP and WebSocket routes."""
+    # Hort Map API
+    from hort.hortmap.routes import create_hortmap_router
+    app.include_router(create_hortmap_router())
 
     @app.get("/", response_class=HTMLResponse)
     async def root_page() -> HTMLResponse:
         """Serve the viewer as the root page."""
         return await viewer_page()
+
+    @app.get("/p2p", response_class=HTMLResponse)
+    async def p2p_viewer_page() -> HTMLResponse:
+        """Serve the P2P viewer (works in Telegram Mini App and standalone browser)."""
+        path = Path(__file__).parent / "extensions" / "core" / "peer2peer" / "static" / "viewer.html"
+        return HTMLResponse(content=path.read_text())
+
+    @app.get("/hortmap", response_class=HTMLResponse)
+    async def hortmap_page() -> HTMLResponse:
+        """Serve the Hort Map editor."""
+        path = STATIC_DIR / "hortmap.html"
+        content = path.read_text()
+        dev_script = _dev_reload_script() if app.state.dev_mode else ""
+        content = content.replace("</body>", f"{dev_script}</body>")
+        return HTMLResponse(content=content)
 
     @app.get("/viewer", response_class=HTMLResponse)
     async def viewer_page() -> HTMLResponse:
@@ -385,6 +403,49 @@ def _register_routes(app: FastAPI) -> None:
     @app.get("/api/hash")
     async def get_hash() -> dict[str, str]:
         return {"hash": _static_hash(), "dev": str(app.state.dev_mode)}
+
+    @app.get("/api/debug/memory")
+    async def debug_memory() -> dict[str, Any]:
+        """Memory diagnostics — find what's using RAM."""
+        import gc
+        import os
+        import sys
+
+        gc.collect()
+
+        # Process RSS
+        import resource
+        rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # On macOS ru_maxrss is in bytes, on Linux in KB
+        rss_mb = rss_bytes / (1024 * 1024) if sys.platform == "darwin" else rss_bytes / 1024
+
+        # Count objects by type (top 20)
+        type_counts: dict[str, int] = {}
+        type_sizes: dict[str, int] = {}
+        for obj in gc.get_objects():
+            t = type(obj).__name__
+            type_counts[t] = type_counts.get(t, 0) + 1
+            try:
+                type_sizes[t] = type_sizes.get(t, 0) + sys.getsizeof(obj)
+            except Exception:
+                pass
+
+        top_counts = sorted(type_counts.items(), key=lambda x: x[1], reverse=True)[:20]
+        top_sizes = sorted(type_sizes.items(), key=lambda x: x[1], reverse=True)[:20]
+
+        # asyncio tasks
+        import asyncio
+        tasks = [t for t in asyncio.all_tasks() if not t.done()]
+
+        return {
+            "rss_mb": round(rss_mb, 1),
+            "gc_objects": len(gc.get_objects()),
+            "gc_garbage": len(gc.garbage),
+            "asyncio_tasks": len(tasks),
+            "task_names": [t.get_name() for t in tasks[:20]],
+            "top_object_counts": top_counts,
+            "top_object_sizes_mb": [(t, round(s / 1024 / 1024, 2)) for t, s in top_sizes],
+        }
 
     @app.get("/manifest.json")
     async def manifest() -> Response:
@@ -536,6 +597,67 @@ def _register_routes(app: FastAPI) -> None:
         entry = HortSessionEntry(user_id="viewer")
         registry.register(session_id, entry)
         return {"session_id": session_id, "is_local": is_local}
+
+    # --- P2P WebRTC signaling ---
+
+    @app.post("/api/p2p/offer")
+    async def p2p_offer(request: Request) -> dict[str, Any]:
+        """Accept a WebRTC SDP offer from a browser and return the answer.
+
+        The browser sends its SDP offer, we create a server-side WebRTC peer
+        (aiortc) and return the SDP answer. Once ICE completes, a direct
+        DataChannel is established for frames and input events.
+        """
+        from hort.peer2peer.webrtc import WebRTCPeer
+
+        body = await request.json()
+        sdp = body.get("sdp", "")
+        session_id = body.get("session_id", "")
+        if not sdp or not session_id:
+            return {"error": "sdp and session_id required"}
+
+        # Get or create the registry (stored on app state)
+        if not hasattr(app.state, "p2p_registry"):
+            from hort.peer2peer.webrtc import WebRTCPeerRegistry
+            app.state.p2p_registry = WebRTCPeerRegistry()
+
+        registry = app.state.p2p_registry
+
+        async def on_message(data: bytes | str) -> None:
+            """Handle messages from browser DataChannel."""
+            # Forward to the session's controller
+            from hort.session import HortRegistry
+            hr = HortRegistry.get()
+            entry = hr.get(session_id)
+            if entry and entry.controller:
+                if isinstance(data, str):
+                    import json as _json
+                    try:
+                        msg = _json.loads(data)
+                        await entry.controller.handle_message(msg)
+                    except Exception:
+                        pass
+
+        answer_sdp = await registry.create_peer(
+            session_id=session_id,
+            offer_sdp=sdp,
+            on_message=on_message,
+        )
+
+        return {"sdp": answer_sdp, "type": "answer", "session_id": session_id}
+
+    @app.get("/api/p2p/status/{session_id}")
+    async def p2p_status(session_id: str) -> dict[str, Any]:
+        """Check if a P2P connection is active for a session."""
+        if not hasattr(app.state, "p2p_registry"):
+            return {"connected": False}
+        peer = app.state.p2p_registry.get_peer(session_id)
+        if not peer:
+            return {"connected": False}
+        return {
+            "connected": peer.is_connected,
+            "state": peer.connection_state,
+        }
 
     @app.websocket("/ws/control/{session_id}")
     async def control_ws(websocket: WebSocket, session_id: str) -> None:

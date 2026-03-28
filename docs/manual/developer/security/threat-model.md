@@ -635,6 +635,83 @@ cannot fully control but can limit exposure to.
 | Malicious model weights (local models) | High | Out of scope -- model behavior is a model-level concern, not a framework concern | Not mitigated |
 | Typosquatting attack on package name | Medium | Exact package names in lock files; CI verification | Human error during initial setup |
 
+### Credential Theft via Compromised Packages
+
+In March 2025, several popular PyPI and npm packages were found to
+contain code that harvested credentials from environment variables,
+keychains, config files, and cloud metadata endpoints, then
+exfiltrated them to attacker-controlled servers.
+
+This is particularly dangerous for OpenHORT because:
+
+1. **Agents run with API keys** — the `ANTHROPIC_API_KEY` in the
+   container environment is readable by any code inside that container,
+   including all pip/npm dependencies of the Claude CLI.
+
+2. **MCPs run arbitrary packages** — `npx some-mcp-server` pulls
+   from npm and runs with full process privileges. A compromised
+   MCP package can read env vars, keychains, and network.
+
+3. **Isolation helps but doesn't fully solve it** — a containerized
+   agent is isolated from the host, but the container itself needs
+   the API key to function. The compromised package inside the
+   container can still steal that key.
+
+**Mitigations:**
+
+| Layer | What it does | Limitation |
+|-------|-------------|-----------|
+| Container isolation | Compromised package can only see container env, not host | Container still has the API key |
+| Network restriction | Container can only reach `api.anthropic.com` | Exfiltration to the legitimate API endpoint is not blocked |
+| Scoped API keys | Use keys with minimal permissions and spending limits | Anthropic doesn't yet offer per-key spending caps |
+| Key rotation | Rotate keys after suspected compromise | Doesn't prevent initial theft |
+| Package pinning | Lock exact versions in `poetry.lock` / `package-lock.json` | Doesn't help if the pinned version is the compromised one |
+| Cloud metadata blocking | Block `169.254.169.254` in all containers | Prevents cloud credential harvesting, not env var theft |
+
+**Future: Credential Proxy Architecture**
+
+Instead of passing raw API keys to containers, a credential proxy
+running on the host would:
+
+1. Agent in container calls `localhost:PROXY_PORT/v1/messages`
+   (same API shape as Anthropic)
+2. Proxy adds the real API key from the host keychain
+3. Proxy forwards to `api.anthropic.com`
+4. Container never sees the actual key
+
+```mermaid
+flowchart LR
+    subgraph Container ["Container (no API key)"]
+        Agent["Claude CLI"]
+    end
+    subgraph Host ["Host"]
+        Proxy["Credential Proxy\n(adds API key)"]
+        KC["Keychain"]
+    end
+    Agent -->|"POST /v1/messages\n(no auth header)"| Proxy
+    KC --> Proxy
+    Proxy -->|"POST /v1/messages\n(Bearer sk-ant-...)"| API["api.anthropic.com"]
+```
+
+**Benefits:**
+- Container has zero credential material — nothing to steal
+- Proxy enforces rate limits, budget caps, and request filtering
+- Proxy logs every API call for audit
+- Key rotation is transparent to the container
+- Works for any API provider (Anthropic, OpenAI, etc.)
+
+**Limitations:**
+- Adds latency (one extra hop)
+- Proxy is a single point of failure
+- Proxy itself must be secured (host-only, not container-accessible)
+- The proxy pattern only works for HTTP APIs, not for tools that
+  need credentials for other purposes (SSH keys, database passwords)
+
+!!! info "Credential proxy is planned for Phase 4"
+    See [Roadmap](../internals/roadmap.md). The proxy architecture
+    is the long-term solution for credential isolation. Until then,
+    use scoped keys with minimal permissions and rotate regularly.
+
 !!! danger "In-process MCP servers are fully trusted"
     An MCP server running inside the Hort process (stdio transport,
     local mode) has access to everything the Hort process can access:
@@ -737,6 +814,62 @@ APIs, web pages).
 | Framework mitigation | Resource access controlled by permission system; resources filtered from `resources/list` like tools |
 | Residual risk | Same fundamental limitation as tool results |
 
+### Vector 5: Indirect Prompt Injection via Web Content
+
+Agent uses `WebFetch` or `WebSearch` tools and encounters a page
+containing hidden instructions (white text, CSS-hidden divs,
+HTML comments, or SEO-invisible content designed for AI crawlers).
+
+| Factor | Assessment |
+|--------|-----------|
+| Likelihood | High — attackers are actively embedding AI-targeted instructions in web pages |
+| Impact | Medium to High — agent may follow instructions to exfiltrate data, call tools, or override its system prompt |
+| Framework mitigation | Network restrictions limit which sites the agent can reach; tool filtering limits available actions; budget caps limit damage duration |
+| Residual risk | Any agent with web access is fundamentally exposed to this vector |
+
+### Defense Strategy: Blast Radius Reduction
+
+Prompt injection **cannot be fully prevented** at the framework level.
+It is a model-level concern — the model must distinguish instructions
+from data. No amount of sandboxing changes what the model *decides*
+to do within its allowed permissions.
+
+OpenHORT's strategy is **blast radius reduction**: ensure that even a
+fully manipulated agent can only cause bounded damage.
+
+```mermaid
+flowchart TD
+    PI["Prompt Injection\n(agent manipulated)"]
+    PI --> T1["Tries rm -rf /"]
+    PI --> T2["Tries to exfiltrate data"]
+    PI --> T3["Tries to call washing machine start"]
+    PI --> T4["Tries to spend $1000 on API"]
+
+    T1 -->|"Blocked"| C1["Command filter\n(hardcoded deny)"]
+    T2 -->|"Blocked"| C2["Network restriction\n(allowlist only)"]
+    T3 -->|"Blocked"| C3["humanApprovalRequired\n(user must confirm)"]
+    T4 -->|"Blocked"| C4["Budget limit\n($5 cap)"]
+```
+
+**Defense layers (each independent):**
+
+| Layer | What it catches | Bypass requires |
+|-------|----------------|-----------------|
+| Tool filtering | Agent can't call tools it doesn't have | Compromise the permission engine |
+| Command filter | Destructive bash commands blocked | Bypass regex (possible but hard) |
+| `humanApprovalRequired` | Destructive tools need human click | Social engineer the human |
+| Budget limits | API spend capped | Compromise the budget tracker |
+| Network restriction | No exfiltration to arbitrary hosts | Tunnel through allowed hosts |
+| Audit logging | Every action recorded | Compromise the host filesystem |
+| Access source policy | Remote sources get fewer permissions | Spoof the source detection |
+
+**The `humanApprovalRequired` annotation is the strongest defense.**
+For any tool that can cause real-world harm (start a machine, open a
+door, send money, delete data), marking it as `humanApprovalRequired`
+means the framework pauses execution and asks the human to confirm
+via UI or Telegram. No amount of prompt injection can bypass a
+human pressing "No."
+
 !!! warning "Honest assessment"
     Prompt injection cannot be fully mitigated at the framework level.
     It is fundamentally a model-level concern. OpenHORT's strategy is
@@ -745,6 +878,33 @@ APIs, web pages).
     limits, command filters, and network restrictions. The framework
     ensures that a manipulated agent cannot do more than its
     configuration allows.
+
+### Practical Recommendations
+
+For users deploying OpenHORT with real-world devices:
+
+1. **Never give an agent write access to something you can't undo.**
+   If the washing machine starts, you can stop it manually. If a
+   file is deleted, you may not recover it. Use `humanApprovalRequired`
+   for all irreversible actions.
+
+2. **Use the narrowest tool set possible.** An agent that can only
+   call `get_status` cannot be manipulated into calling `start_cycle`,
+   even via prompt injection.
+
+3. **Separate read and write agents.** A monitoring agent with
+   read-only tools and a control agent with write tools (and human
+   approval). The monitoring agent can be freely exposed to untrusted
+   data. The control agent only receives instructions from the
+   monitoring agent (which has no write tools to abuse).
+
+4. **Don't give web-browsing agents access to sensitive tools.**
+   `WebFetch` + `Bash` is a dangerous combination. The web content
+   is untrusted; the Bash tool is powerful. Separate them into
+   different agents or different Horts.
+
+5. **Use budget limits aggressively.** A $0.50 budget limits how
+   many turns a manipulated agent gets before it's stopped.
 
 ---
 

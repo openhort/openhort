@@ -44,7 +44,9 @@
 - gVisor runtime support (`--runtime=runsc`)
 - Seccomp profiles for containers
 - API key rotation / scoped tokens
+- Credential proxy (containers never see raw API keys, proxy adds auth on the host side)
 - Dockerfile hash-based image versioning
+- ScreenCaptureKit migration (macOS 12.3+, replaces per-window CGWindowListCreateImage with full-screen capture)
 - Write-only directory support (proxy pattern)
 - Web UI for agent monitoring (openhort dashboard integration)
 

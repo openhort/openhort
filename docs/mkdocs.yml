@@ -72,6 +72,8 @@ nav:
     - Configuration: guide/configuration.md
     - Multi-Agent Setups: guide/multi-agent.md
     - Running Across Machines: guide/multi-node.md
+    - Extensions:
+      - Peer-to-Peer: guide/extensions/peer2peer.md
     - Cloud Providers:
       - Overview: guide/cloud/index.md
       - Oracle Cloud:
@@ -99,10 +101,14 @@ nav:
       - Model Providers: developer/reference/providers.md
       - LLM Extensions: developer/reference/llm-extensions.md
       - Sandbox Sessions: developer/reference/sandbox-sessions.md
+      - Terminal Automation: developer/reference/terminal-automation.md
+      - Peer-to-Peer Library: developer/reference/peer2peer.md
     - Security:
       - Threat Model: developer/security/threat-model.md
       - Container Security: developer/reference/container-security.md
       - Safety Rails: developer/security/safety-rails.md
+    - Messengers:
+      - Telegram: developer/messengers/telegram.md
     - Internals:
       - Architecture: developer/internals/architecture.md
       - Roadmap: developer/internals/roadmap.md
