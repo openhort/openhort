@@ -117,6 +117,125 @@ C:\openhort\venv\Scripts\python -m uvicorn hort.app:app --host 0.0.0.0 --port 89
 !!! warning "RDP Session Required"
     Windows screen capture APIs require an active desktop session. If the RDP session is **disconnected** (not just minimized), screen capture returns black. Keep the RDP session connected, or use the `tscon.exe` trick to transfer the session to the console.
 
+## Azure VM Setup Details
+
+Hard-won practical knowledge from provisioning and debugging Windows Azure VMs. These gotchas will save hours.
+
+### OpenSSH Server
+
+Windows has no SSH server by default. Install it for remote management:
+
+```powershell title="Install and configure OpenSSH Server"
+# Install the OpenSSH Server capability
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+
+# Start the service and set it to auto-start
+Start-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+
+# Set PowerShell as the default shell (instead of cmd.exe)
+New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell `
+    -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" `
+    -PropertyType String -Force
+
+# Open firewall port
+netsh advfirewall firewall add rule name="SSH" dir=in action=allow protocol=TCP localport=22
+```
+
+!!! danger "Firewall rule gotcha"
+    `New-NetFirewallRule` has a `-LocalPort` parameter, **not** `-Port`. If you use `-Port` it silently does nothing. Use `netsh advfirewall` instead — it always works.
+
+### SSH Key Auth for Admin Users
+
+Windows OpenSSH handles admin users differently from regular users. Keys for members of the `Administrators` group are read from a **separate file**, not the user's home directory.
+
+| User type | Authorized keys file |
+|-----------|---------------------|
+| Regular user | `C:\Users\<user>\.ssh\authorized_keys` |
+| Admin user (default config) | `C:\ProgramData\ssh\administrators_authorized_keys` |
+| Admin user (after sshd_config fix) | `C:\Users\<user>\.ssh\authorized_keys` |
+
+To use the per-user `authorized_keys` for admin users, remove or comment out the `Match Group administrators` block at the bottom of `C:\ProgramData\ssh\sshd_config`:
+
+```text title="C:\ProgramData\ssh\sshd_config (remove these lines)"
+# Match Group administrators
+#        AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys
+```
+
+If using `administrators_authorized_keys`, permissions must be locked down:
+
+```powershell title="Set permissions on administrators_authorized_keys"
+icacls "C:\ProgramData\ssh\administrators_authorized_keys" /inheritance:r `
+    /grant "hortuser:(R)" /grant "SYSTEM:(F)"
+```
+
+!!! note "Password authentication"
+    To enable password auth, you must **both** set `PasswordAuthentication yes` in sshd_config **and** remove the `Match Group administrators` block at the bottom of the file. The Match block overrides earlier settings for admin users.
+
+### Custom Script Extension Gotchas
+
+Azure's Custom Script Extension and `az vm run-command` have several sharp edges on Windows.
+
+#### Git stderr breaks PowerShell error detection
+
+Git writes branch-switch messages (e.g., `Switched to branch 'main'`) to stderr. PowerShell treats any stderr output as a non-terminating error, causing the Custom Script Extension to report the script as "failed" even when everything succeeded.
+
+```powershell title="Fix: redirect stderr to null"
+# BAD — extension reports failure
+git checkout main
+
+# GOOD — suppress stderr
+$null = git checkout main 2>&1
+```
+
+#### Run-command is single-threaded and blocking
+
+`az vm run-command invoke` acquires a VM-level lock. Only one can run at a time, and it blocks until the command completes. Do not use it for long-running operations like starting the server.
+
+#### Start-Process blocks on output redirection
+
+`Start-Process` with `-RedirectStandardError` or `-RedirectStandardOutput` waits for the child process to exit before returning. Do not use it to launch the openhort server from a run-command — it will hang until the server is killed.
+
+### Dependency Installation
+
+`pip install -e .` may fail to resolve all dependencies when `pyproject.toml` references local path dev dependencies (like `llming-com`). Install runtime deps explicitly:
+
+```powershell title="Install runtime dependencies directly"
+pip install "uvicorn[standard]" "Pillow" "qrcode[pil]" "pydantic>=2.10" `
+    "websockets" "itsdangerous" "pyyaml" "psutil" "aiortc"
+```
+
+### PowerShell via SSH Quirks
+
+When connecting via SSH to a PowerShell session, several things behave differently from a local terminal.
+
+| Issue | Cause | Workaround |
+|-------|-------|------------|
+| `&&` doesn't chain commands | PowerShell uses `;` not `&&` | Use `;` as command separator |
+| f-strings with `{}` break | PowerShell interprets curly braces | `scp` Python scripts to the VM instead of `ssh ... python -c "..."` |
+| Multiline stdin gets collapsed | SSH + PowerShell stdin handling | Write to a `.py` file first, then execute it |
+
+```powershell title="Command chaining in PowerShell"
+# BAD — syntax error
+cd C:\openhort && python run.py
+
+# GOOD
+cd C:\openhort; python run.py
+```
+
+### Screen Capture Requires Active Desktop
+
+Windows screen capture APIs (`BitBlt`, `PrintWindow`) render from the desktop compositor. Under a SYSTEM service account or a bare SSH session, there is no desktop — capture returns black or fails.
+
+!!! warning "The server must run under a user session"
+    The openhort process needs a real desktop session (RDP or console). Options:
+
+    - **Scheduled task at login** — create a task triggered by user logon that starts the server
+    - **Start via RDP** — connect via RDP, launch the server, keep the session connected
+    - **Console session** — on physical hardware, log in at the console
+
+    Running as a Windows service or from an SSH session **will not work** for screen capture.
+
 ## Target Registration
 
 When `sys.platform == "win32"`, the server automatically registers a `local-windows` target:

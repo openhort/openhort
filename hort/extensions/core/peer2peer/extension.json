@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "P2P hole punching for direct connections — bypasses relay servers",
   "provider": "core",
-  "platforms": ["darwin", "linux"],
+  "platforms": ["darwin", "linux", "win32"],
   "capabilities": ["connector", "mcp"],
   "entry_point": "provider:HolepunchPlugin",
   "icon": "ph ph-plugs-connected",
