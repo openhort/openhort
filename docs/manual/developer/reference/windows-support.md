@@ -295,6 +295,32 @@ When the server process runs in the RDP session (Session 2) **and** the capture 
 
 Any process in Session 0 (SSH, SYSTEM services) gets black from `BitBlt` — there is no desktop to capture. This is a fundamental Windows limitation: Session 0 has no interactive desktop since Windows Vista (Session 0 isolation).
 
+### Private PC vs Azure VM
+
+On a **private PC**, none of the Session 0 issues apply:
+
+- The user logs in at the console (Session 1) — the only session
+- `hort setup` installs a startup entry (Startup folder or scheduled task at logon)
+- The server starts in the user's session automatically — full desktop access
+- Screen capture just works, no special configuration needed
+
+The Session 0 problem is specific to **Azure VMs** (and remote provisioning in general):
+
+1. The Custom Script Extension runs as SYSTEM (Session 0) during provisioning
+2. The user later RDPs in (Session 2) — a separate desktop session
+3. Processes started in Session 0 **cannot** be moved to Session 2
+4. There is no API to inject a process into an existing RDP session from Session 0 without third-party tools (PsExec)
+
+**The fix for Azure VMs:** Place a startup script in the user's Startup folder (`C:\Users\<user>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\`). It runs on every logon, starting the server in the interactive session. After placing the script, the user must **disconnect and reconnect** RDP (or log out and back in) to trigger it.
+
+```powershell title="Place startup script (run during provisioning)"
+$startup = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+@"
+@echo off
+powershell -ExecutionPolicy Bypass -File C:\openhort\run.ps1
+"@ | Out-File "$startup\openhort.bat" -Encoding ASCII
+```
+
 ## Target Registration
 
 When `sys.platform == "win32"`, the server automatically registers a `local-windows` target:
