@@ -354,6 +354,17 @@ async def run_stream(
             if config.window_id != prev_window_id:
                 logger.info("Stream window → %d", config.window_id)
                 prev_window_id = config.window_id
+                # Send source dimensions so client can auto-fit viewport
+                try:
+                    src_dims = await asyncio.get_event_loop().run_in_executor(
+                        None, _get_source_dims, provider, config.window_id)
+                    if src_dims and entry.websocket:
+                        await entry.websocket.send_text(json.dumps({
+                            "type": "source_dims",
+                            "width": src_dims[0], "height": src_dims[1],
+                        }))
+                except Exception:
+                    pass
 
             # Server decides actual capture parameters.
             # The client's config is a REQUEST — the server may override
@@ -377,12 +388,12 @@ async def run_stream(
                 actual_quality = min(actual_quality, 40)
                 actual_fps = min(actual_fps, 10)
 
-            # Output size = client window * resolution scale (max_width used as %)
-            # max_width is now 25-100 (percent), not pixels
+            # Output size = client logical window × resolution scale.
+            # DPR is NOT applied — streaming at 2x physical pixels wastes
+            # CPU/bandwidth for no visible quality gain on remote desktop.
             res_scale = max(0.25, min(1.0, config.max_width / 100.0))
-            dpr = config.screen_dpr or 1
-            client_w = max(320, int((config.screen_width or 1920) * dpr))
-            client_h = max(240, int((config.screen_height or 1080) * dpr))
+            client_w = max(320, config.screen_width or 1920)
+            client_h = max(240, config.screen_height or 1080)
             out_w = max(160, int(client_w * res_scale))
             out_h = max(120, int(client_h * res_scale))
 
@@ -531,6 +542,24 @@ def _capture_pil_sync(provider: PlatformProvider, window_id: int, max_width: int
     return pil_image
 
 
+def _get_source_dims(provider: PlatformProvider, window_id: int) -> tuple[int, int] | None:
+    """Get the native pixel dimensions of a window/desktop."""
+    import objc  # type: ignore[import-untyped]
+    try:
+        from hort.screen import DESKTOP_WINDOW_ID, _raw_capture, _raw_capture_desktop
+        import Quartz
+    except ImportError:
+        return None
+    with objc.autorelease_pool():
+        cg = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
+        if cg is None:
+            return None
+        w = Quartz.CGImageGetWidth(cg)
+        h = Quartz.CGImageGetHeight(cg)
+        del cg
+    return (w, h)
+
+
 def _capture_crop_resize(
     provider: PlatformProvider,
     window_id: int,
@@ -572,15 +601,31 @@ def _capture_crop_resize(
     if pil_image is None:
         return None
 
-    # Resize to output (never upscale)
+    # Always output at exactly client dimensions (out_w × out_h).
+    # When aspect ratios match (zoomed crop), this is a simple resize.
+    # When they differ (zoom=1 full view), center and pad with dark pixels.
+    tgt_w = max(2, out_w) & ~1
+    tgt_h = max(2, out_h) & ~1
     cur_w, cur_h = pil_image.size
-    scale = min(out_w / cur_w, out_h / cur_h, 1.0)
-    if scale < 0.95:
-        new_w = max(2, int(cur_w * scale)) & ~1  # even dims for VP8
-        new_h = max(2, int(cur_h * scale)) & ~1
-        resized = pil_image.resize((new_w, new_h), _Img.Resampling.LANCZOS)
+    scale = min(tgt_w / cur_w, tgt_h / cur_h)  # may upscale when zoomed
+    fit_w = max(2, int(cur_w * scale)) & ~1
+    fit_h = max(2, int(cur_h * scale)) & ~1
+
+    # Use BILINEAR for speed (LANCZOS is 3x slower, negligible quality gain for video)
+    _resample = _Img.Resampling.BILINEAR
+    if abs(fit_w - tgt_w) <= 2 and abs(fit_h - tgt_h) <= 2:
+        # Aspect ratios match — resize directly to target
+        resized = pil_image.resize((tgt_w, tgt_h), _resample)
         pil_image.close()
         pil_image = resized
+    else:
+        # Aspect mismatch (zoom=1) — resize then paste centered on dark canvas
+        fitted = pil_image.resize((fit_w, fit_h), _resample)
+        pil_image.close()
+        canvas = _Img.new("RGB", (tgt_w, tgt_h), (10, 15, 26))
+        canvas.paste(fitted, ((tgt_w - fit_w) // 2, (tgt_h - fit_h) // 2))
+        fitted.close()
+        pil_image = canvas
 
     return pil_image
 

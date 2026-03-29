@@ -798,3 +798,93 @@ The reference platform extension. Provides all four platform capabilities on mac
 | Built-in extensions | `hort/extensions/core/<name>/` | Shipped with the package |
 | Core macOS ext | `hort/extensions/core/macos_windows/` | macOS platform implementation |
 | Core Linux ext | `hort/extensions/core/linux_windows/` | Linux container platform implementation |
+
+## Deep-Link URLs
+
+Every extension view can be opened directly via URL, bypassing the picker.
+This is the canonical way to bookmark, share, or programmatically open a
+specific screen/window with exact settings.
+
+### URL Scheme
+
+```
+/view/{target}/{window}?{params}
+```
+
+| Segment | Values | Default | Description |
+|---------|--------|---------|-------------|
+| `target` | `local`, target ID (e.g. `docker-linux`) | `local` | Which machine to view |
+| `window` | `desktop`, numeric window ID | `desktop` | Which window (`desktop` = full screen, window_id `-1`) |
+
+### Query Parameters
+
+All optional. Override the user's saved settings for this session.
+
+| Param | Range | Default | Description |
+|-------|-------|---------|-------------|
+| `codec` | `webp`, `vp8`, `vp9` | saved | Video codec. VP8/VP9 use MSE for real inter-frame video |
+| `fps` | 1–60 | saved | Target frame rate |
+| `quality` | 1–100 | saved | Encode quality (JPEG/WebP/VP8 quantizer) |
+| `res` | 25–100 | saved | Resolution scale (% of native) |
+| `zoom` | 1–10 | 1 | Zoom level. 1 = auto-fit to client aspect ratio |
+| `vx` | 0–1 | 0.5 | Zoom center X (normalized). Used with `zoom` > 1 |
+| `vy` | 0–1 | 0.5 | Zoom center Y (normalized). Used with `zoom` > 1 |
+
+### Examples
+
+```bash
+# Local desktop, default settings
+http://host:8940/view/local/desktop
+
+# VP8 video codec at high quality
+http://host:8940/view/local/desktop?codec=vp8&quality=90
+
+# Zoom into center of screen at 3x
+http://host:8940/view/local/desktop?zoom=3
+
+# Zoom into top-left corner at 4x
+http://host:8940/view/local/desktop?zoom=4&vx=0.15&vy=0.15
+
+# View specific window (ID 42) at 30fps
+http://host:8940/view/local/42?fps=30
+
+# View Linux container desktop via VP9
+http://host:8940/view/docker-linux/desktop?codec=vp9
+
+# Low bandwidth mode
+http://host:8940/view/local/desktop?codec=webp&fps=5&quality=40&res=25
+```
+
+### Behavior
+
+1. **Full source visible at zoom=1**: At zoom=1, the entire source is visible
+   (`vp_w=1, vp_h=1`). If the aspect ratios don't match (e.g. 32:9 ultrawide
+   source on a 4:3 iPad), the remaining space is filled with a dark gradient
+   instead of harsh black. The user can zoom in with the scroll wheel and
+   pan to explore.
+
+2. **Source dimensions**: The server sends a `source_dims` control message
+   (`{type: "source_dims", width, height}`) when streaming starts. The client
+   uses this to compute the auto-fit viewport.
+
+3. **URL cleanup**: After applying the deep-link, the URL is replaced with `/`
+   via `history.replaceState` so refreshing doesn't re-trigger the deep link
+   with stale settings.
+
+4. **Bookmarkable**: Since query params are read before cleanup, users can
+   bookmark or share deep-link URLs. The URL encodes the full viewing intent.
+
+### Server Route
+
+The `/view/{path:path}` route in `hort/app.py` serves `index.html` with a
+`<base href="/">` tag injected so relative asset paths resolve correctly
+regardless of the URL depth.
+
+### Implementation Files
+
+| File | Role |
+|------|------|
+| `hort/app.py` | `/view/{path}` route, `<base>` tag injection |
+| `hort/static/index.html` | `_parseDeepLink()`, `_applyDeepLinkSettings()`, `_resetViewport()` auto-fit |
+| `hort/stream.py` | `source_dims` control message, `_get_source_dims()` |
+| `hort/models.py` | `StreamConfig.screen_height` for aspect ratio calculation |

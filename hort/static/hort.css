@@ -16,6 +16,7 @@
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 html { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+html.viewer-active, html.viewer-active body { overflow: hidden; }
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     background: var(--el-bg); color: var(--el-text);
@@ -314,7 +315,7 @@ body {
 }
 
 /* ===== VIEWER (llming-view variant) ===== */
-.llming-view.viewer-llming { background: #000; }
+.llming-view.viewer-llming { background: linear-gradient(135deg, #0a0f1a 0%, #1a1a2e 40%, #16213e 70%, #0a0f1a 100%); }
 .llming-view.viewer-llming .llming-toolbar {
     background: rgba(17, 24, 39, 0.9);
     padding: calc(6px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 6px calc(10px + env(safe-area-inset-left, 0px));
@@ -342,7 +343,7 @@ body {
     overflow: hidden;
 }
 .stream-img {
-    width: 100%; height: 100%; object-fit: contain;
+    width: 100%; height: 100%; object-fit: fill;
 }
 
 /* Active mode */
@@ -402,32 +403,50 @@ body {
     border-radius: 6px; padding: 5px 8px; font-size: 12px;
 }
 
-/* Minimap */
-.minimap {
-    display: none; position: fixed;
+/* Screen Navigator */
+.screen-nav {
+    position: fixed;
     bottom: calc(70px + env(safe-area-inset-bottom, 0px));
-    right: calc(12px + env(safe-area-inset-right, 0px));
+    right: calc(16px + env(safe-area-inset-right, 0px));
     z-index: 250;
-    background: rgba(17,24,39,0.9); border: 1px solid var(--el-border); border-radius: 8px;
-    padding: 6px; backdrop-filter: blur(8px);
+    background: rgba(15, 20, 30, 0.92);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04) inset;
+    overflow: visible; user-select: none;
 }
-.minimap.visible { display: block; }
-.minimap-wrap {
-    position: relative; width: 180px; cursor: crosshair; overflow: hidden; border-radius: 4px;
+.screen-nav-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px; cursor: grab;
+    font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.45);
+    letter-spacing: 0.5px; text-transform: uppercase;
 }
-.minimap-img { width: 100%; display: block; background: var(--el-border); }
-.minimap-viewport {
-    position: absolute; border: 2px solid var(--el-primary); background: rgba(59,130,246,0.1);
-    pointer-events: none; border-radius: 2px;
+.screen-nav-header:active { cursor: grabbing; }
+.screen-nav-close {
+    background: none; border: none; color: rgba(255,255,255,0.4);
+    cursor: pointer; padding: 2px 4px; border-radius: 4px; line-height: 1;
 }
-.minimap-nav {
-    display: flex; gap: 4px; margin-top: 6px;
+.screen-nav-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.screen-nav-map {
+    position: relative; width: 200px; cursor: crosshair; margin: 0 8px 8px;
+    background: rgba(10, 15, 26, 0.8); border-radius: 4px; overflow: hidden;
 }
-.minimap-nav button {
-    flex: 1; background: var(--el-border); border: 1px solid var(--el-border); color: var(--el-text-dim);
-    border-radius: 4px; padding: 4px; font-size: 11px; cursor: pointer; font-weight: 600;
+.screen-nav-source {
+    width: 100%; padding-bottom: 28.125%; position: relative;
+    background: linear-gradient(135deg, rgba(30,40,60,0.6), rgba(20,25,40,0.6));
 }
-.minimap-nav button:hover { background: var(--el-primary); color: #fff; border-color: var(--el-primary); }
+.screen-nav-thumb {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    object-fit: fill; border-radius: 3px; opacity: 0.7;
+}
+.screen-nav-viewport {
+    position: absolute; border: 1.5px solid rgba(100, 180, 255, 0.8);
+    background: rgba(59, 130, 246, 0.12);
+    border-radius: 2px; pointer-events: none;
+    box-shadow: 0 0 6px rgba(59, 130, 246, 0.25);
+    transition: left 0.06s ease-out, top 0.06s ease-out, width 0.06s ease-out, height 0.06s ease-out;
+}
 
 /* Overview grid */
 .overview {

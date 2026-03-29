@@ -97,7 +97,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Access Server](docs/coding/access-server.md) — remote proxy, Azure deployment, tunnel protocol
 - [Container Environments](docs/coding/containers.md) — Docker/Azure container management, preview panel
 - [Agent Framework](docs/manual/index.md) — AI agent sandboxing, permissions, budget, multi-node orchestration
-- [Screen Capture](docs/coding/screen-capture.md) — per-window + desktop capture, thumbnail rotation, stream backpressure, mobile keyboard
+- [Screen Capture](docs/coding/screen-capture.md) — per-window + desktop capture, viewport-based streaming, output resolution rules (no DPR!), resize strategy, VP8 considerations, zoom behavior
 - [Memory Safety](docs/coding/memory-safety.md) — CGImage native leaks, CGDataProviderCopyData autorelease trap, CGBitmapContext fix, WebSocket backpressure, frame queue patterns, debug endpoint
 - [Peer-to-Peer](docs/coding/peer2peer.md) — P2P hole punching library, STUN, signaling, UDP tunnel, Azure test VM
 - [Telegram & Mini Apps](docs/manual/developer/messengers/telegram.md) — Bot API, Mini App WebView, WebRTC signaling, debugging

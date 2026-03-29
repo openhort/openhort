@@ -158,7 +158,7 @@
     scale: 1,
     tx: 0,
     ty: 0,
-    imgNatW: 0,
+    imgNatW: 0, srcNatW: 0, srcNatH: 0,
     imgNatH: 0,
 
     // Stream
@@ -167,6 +167,9 @@
     frameCount: 0,
     fpsText: '',
     observerCount: 0,
+    vpZoomed: false,  // reactive proxy for _vp.zoom > 1
+    vpX: 0, vpY: 0, vpW: 1, vpH: 1,  // reactive copies for minimap
+    navThumb: null,  // navigator thumbnail (data URL)
 
     // Settings
     quality: 70,
@@ -204,13 +207,15 @@
     apiUrl: null,
   };
 
-  // Restore stream settings from IndexedDB
+  // Restore stream settings from IndexedDB, then apply deep-link overrides
   _loadStreamSettings().then(saved => {
     if (saved) {
       for (const k of _STREAM_FIELDS) {
         if (saved[k] !== undefined) state[k] = saved[k];
       }
     }
+    // Deep-link settings override saved settings
+    if (_deepLink) _applyDeepLinkSettings(_deepLink);
   });
 
   // ===== PERSISTENCE HELPERS =====
@@ -258,6 +263,56 @@
         }
       }, 10000);
     });
+  }
+
+  // ===== DEEP-LINK URL PARSING =====
+  // URL scheme: /view/{target}/{window}?codec=vp8&fps=15&quality=70&zoom=2&vx=0.25&vy=0.1
+  // target: "local" (local machine), target ID, or omitted
+  // window: "desktop" (window_id=-1), numeric window ID, or omitted
+  let _deepLink = null;
+  function _parseDeepLink() {
+    const path = location.pathname.replace(_basePath, '');
+    const m = path.match(/^\/view(?:\/([^/]+))?(?:\/([^/]+))?/);
+    if (!m) return null;
+    const params = new URLSearchParams(location.search);
+    const link = {
+      target: m[1] || 'local',
+      window: m[2] || 'desktop',
+      codec: params.get('codec'),
+      fps: params.has('fps') ? parseInt(params.get('fps')) : null,
+      quality: params.has('quality') ? parseInt(params.get('quality')) : null,
+      maxWidth: params.has('res') ? parseInt(params.get('res')) : null,
+      zoom: params.has('zoom') ? parseFloat(params.get('zoom')) : null,
+      vx: params.has('vx') ? parseFloat(params.get('vx')) : null,
+      vy: params.has('vy') ? parseFloat(params.get('vy')) : null,
+    };
+    // Resolve window alias
+    if (link.window === 'desktop') link.windowId = -1;
+    else if (/^\d+$/.test(link.window)) link.windowId = parseInt(link.window);
+    else link.windowId = -1;  // fallback to desktop
+    // Resolve target alias
+    if (link.target === 'local') link.targetId = '';  // empty = default local target
+    else link.targetId = link.target;
+    return link;
+  }
+  _deepLink = _parseDeepLink();
+
+  // Apply deep-link settings to state (codec, quality, fps, etc.)
+  function _applyDeepLinkSettings(link) {
+    if (link.codec && ['webp', 'vp8', 'vp9'].includes(link.codec)) state.codec = link.codec;
+    if (link.fps && link.fps >= 1 && link.fps <= 60) state.fps = link.fps;
+    if (link.quality && link.quality >= 1 && link.quality <= 100) state.quality = link.quality;
+    if (link.maxWidth && link.maxWidth >= 25 && link.maxWidth <= 100) state.maxWidth = link.maxWidth;
+    if (link.zoom && link.zoom > 1) {
+      _vp.zoom = Math.min(10, link.zoom);
+      _vp.w = 1 / _vp.zoom;
+      _vp.h = 1 / _vp.zoom;
+      // Center on specified point or center of screen
+      const cx = (link.vx !== null) ? link.vx : 0.5;
+      const cy = (link.vy !== null) ? link.vy : 0.5;
+      _vp.x = Math.max(0, Math.min(1 - _vp.w, cx - _vp.w / 2));
+      _vp.y = Math.max(0, Math.min(1 - _vp.h, cy - _vp.h / 2));
+    }
   }
 
   async function initSession() {
@@ -367,6 +422,13 @@
         _pendingFrame = null;
         _clientStreamStart = 0;
         _serverTimeOffset = 0;
+        break;
+      case 'source_dims':
+        // Server tells us the native source dimensions (before crop)
+        state.srcNatW = msg.width;
+        state.srcNatH = msg.height;
+        // Auto-fit viewport to source aspect ratio
+        if (_vp.zoom <= 1) { _resetViewport(); applyTransform(); }
         break;
       case 'stream_error':
         handleStreamError(msg);
@@ -488,7 +550,7 @@
     } else {
       thumbnailCache[msg.window_id] = PLACEHOLDER_THUMB;
     }
-    state.thumbCounter++; // Trigger reactivity
+    state.thumbCounter++;
   }
 
   function getThumbnailSrc(windowId) {
@@ -602,6 +664,15 @@
         _mseReady = true;
         state.mseActive = true;
 
+        // Track video dimensions (but never reset viewport — that's only
+        // done on source_dims message, not on MSE reinit)
+        video.addEventListener('loadedmetadata', () => {
+          if (video.videoWidth && video.videoHeight) {
+            state.imgNatW = video.videoWidth;
+            state.imgNatH = video.videoHeight;
+          }
+        }, { once: true });
+
         // Live-edge seeker — keeps video within 0.3s of the live edge
         // Uses playbackRate adjustment instead of seeking (smoother)
         const liveSeeker = setInterval(() => {
@@ -697,6 +768,7 @@
         }
         _lastRenderedSeq = seq;
         state.frameCount++;
+
         sendControl({ type: 'stream_ack', stream_id: streamId, seq: seq });
       } else {
         // Base image frame (WebP) — tear down MSE if it was active
@@ -732,6 +804,7 @@
             state.streamBlobUrl = url;
             _lastRenderedSeq = s;
             state.frameCount++;
+    
             sendControl({ type: 'stream_ack', stream_id: sid, seq: s });
           });
         }
@@ -805,14 +878,27 @@
   }
 
   function _zoomViewport(delta, centerX, centerY) {
-    // delta > 0 = zoom in, delta < 0 = zoom out
-    const oldZoom = _vp.zoom;
-    _vp.zoom = Math.max(1, Math.min(10, _vp.zoom * (1 + delta * 0.1)));
-    _vp.w = 1 / _vp.zoom;
-    _vp.h = 1 / _vp.zoom;
-    // Zoom toward the cursor position (centerX/Y are 0-1 within the image)
-    _vp.x = Math.max(0, Math.min(1 - _vp.w, _vp.x + centerX * (1/oldZoom - 1/_vp.zoom)));
-    _vp.y = Math.max(0, Math.min(1 - _vp.h, _vp.y + centerY * (1/oldZoom - 1/_vp.zoom)));
+    const oldW = _vp.w, oldH = _vp.h;
+    const newZoom = _vp.zoom * (1 + delta * 0.05);
+    if (newZoom < 1.01) { _resetViewport(); return; }
+    _vp.zoom = Math.min(5, newZoom);
+
+    // Viewport crop must match client's aspect ratio in source coordinates
+    // so the zoomed content fills the screen without padding/distortion.
+    const srcW = state.srcNatW || 5120;
+    const srcH = state.srcNatH || 1440;
+    const clientAr = (window.innerWidth || 1) / (window.innerHeight || 1);
+    const vpAr = clientAr * srcH / srcW;
+
+    let newH = 1 / _vp.zoom;
+    let newW = newH * vpAr;
+    if (newW > 1) { newW = 1; newH = newW / vpAr; }
+    _vp.w = Math.min(1, Math.max(0.01, newW));
+    _vp.h = Math.min(1, Math.max(0.01, newH));
+
+    // Zoom toward cursor (centerX/Y are 0-1 within the displayed image)
+    _vp.x = Math.max(0, Math.min(1 - _vp.w, _vp.x + centerX * (oldW - _vp.w)));
+    _vp.y = Math.max(0, Math.min(1 - _vp.h, _vp.y + centerY * (oldH - _vp.h)));
   }
 
   function _panViewport(dx, dy) {
@@ -823,19 +909,24 @@
 
   function _resetViewport() {
     _vp.x = 0; _vp.y = 0; _vp.w = 1; _vp.h = 1; _vp.zoom = 1;
+    // Sync reactive state
+    state.vpZoomed = false;
+    state.vpX = 0; state.vpY = 0; state.vpW = 1; state.vpH = 1;
+    // Force immediate send — bypass throttle so reset is never lost
+    if (_viewportTimer) { clearTimeout(_viewportTimer); _viewportTimer = null; }
+    const win = currentWindow();
+    if (win && state.view === 'viewer') sendStreamConfig(win.window_id, win.target_id);
   }
 
   let _viewportTimer = null;
   function _sendViewportUpdate() {
-    // Debounce viewport updates — send at most every 200ms
+    // Send immediately, then throttle subsequent updates
     if (_viewportTimer) return;
-    _viewportTimer = setTimeout(() => {
-      _viewportTimer = null;
-      const win = currentWindow();
-      if (win && state.view === 'viewer') {
-        sendStreamConfig(win.window_id, win.target_id);
-      }
-    }, 200);
+    const win = currentWindow();
+    if (win && state.view === 'viewer') {
+      sendStreamConfig(win.window_id, win.target_id);
+    }
+    _viewportTimer = setTimeout(() => { _viewportTimer = null; }, 50);
   }
 
   function sendStreamConfig(windowId, targetId) {
@@ -1172,6 +1263,11 @@
     setup(props, { emit }) {
       let overviewRefreshTimer = null;
 
+      // Lock body scroll when viewer is active (prevents wheel events from scrolling page)
+      watch(() => state.view, (v) => {
+        document.documentElement.classList.toggle('viewer-active', v === 'viewer');
+      });
+
       watch(() => state.overviewOpen, (open) => {
         if (open) {
           state.thumbCounter++;
@@ -1259,7 +1355,8 @@
         <!-- Stream container -->
         <div class="stream-container" ref="streamContainer"
              @mousedown="onMouseDown" @dblclick="onDblClick"
-             @click="onStreamClick" @contextmenu="onContextMenu">
+             @click="onStreamClick" @contextmenu="onContextMenu"
+             @wheel.prevent="onWheel">
           <img v-show="!state.mseActive && state.streamBlobUrl" class="stream-img" ref="streamImg" alt=""
                :src="state.streamBlobUrl"
                @load="onImgLoad">
@@ -1273,17 +1370,20 @@
           <div class="click-ripple" ref="clickRipple"></div>
         </div>
 
-        <!-- Minimap -->
-        <div class="minimap" :class="{ visible: showMinimap }" ref="minimapEl">
-          <div class="minimap-wrap" ref="minimapWrap" @click="onMinimapClick">
-            <img class="minimap-img" ref="minimapImg" :src="state.streamBlobUrl" alt=""
-                 :style="{ height: minimapImgHeight + 'px' }">
-            <div class="minimap-viewport" :style="minimapViewportStyle"></div>
+        <!-- Screen Navigator -->
+        <div class="screen-nav" v-show="state.vpZoomed" ref="minimapEl"
+             @mousedown.stop="onNavDragStart">
+          <div class="screen-nav-header">
+            <span>Navigator</span>
+            <button class="screen-nav-close" @click="applyAutoFit">
+              <i class="ph-bold ph-corners-out" style="font-size:12px"></i>
+            </button>
           </div>
-          <div class="minimap-nav">
-            <button @click="jumpTo('left')">L</button>
-            <button @click="jumpTo('center')">M</button>
-            <button @click="jumpTo('right')">R</button>
+          <div class="screen-nav-map" ref="minimapWrap" @mousedown.stop="onMinimapClick">
+            <div class="screen-nav-source" :style="{ paddingBottom: ((state.srcNatH || 1440) / (state.srcNatW || 5120) * 100) + '%' }">
+              <img v-if="state.navThumb" class="screen-nav-thumb" :src="state.navThumb" alt="">
+            </div>
+            <div class="screen-nav-viewport" :style="minimapViewportStyle"></div>
           </div>
         </div>
 
@@ -1311,6 +1411,7 @@
       let lastTapTime = 0;
       let swipeStartX = 0, swipeStartY = 0, swipeStartTime = 0;
       let mousePanning = false, mousePanStartX = 0, mousePanStartY = 0;
+      let _zoomCooldown = false;
       let touchMoved = false;
       let isStreamWsConnected = false;
 
@@ -1332,27 +1433,18 @@
         return state.observerCount + (state.observerCount === 1 ? ' viewer' : ' viewers');
       });
 
-      // Minimap computations
-      const showMinimap = computed(() => {
-        return _vp.zoom > 1;
-      });
-
-      const minimapImgHeight = computed(() => {
-        if (!minimapWrap.value || !state.imgNatW) return 0;
-        const mmW = 180;
-        return mmW * (state.imgNatH / state.imgNatW);
-      });
-
+      // Navigator computations (use reactive state.vp* for Vue reactivity)
       const minimapViewportStyle = computed(() => {
-        if (!minimapWrap.value) return {};
-        const mmW = 180;
-        const mmH = minimapImgHeight.value || mmW * 0.6;
-
+        const srcW = state.srcNatW || 5120;
+        const srcH = state.srcNatH || 1440;
+        const srcAr = srcW / srcH;
+        const mmW = 200;
+        const mmH = mmW / srcAr;
         return {
-          left: (_vp.x * mmW) + 'px',
-          top: (_vp.y * mmH) + 'px',
-          width: (_vp.w * mmW) + 'px',
-          height: (_vp.h * mmH) + 'px',
+          left: (state.vpX * mmW) + 'px',
+          top: (state.vpY * mmH) + 'px',
+          width: (state.vpW * mmW) + 'px',
+          height: (state.vpH * mmH) + 'px',
         };
       });
 
@@ -1363,8 +1455,10 @@
       }
 
       function applyTransform() {
-        // No CSS transforms — zoom/pan changes the server-side viewport.
-        // The image always fills the container at 1:1.
+        // Sync _vp to reactive state (drives minimap/navigator UI)
+        state.vpZoomed = _vp.zoom > 1;
+        state.vpX = _vp.x; state.vpY = _vp.y;
+        state.vpW = _vp.w; state.vpH = _vp.h;
         _sendViewportUpdate();
       }
 
@@ -1395,12 +1489,18 @@
           state.prevBlobUrl = null;
         }
         // Track dimensions for input coordinate mapping
+        const prevW = state.imgNatW, prevH = state.imgNatH;
         if (state.mseActive) {
           const vid = document.getElementById('mse-video');
           if (vid) { state.imgNatW = vid.videoWidth; state.imgNatH = vid.videoHeight; }
         } else if (streamImg.value) {
           state.imgNatW = streamImg.value.naturalWidth;
           state.imgNatH = streamImg.value.naturalHeight;
+        }
+        // Auto-fit viewport when we first learn the source dimensions
+        if (prevW === 0 && state.imgNatW > 0 && _vp.zoom <= 1) {
+          _resetViewport();
+          applyTransform();
         }
       }
 
@@ -1531,11 +1631,16 @@
       }
 
       // ===== COORDS =====
+      function _activeStreamEl() {
+        // Return the currently visible stream element (img for WebP, video for VP8/VP9)
+        return state.mseActive ? document.getElementById('mse-video') : streamImg.value;
+      }
+
       function imgCoordsFromEvent(e) {
         // Map click on the image to screen-normalized coordinates (0-1).
         // The image shows the viewport region, so we need to account for
         // the current viewport offset and size.
-        const el = streamImg.value || document.getElementById('mse-video');
+        const el = _activeStreamEl();
         if (!el) return { nx: 0, ny: 0, screenX: 0, screenY: 0 };
         const rect = el.getBoundingClientRect();
         const clientX = e.clientX !== undefined ? e.clientX : e.touches[0].clientX;
@@ -1589,7 +1694,7 @@
           moveCursorTo(e.clientX - rect.left, e.clientY - rect.top);
         }
         if (!mousePanning) return;
-        const el = streamImg.value || document.getElementById('mse-video');
+        const el = _activeStreamEl();
         const rect = el ? el.getBoundingClientRect() : { width: 1, height: 1 };
         const dx = (e.clientX - mousePanStartX) / rect.width;
         const dy = (e.clientY - mousePanStartY) / rect.height;
@@ -1616,7 +1721,7 @@
           _resetViewport();
         } else {
           // Zoom in 2.5x centered on cursor
-          const el = streamImg.value || document.getElementById('mse-video');
+          const el = _activeStreamEl();
           const rect = el ? el.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
           const cx = (e.clientX - rect.left) / rect.width;
           const cy = (e.clientY - rect.top) / rect.height;
@@ -1648,13 +1753,17 @@
           sendInput({ event_type: 'scroll', nx, ny, dx: Math.round(e.deltaX / 30), dy: Math.round(e.deltaY / 30) });
           return;
         }
-        // Zoom the viewport — server will crop and resize
-        const el = streamImg.value || document.getElementById('mse-video');
-        const rect = el ? el.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
-        const cx = (e.clientX - rect.left) / rect.width;
-        const cy = (e.clientY - rect.top) / rect.height;
+        // Zoom: fixed step + cooldown to tame macOS smooth scrolling inertia
+        if (_zoomCooldown) return;
         const delta = e.deltaY < 0 ? 1 : -1;
-        _zoomViewport(delta, cx, cy);
+        if (delta < 0 && _vp.zoom <= 1) return;
+        _zoomCooldown = true;
+        setTimeout(() => { _zoomCooldown = false; }, 80);
+        const el = state.mseActive ? document.getElementById('mse-video') : streamImg.value;
+        const rect = el ? el.getBoundingClientRect() : null;
+        const cx = (rect && rect.width > 0) ? (e.clientX - rect.left) / rect.width : 0.5;
+        const cy = (rect && rect.height > 0) ? (e.clientY - rect.top) / rect.height : 0.5;
+        _zoomViewport(delta, Math.max(0, Math.min(1, cx)), Math.max(0, Math.min(1, cy)));
         applyTransform();
       }
 
@@ -1684,7 +1793,7 @@
               _resetViewport();
             } else {
               // Zoom in 2.5x centered on tap
-              const el = streamImg.value || document.getElementById('mse-video');
+              const el = _activeStreamEl();
               const rect = el ? el.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
               const cx = (e.touches[0].clientX - rect.left) / rect.width;
               const cy = (e.touches[0].clientY - rect.top) / rect.height;
@@ -1713,7 +1822,7 @@
           const mid = midpoint(e.touches[0], e.touches[1]);
           // Pinch zoom: compute scale factor relative to last distance
           const scaleFactor = d / lastDist;
-          const el = streamImg.value || document.getElementById('mse-video');
+          const el = _activeStreamEl();
           const rect = el ? el.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
           const cx = (mid.x - rect.left) / rect.width;
           const cy = (mid.y - rect.top) / rect.height;
@@ -1731,7 +1840,7 @@
           applyTransform();
         } else if (e.touches.length === 1 && isPanning) {
           e.preventDefault();
-          const el = streamImg.value || document.getElementById('mse-video');
+          const el = _activeStreamEl();
           const rect = el ? el.getBoundingClientRect() : { width: 1, height: 1 };
           const dx = (e.touches[0].clientX - panStartX) / rect.width;
           const dy = (e.touches[0].clientY - panStartY) / rect.height;
@@ -1754,7 +1863,7 @@
           const dt = Date.now() - swipeStartTime;
 
           if (state.activeMode && !touchMoved && state.imgNatW) {
-            const el = streamImg.value || document.getElementById('mse-video');
+            const el = _activeStreamEl();
             if (!el) return;
             const rect = el.getBoundingClientRect();
             const imgNx = (endX - rect.left) / rect.width;
@@ -1780,17 +1889,77 @@
         }
       }
 
-      // ===== MINIMAP =====
+      // ===== NAVIGATOR THUMBNAIL =====
+      // Uses the thumbnail cache (already refreshed by the thumbnailer scheduler)
+      // — no extra captures needed.
+      let _navThumbTimer = null;
+      function _startNavThumbRefresh() {
+        _stopNavThumbRefresh();
+        _updateNavThumb();
+        _navThumbTimer = setInterval(_updateNavThumb, 2000);
+      }
+      function _stopNavThumbRefresh() {
+        if (_navThumbTimer) { clearInterval(_navThumbTimer); _navThumbTimer = null; }
+      }
+      function _updateNavThumb() {
+        const win = currentWindow();
+        if (!win) return;
+        state.navThumb = getThumbnailSrc(win.window_id);
+      }
+
+      watch(() => state.vpZoomed, (zoomed) => {
+        if (zoomed) _startNavThumbRefresh();
+        else { _stopNavThumbRefresh(); state.navThumb = null; }
+      });
+
+      // ===== NAVIGATOR =====
+      let _navDragging = false, _navDragX = 0, _navDragY = 0;
+      let _vpDragging = false;
+
       function onMinimapClick(e) {
+        // Click on the map → center viewport on that point, then start dragging
         if (!minimapWrap.value) return;
         const rect = minimapWrap.value.getBoundingClientRect();
-        // Click position as fraction of minimap (0-1)
         const fx = (e.clientX - rect.left) / rect.width;
         const fy = (e.clientY - rect.top) / rect.height;
-        // Center viewport on that point
         _vp.x = Math.max(0, Math.min(1 - _vp.w, fx - _vp.w / 2));
         _vp.y = Math.max(0, Math.min(1 - _vp.h, fy - _vp.h / 2));
         applyTransform();
+        // Start viewport drag
+        _vpDragging = true;
+        const onMove = (ev) => {
+          if (!_vpDragging || !minimapWrap.value) return;
+          const r = minimapWrap.value.getBoundingClientRect();
+          const nx = (ev.clientX - r.left) / r.width;
+          const ny = (ev.clientY - r.top) / r.height;
+          _vp.x = Math.max(0, Math.min(1 - _vp.w, nx - _vp.w / 2));
+          _vp.y = Math.max(0, Math.min(1 - _vp.h, ny - _vp.h / 2));
+          applyTransform();
+        };
+        const onUp = () => { _vpDragging = false; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        e.preventDefault();
+      }
+
+      // Drag the navigator window itself
+      function onNavDragStart(e) {
+        if (e.target.closest('.screen-nav-map') || e.target.closest('.screen-nav-close')) return;
+        const el = minimapEl.value;
+        if (!el) return;
+        const startX = e.clientX, startY = e.clientY;
+        const origLeft = el.offsetLeft, origTop = el.offsetTop;
+        el.style.transition = 'none';
+        const onMove = (ev) => {
+          el.style.right = 'auto';
+          el.style.bottom = 'auto';
+          el.style.left = (origLeft + ev.clientX - startX) + 'px';
+          el.style.top = (origTop + ev.clientY - startY) + 'px';
+        };
+        const onUp = () => { el.style.transition = ''; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        e.preventDefault();
       }
 
       // ===== KEYBOARD =====
@@ -1875,10 +2044,10 @@
       // Expose doSwitchWindow so hort-app can call it on restore
       return {
         state, groups, curWindow, viewerTitle, navCounterText, observerText,
-        showMinimap, minimapImgHeight, minimapViewportStyle,
+        minimapViewportStyle, onNavDragStart,
         viewerEl, streamContainer, streamImg, remoteCursor, clickRipple,
         minimapEl, minimapWrap, minimapImg, mobileKeyInput,
-        goBack, navPrevWindow, navNextWindow, doSwitchWindow,
+        goBack, navPrevWindow, navNextWindow, doSwitchWindow, openWindowDirect,
         toggleActiveMode, toggleSettings, applyAutoFit, applyFitVertical,
         toggleMobileKeyboard, onMobileKeyInput, onMobileKeyDown,
         jumpTo, spacePrev, spaceNext, onNavModeChange,
@@ -3207,6 +3376,17 @@
           // Timeout after 5s
           setTimeout(() => { clearInterval(check); resolve(); }, 5000);
         });
+
+        // Deep-link: /view/{target}/{window}?codec=vp8&zoom=2 etc.
+        if (_deepLink) {
+          _applyDeepLinkSettings(_deepLink);
+          if (viewer.value) {
+            viewer.value.openWindowDirect(_deepLink.windowId, _deepLink.targetId);
+          }
+          // Replace URL to / so refresh doesn't re-trigger deep-link
+          history.replaceState(null, '', _basePath + '/');
+          return;
+        }
 
         // Try to restore last viewed window
         const saved = localStorage.getItem('llming-current-window');

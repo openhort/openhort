@@ -387,6 +387,25 @@ def _register_routes(app: FastAPI) -> None:
         content = content.replace("</body>", f"{dev_script}</body>")
         return HTMLResponse(content=content)
 
+    @app.get("/view/{path:path}", response_class=HTMLResponse)
+    async def view_deep_link(path: str) -> HTMLResponse:
+        """Deep-link into the viewer.
+
+        URL scheme: /view/{target}/{window}?codec=vp8&fps=15&quality=70&zoom=2
+        Examples:
+          /view/local/desktop           → local machine full desktop
+          /view/local/desktop?codec=vp8 → VP8 video stream
+          /view/local/42?zoom=3         → window #42 at 3x zoom
+          /view/docker-linux/desktop    → Linux container desktop
+        """
+        index_path = STATIC_DIR / "index.html"
+        content = index_path.read_text()
+        dev_script = _dev_reload_script() if app.state.dev_mode else ""
+        content = content.replace("</body>", f"{dev_script}</body>")
+        # Inject <base href="/"> so relative script paths resolve correctly
+        content = content.replace("<head>", '<head><base href="/">', 1)
+        return HTMLResponse(content=content)
+
     @app.get("/viewer", response_class=HTMLResponse)
     async def viewer_page() -> HTMLResponse:
         index_path = STATIC_DIR / "index.html"

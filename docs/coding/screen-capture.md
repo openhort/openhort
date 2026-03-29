@@ -151,3 +151,109 @@ Complexity:
 - `SCScreenshotManager` requires macOS 14+ (Sonoma)
 
 On the roadmap for Phase 4. See `docs/manual/developer/internals/roadmap.md`.
+
+## Viewport-Based Streaming
+
+The stream always outputs at the **client's logical window dimensions** and
+fills the frame completely. The client controls what portion of the source
+is visible via viewport parameters (`vp_x`, `vp_y`, `vp_w`, `vp_h`).
+
+### Pipeline
+
+```mermaid
+flowchart LR
+    A["CGDisplayCreateImage<br/>(5120×1440 native)"] --> B["CGImageCreateWithImageInRect<br/>(crop to viewport)"]
+    B --> C["CGBitmapContext → PIL RGB"]
+    C --> D["Resize to client dims<br/>(BILINEAR)"]
+    D --> E{"Aspect match?"}
+    E -->|"Yes (zoomed)"| F["Direct resize to out_w×out_h"]
+    E -->|"No (zoom=1)"| G["Fit + pad on dark canvas"]
+    F --> H["VP8/WebP encode"]
+    G --> H
+```
+
+### Viewport Parameters
+
+Sent from client to server in every `stream_config` message:
+
+| Field | Range | Description |
+|-------|-------|-------------|
+| `vp_x` | 0–1 | Viewport left edge (normalized source coords) |
+| `vp_y` | 0–1 | Viewport top edge |
+| `vp_w` | 0.01–1 | Viewport width (1 = full source) |
+| `vp_h` | 0.01–1 | Viewport height (1 = full source) |
+
+At **zoom=1**: `vp_w=1, vp_h=1` — full source visible. If aspect ratios
+differ (e.g. 32:9 ultrawide on a 16:10 laptop), the source is centered and
+padded with dark pixels baked into the frame. No CSS letterboxing.
+
+At **zoom>1**: viewport is cropped to the client's aspect ratio. The crop
+fills the entire output frame — no padding needed. The client computes
+viewport dimensions using:
+
+```javascript
+const vpAr = clientAspect * srcHeight / srcWidth;
+vp_h = 1 / zoom;
+vp_w = vp_h * vpAr;
+```
+
+### Output Resolution
+
+The server outputs at **logical client pixels** (not physical/Retina):
+
+```python
+client_w = max(320, config.screen_width or 1920)   # NOT multiplied by DPR
+client_h = max(240, config.screen_height or 1080)
+out_w = int(client_w * res_scale)
+out_h = int(client_h * res_scale)
+```
+
+!!! danger "Never apply DPR to stream output dimensions"
+    Streaming at 2× physical pixels (DPR=2) produces 4× more pixels to encode
+    with zero visible quality gain on a remote desktop stream. A 5120×1440
+    source already has more than enough resolution — the capture is at native,
+    only the output is at logical size. This was a 4× performance regression
+    (2–3 fps → 15 fps) when accidentally enabled.
+
+### Resize Strategy
+
+- **BILINEAR** resampling for all resizes (3× faster than LANCZOS, negligible
+  quality difference for video). LANCZOS is only better for static images
+  with fine text — the VP8/WebP compression already smears more than the
+  resize filter.
+
+- **Upscale is allowed** when zoomed — a small crop (e.g. 800×400 from a 5K
+  source) is resized up to fill the client window (e.g. 1847×873). This is
+  intentional: the crop has enough native pixels for sharp text at moderate
+  zoom, and the client window must always be filled.
+
+### VP8/VP9 Specific Considerations
+
+- **Frame dimensions must stay constant** across the entire VP8 session.
+  The output is always `out_w × out_h` regardless of viewport — this prevents
+  MSE SourceBuffer reinit which would break the video stream.
+
+- **No DPR**: `stream_config.screen_dpr` is available but intentionally
+  ignored for output dimensions. The VP8 encoder performance is directly
+  proportional to pixel count.
+
+- **Element reference bug** (fixed March 2026): In VP8 mode, the `<img>`
+  element (used for WebP) is hidden via `v-show` but its Vue ref still
+  resolves. `getBoundingClientRect()` on a `display:none` element returns
+  0×0, causing all coordinate calculations (zoom center, click mapping,
+  pan deltas) to produce `Infinity`. Fix: use `_activeStreamEl()` helper
+  that returns the `<video>` element when MSE is active.
+
+### Zoom Behavior
+
+- **macOS smooth scrolling** fires 10–15 wheel events per physical scroll
+  tick due to inertia. An 80ms cooldown between zoom steps prevents
+  runaway zoom (without cooldown: `1.05^15 = 2.1×` per tick).
+
+- **Snap to zoom=1** when zoom drops below 1.01 — prevents getting stuck
+  at fractional zoom near 1.0. `_resetViewport()` force-sends the config
+  immediately, bypassing the throttle.
+
+- **Viewport reset** clears the throttle timer and sends synchronously
+  to guarantee the server receives it (rapid zoom-out events would
+  otherwise lose the final reset in the throttle window).
