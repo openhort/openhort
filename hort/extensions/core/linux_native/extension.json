@@ -1,0 +1,24 @@
+{
+  "name": "linux-native",
+  "version": "0.1.0",
+  "description": "Native Linux window management via X11 tools (xdotool, wmctrl, ImageMagick)",
+  "provider": "core",
+  "platforms": ["linux"],
+  "capabilities": [
+    "window.list",
+    "window.capture",
+    "input.simulate",
+    "workspace.manage"
+  ],
+  "entry_point": "provider:LinuxNativeExtension",
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "display": {
+        "type": "string",
+        "description": "X11 DISPLAY to use",
+        "default": ":99"
+      }
+    }
+  }
+}

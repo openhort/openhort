@@ -1,0 +1,16 @@
+services:
+  openhort:
+    build:
+      context: ../..
+      dockerfile: deploy/linux/Dockerfile
+    image: openhort-linux
+    container_name: openhort-linux
+    ports:
+      - "${HORT_HTTP_PORT:-8940}:8940"
+    environment:
+      - LLMING_AUTH_SECRET=${LLMING_AUTH_SECRET:-openhort-dev}
+      - DISPLAY=:99
+      - HORT_RESOLUTION=${HORT_RESOLUTION:-1920x1080x24}
+      - HORT_NO_DEMO=${HORT_NO_DEMO:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    restart: unless-stopped
