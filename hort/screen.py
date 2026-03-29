@@ -3,14 +3,19 @@
 MEMORY SAFETY: CGImage objects from ``CGWindowListCreateImage`` hold
 native pixel buffers (tens of MB each). Python's GC doesn't track
 these — they're Core Foundation objects. We explicitly release them
-via ``del`` + ``gc.collect()`` after extracting the pixel data to
-prevent unbounded native memory growth during continuous streaming.
+via ``del`` after extracting the pixel data to prevent unbounded
+native memory growth during continuous streaming.
+
+Key technique: crop with ``CGImageCreateWithImageInRect`` BEFORE
+extracting pixel data so we never materialise the full Retina buffer
+(~50 MB) into Python bytes.
 """
 
 from __future__ import annotations
 
 import io
 
+import objc  # type: ignore[import-untyped]
 from PIL import Image
 
 import Quartz  # type: ignore[import-untyped]
@@ -32,40 +37,57 @@ def _raw_capture(window_id: int) -> object | None:  # pragma: no cover
 
 
 def _cgimage_to_pil(cg_image: object) -> Image.Image | None:
-    """Convert a CGImage to a PIL Image.
+    """Convert a CGImage to a PIL RGB Image.
 
-    Extracts pixel data and immediately releases the native CGImage
-    to prevent Core Foundation memory leaks.
+    Uses CGBitmapContext to render the image directly into a Python
+    bytearray in RGBA order, avoiding CGDataProviderCopyData which
+    creates autoreleased CF objects that leak on background threads.
     """
     width = Quartz.CGImageGetWidth(cg_image)
     height = Quartz.CGImageGetHeight(cg_image)
     if width == 0 or height == 0:
         return None
 
-    bytes_per_row = Quartz.CGImageGetBytesPerRow(cg_image)
-    data_provider = Quartz.CGImageGetDataProvider(cg_image)
-    raw_data = Quartz.CGDataProviderCopyData(data_provider)
-
-    if raw_data is None:
+    # Render into a Python-owned buffer via CGBitmapContext.
+    # This avoids CGDataProviderCopyData and its autoreleased CFData.
+    bytes_per_row = width * 4
+    buf = bytearray(bytes_per_row * height)
+    colorspace = Quartz.CGColorSpaceCreateDeviceRGB()
+    ctx = Quartz.CGBitmapContextCreate(
+        buf, width, height, 8, bytes_per_row, colorspace,
+        Quartz.kCGImageAlphaPremultipliedLast,  # RGBA byte order
+    )
+    del colorspace
+    if ctx is None:
         return None
 
-    # Copy pixel data into a Python bytes object immediately,
-    # then release the CF references so the native memory is freed.
-    pixel_bytes = bytes(raw_data)
-    del raw_data
-    del data_provider
+    Quartz.CGContextDrawImage(ctx, Quartz.CGRectMake(0, 0, width, height), cg_image)
+    del ctx  # flush and release context
 
-    pil_image = Image.frombytes(
-        "RGBA",
-        (width, height),
-        pixel_bytes,
-        "raw",
-        "BGRA",
-        bytes_per_row,
-        1,
+    pil_image = Image.frombuffer("RGBA", (width, height), bytes(buf), "raw", "RGBA", bytes_per_row, 1)
+    del buf
+    rgb_image = pil_image.convert("RGB")
+    pil_image.close()
+    return rgb_image
+
+
+def _cgimage_crop(cg_image: object, x: float, y: float, w: float, h: float) -> object:
+    """Crop a CGImage using normalized coordinates (0-1).
+
+    Uses CGImageCreateWithImageInRect to crop at the native level BEFORE
+    pixel data extraction — avoids materialising the full buffer in Python.
+    Returns the cropped CGImage (caller must del it).
+    """
+    img_w = Quartz.CGImageGetWidth(cg_image)
+    img_h = Quartz.CGImageGetHeight(cg_image)
+    rect = Quartz.CGRectMake(
+        int(x * img_w),
+        int(y * img_h),
+        int(w * img_w),
+        int(h * img_h),
     )
-    del pixel_bytes
-    return pil_image.convert("RGB")
+    cropped = Quartz.CGImageCreateWithImageInRect(cg_image, rect)
+    return cropped
 
 
 def _encode_pil_to_jpeg(

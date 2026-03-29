@@ -1,0 +1,36 @@
+{
+  "name": "llming-lens",
+  "version": "0.1.0",
+  "description": "Remote desktop viewer — stream screens, browse windows, control input",
+  "provider": "core",
+  "platforms": ["darwin", "linux", "win32"],
+  "capabilities": ["viewer"],
+  "entry_point": "provider:LlmingLens",
+  "icon": "ph ph-monitor",
+  "author": "openhort",
+  "plugin_type": "tool",
+  "features": {
+    "desktop_preview": { "description": "Auto-fetch desktop thumbnail for grid card", "default": true }
+  },
+  "jobs": [
+    {
+      "id": "desktop-preview",
+      "method": "capture_preview",
+      "interval_seconds": 10,
+      "run_on_activate": true,
+      "enabled_feature": "desktop_preview"
+    }
+  ],
+  "ui_widgets": ["llming-lens-panel"],
+  "ui_script": "static/panel.js",
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "preview_interval": {
+        "type": "number",
+        "default": 10,
+        "description": "Desktop thumbnail refresh interval (seconds)"
+      }
+    }
+  }
+}

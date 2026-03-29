@@ -17,6 +17,7 @@ ACK format (JSON via control WS):
 from __future__ import annotations
 
 import asyncio
+import gc
 import io
 import json
 import logging
@@ -296,7 +297,7 @@ async def run_stream(
                 await asyncio.sleep(0.1)
                 continue
 
-            codec = config.codec if config.codec in ("vp8", "vp9", "webp") else "jpeg"
+            codec = config.codec if config.codec in ("vp8", "vp9") else "webp"
             is_video = codec in ("vp8", "vp9")
 
             # Recreate encoder on codec or quality change, KEEP seq continuous
@@ -352,40 +353,60 @@ async def run_stream(
 
             if config.window_id != prev_window_id:
                 logger.info("Stream window → %d", config.window_id)
-                if config.window_id >= 0:
-                    _raise_window(config.window_id, provider)
                 prev_window_id = config.window_id
 
-            effective_width = _effective_max_width(
+            # Server decides actual capture parameters.
+            # The client's config is a REQUEST — the server may override
+            # based on load, multiple viewers, or resource constraints.
+            actual_width = _effective_max_width(
                 config.screen_width, config.screen_dpr, config.max_width
             )
+            actual_quality = config.quality
+            actual_fps = config.fps
 
-            # Capture
+            # --- Server-side overrides ---
+            # Multiple viewers: reduce quality/resolution to share CPU
+            observer_count = getattr(entry, 'observer_id', 0)
+            if observer_count > 1:
+                actual_width = min(actual_width, 1280)
+                actual_quality = min(actual_quality, 50)
+
+            # High load: cap resolution (capture_ms from previous frame)
+            if frame_count > 10 and capture_ms > 150:
+                actual_width = min(actual_width, 960)
+                actual_quality = min(actual_quality, 40)
+                actual_fps = min(actual_fps, 10)
+
+            # Output size = client window * resolution scale (max_width used as %)
+            # max_width is now 25-100 (percent), not pixels
+            res_scale = max(0.25, min(1.0, config.max_width / 100.0))
+            dpr = config.screen_dpr or 1
+            client_w = max(320, int((config.screen_width or 1920) * dpr))
+            client_h = max(240, int((config.screen_height or 1080) * dpr))
+            out_w = max(160, int(client_w * res_scale))
+            out_h = max(120, int(client_h * res_scale))
+
             t0 = time.monotonic()
-            if is_video:
-                # VP8/VP9: need PIL image for video encoder
-                pil_image = await _capture_pil(provider, config.window_id, effective_width)
-                if pil_image is None:
-                    await _handle_capture_fail(entry, config)
-                    prev_window_id = 0
-                    continue
-            else:
-                # JPEG/WebP: capture as JPEG bytes via provider
-                frame_bytes = provider.capture_window(
-                    config.window_id, effective_width, config.quality
-                )
-                if frame_bytes is None:
-                    await _handle_capture_fail(entry, config)
-                    prev_window_id = 0
-                    continue
 
-                if codec == "webp":
-                    from PIL import Image as _Img
-                    pil = _Img.open(io.BytesIO(frame_bytes))
-                    wbuf = io.BytesIO()
-                    pil.save(wbuf, format="WEBP", quality=config.quality, method=0)
-                    pil.close()
-                    frame_bytes = wbuf.getvalue()
+            # Capture + crop + resize all in executor to keep full-res
+            # images off the event loop thread (allows immediate GC).
+            pil_image = await asyncio.get_event_loop().run_in_executor(
+                None, _capture_crop_resize,
+                provider, config.window_id,
+                config.vp_x, config.vp_y, config.vp_w, config.vp_h,
+                out_w, out_h,
+            )
+            if pil_image is None:
+                await _handle_capture_fail(entry, config)
+                prev_window_id = 0
+                continue
+
+            if not is_video:
+                wbuf = io.BytesIO()
+                pil_image.save(wbuf, format="WEBP", quality=actual_quality, method=0)
+                pil_image.close()
+                frame_bytes = wbuf.getvalue()
+                wbuf.close()
 
             capture_ms = (time.monotonic() - t0) * 1000
             frame_count += 1
@@ -412,12 +433,16 @@ async def run_stream(
                 header = stream_state.pack_header(seq)
                 _enqueue(header + frame_bytes, active_queue)
 
+            # GC every 100 frames to clean up any residual cycles
+            if frame_count % 100 == 0:
+                gc.collect()
+
             if frame_count % 100 == 0:
                 logger.info("Stream [%s]: %d frames, %.0fms, seq=%d acked=%d",
                             codec, frame_count, capture_ms,
                             stream_state.seq, stream_state.last_acked_seq)
 
-            sleep_time = (1.0 / config.fps) - (capture_ms / 1000.0)
+            sleep_time = (1.0 / actual_fps) - (capture_ms / 1000.0)
             if sleep_time > 0.001:
                 await asyncio.sleep(sleep_time)
 
@@ -506,8 +531,63 @@ def _capture_pil_sync(provider: PlatformProvider, window_id: int, max_width: int
     return pil_image
 
 
+def _capture_crop_resize(
+    provider: PlatformProvider,
+    window_id: int,
+    vp_x: float, vp_y: float, vp_w: float, vp_h: float,
+    out_w: int, out_h: int,
+) -> Any:
+    """Capture at native res, crop at CGImage level, convert + resize.
+
+    All native Quartz work happens inside an ObjC autorelease pool so
+    CF/CG objects (tens of MB each) are freed deterministically, not
+    deferred to a pool that may never drain on background threads.
+    """
+    import objc  # type: ignore[import-untyped]
+    from PIL import Image as _Img
+
+    try:
+        from hort.screen import (
+            DESKTOP_WINDOW_ID, _cgimage_crop, _cgimage_to_pil,
+            _raw_capture, _raw_capture_desktop,
+        )
+    except ImportError:
+        return None
+
+    with objc.autorelease_pool():
+        cg_image = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
+        if cg_image is None:
+            return None
+
+        # Crop at the native CGImage level — avoids copying full Retina buffer
+        if vp_w < 0.99 or vp_h < 0.99:
+            cropped_cg = _cgimage_crop(cg_image, vp_x, vp_y, vp_w, vp_h)
+            del cg_image
+            cg_image = cropped_cg
+
+        pil_image = _cgimage_to_pil(cg_image)
+        del cg_image
+    # autorelease pool drained — all CG/CF temporaries freed
+
+    if pil_image is None:
+        return None
+
+    # Resize to output (never upscale)
+    cur_w, cur_h = pil_image.size
+    scale = min(out_w / cur_w, out_h / cur_h, 1.0)
+    if scale < 0.95:
+        new_w = max(2, int(cur_w * scale)) & ~1  # even dims for VP8
+        new_h = max(2, int(cur_h * scale)) & ~1
+        resized = pil_image.resize((new_w, new_h), _Img.Resampling.LANCZOS)
+        pil_image.close()
+        pil_image = resized
+
+    return pil_image
+
+
 def _raise_window(window_id: int, provider: PlatformProvider) -> None:
     windows = provider.list_windows()
     win = next((w for w in windows if w.window_id == window_id), None)
     if win and win.owner_pid:
         provider.activate_app(win.owner_pid, bounds=win.bounds)
+

@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 PeerCallback = Callable[[str, WebRTCPeer], Coroutine[Any, Any, None]]
 
-TOKEN_EXPIRY = 60.0  # seconds (one-time connect tokens)
+TOKEN_EXPIRY = 60.0  # 60 seconds (connect tokens from /p2p link)
 RECONNECT_TOKEN_TTL = 240.0  # 4 minutes
 MAX_FAILURES_BEFORE_BACKOFF = 3
 BACKOFF_BASE = 2.0  # seconds
@@ -125,7 +125,7 @@ class TokenStore:
             logger.warning("invalid token (attempt %d)", self._failures)
             return False
 
-        del self._tokens[token]
+        # Don't consume — token stays valid until TTL expires
         self._failures = 0
         return True
 

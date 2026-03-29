@@ -314,16 +314,34 @@ sequenceDiagram
 | 4 minutes without refresh | Token expires, user must send `/p2p` again |
 | New tab | No token (sessionStorage is per-tab) |
 
-### Token Properties
+### Two Token Types
 
-| Property | Value |
-|----------|-------|
-| Entropy | 256-bit (`secrets.token_urlsafe(32)`) |
-| TTL | 4 minutes (refreshed on every ping/pong) |
-| Storage (server) | `ReconnectTokenStore` in-memory dict |
-| Storage (client) | `sessionStorage` (per-tab, survives reload) |
-| Multi-session | Yes — each tab gets its own token |
-| Consumed on use | No — reusable until expired |
+There are two distinct token types with different lifecycles:
+
+| | **Connect token** (URL `?token=`) | **Reconnect token** (sessionStorage) |
+|---|---|---|
+| **Source** | `/p2p` Telegram command | Server pong response |
+| **TTL** | **60 seconds** | **4 minutes** (refreshed every 30s) |
+| **Consumed on use** | **No** — reusable until TTL expires | **No** — reusable until expired |
+| **Survives page reload** | Yes (in URL) | Yes (in sessionStorage) |
+| **Survives server restart** | No (server-side store lost) | No (server-side store lost) |
+| **Purpose** | Initial connection from Telegram link | Reconnect after disconnect/reload/restart |
+| **Storage (server)** | `TokenStore` in-memory dict | `ReconnectTokenStore` in-memory dict |
+| **Storage (client)** | URL query parameter | `sessionStorage` (per-tab) |
+
+**Flow on page reload:**
+1. URL still has `?token=xxx` (connect token, may be expired)
+2. sessionStorage has reconnect token (refreshed by last pong)
+3. Client sends BOTH in the SDP offer
+4. Server accepts whichever is valid (reconnect token checked first)
+
+**Flow on new `/p2p` link:**
+1. Fresh connect token in URL (different from last used)
+2. Old reconnect token cleared from sessionStorage
+3. Client connects with the fresh connect token
+
+!!! warning "Connect token is NOT consumed"
+    The connect token stays valid for its full 60-second TTL. This allows page reloads within the first 60 seconds to work without needing the reconnect token. After 60 seconds, only the reconnect token (refreshed by ping/pong) can re-establish the connection.
 
 ### Reconnect Overlay
 

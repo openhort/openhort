@@ -44,10 +44,16 @@ class StreamConfig(BaseModel):
     window_id: int
     fps: int = Field(default=10, ge=1, le=60)
     quality: int = Field(default=70, ge=1, le=100)
-    max_width: int = Field(default=800, ge=100, le=7680)
+    max_width: int = Field(default=100, ge=25, le=7680)
     screen_width: int = Field(default=0, ge=0, le=7680)
+    screen_height: int = Field(default=0, ge=0, le=4320)
     screen_dpr: float = Field(default=1.0, ge=0.5, le=4.0)
-    codec: str = Field(default="jpeg")  # "jpeg", "webp"
+    codec: str = Field(default="webp")  # "webp", "vp8", "vp9"
+    # Viewport: normalized coords (0-1) of the visible region
+    vp_x: float = Field(default=0.0, ge=0.0, le=1.0)
+    vp_y: float = Field(default=0.0, ge=0.0, le=1.0)
+    vp_w: float = Field(default=1.0, ge=0.01, le=1.0)
+    vp_h: float = Field(default=1.0, ge=0.01, le=1.0)
 
 
 class InputEvent(BaseModel):

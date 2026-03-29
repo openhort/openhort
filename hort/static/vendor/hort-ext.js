@@ -278,10 +278,118 @@
     });
   };
 
+  /**
+   * hort-tile-grid — Reusable grid/list of cards with thumbnails.
+   *
+   * Props:
+   *   - items (Array, required): [{id, title, subtitle, icon, thumbnail}]
+   *     - thumbnail: base64 JPEG string or data URL
+   *   - mode (String): 'grid' (default) or 'list'
+   *   - columns (Number): grid columns (default: auto based on width)
+   *
+   * Events:
+   *   - @select(item): emitted when a card is clicked
+   *
+   * Example:
+   *   <hort-tile-grid :items="screens" @select="onSelect" />
+   */
+  HortExtension._registerSharedComponents_extra = function (app) {
+    app.component('hort-tile-grid', {
+      props: {
+        items: { type: Array, required: true },
+        mode: { type: String, default: 'grid' },
+        columns: { type: Number, default: 0 },
+      },
+      emits: ['select'],
+      template: `
+        <div :class="mode === 'list' ? 'hort-tile-list' : 'hort-tile-grid'" :style="gridStyle">
+          <div v-for="item in items" :key="item.id"
+               class="hort-tile-card"
+               :class="{ 'list-item': mode === 'list' }"
+               @click="$emit('select', item)">
+            <div class="hort-tile-thumb" v-if="mode !== 'list'">
+              <img v-if="item.thumbnail" :src="thumbSrc(item)" alt="" />
+              <div v-else class="hort-tile-icon">
+                <i :class="item.icon || 'ph ph-image'" style="font-size:32px"></i>
+              </div>
+            </div>
+            <div class="hort-tile-info">
+              <i v-if="mode === 'list' && item.icon" :class="item.icon" style="font-size:20px;flex-shrink:0"></i>
+              <div>
+                <div class="hort-tile-title">{{ item.title }}</div>
+                <div v-if="item.subtitle" class="hort-tile-subtitle">{{ item.subtitle }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `,
+      setup(props) {
+        function thumbSrc(item) {
+          if (!item.thumbnail) return '';
+          if (item.thumbnail.startsWith('data:')) return item.thumbnail;
+          return 'data:image/jpeg;base64,' + item.thumbnail;
+        }
+        const gridStyle = Vue.computed(() => {
+          if (props.mode === 'list') return {};
+          const cols = props.columns || 'auto-fill';
+          return {
+            display: 'grid',
+            gridTemplateColumns: typeof cols === 'number' && cols > 0
+              ? `repeat(${cols}, 1fr)`
+              : 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: '12px',
+          };
+        });
+        return { thumbSrc, gridStyle };
+      },
+    });
+  };
+
+  // Inject CSS for hort-tile-grid
+  if (typeof document !== 'undefined') {
+    const style = document.createElement('style');
+    style.textContent = `
+      .hort-tile-grid { padding: 0; }
+      .hort-tile-list { display: flex; flex-direction: column; gap: 8px; }
+      .hort-tile-card {
+        background: var(--el-surface, #16213e);
+        border: 1px solid var(--el-border, #2a3a5a);
+        border-radius: 8px;
+        cursor: pointer;
+        overflow: hidden;
+        transition: border-color 0.15s;
+      }
+      .hort-tile-card:hover { border-color: var(--el-primary, #7c4dff); }
+      .hort-tile-card.list-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+      }
+      .hort-tile-thumb {
+        width: 100%;
+        aspect-ratio: 16/9;
+        background: var(--el-bg, #0f1724);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      .hort-tile-thumb img { width: 100%; height: 100%; object-fit: cover; }
+      .hort-tile-icon { color: var(--el-text-dim, #666); }
+      .hort-tile-info { padding: 8px 10px; }
+      .hort-tile-card.list-item .hort-tile-info { padding: 0; display: flex; align-items: center; gap: 10px; }
+      .hort-tile-title { font-size: 13px; font-weight: 600; color: var(--el-text, #e0e0e0); }
+      .hort-tile-subtitle { font-size: 11px; color: var(--el-text-dim, #888); margin-top: 2px; }
+    `;
+    document.head.appendChild(style);
+  }
+
   // Patch activateAll to also register shared components
   const _origActivateAll = HortExtension.activateAll;
   HortExtension.activateAll = function (app, Quasar, configs) {
     HortExtension._registerSharedComponents(app);
+    HortExtension._registerSharedComponents_extra(app);
     _origActivateAll.call(this, app, Quasar, configs);
   };
 

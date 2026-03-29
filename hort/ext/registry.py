@@ -288,6 +288,8 @@ class ExtensionRegistry:
                     for name, ft in m.features.items()
                 },
                 "running_jobs": ctx.scheduler.running_jobs if ctx else [],
+                "ui_widgets": list(m.ui_widgets),
+                "ui_script": m.ui_script,
             })
         return results
 

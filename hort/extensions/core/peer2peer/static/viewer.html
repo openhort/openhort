@@ -85,16 +85,22 @@
 // ====== Config ======
 const tg = window.Telegram && window.Telegram.WebApp;
 const params = new URLSearchParams(location.search);
-const signalMode = params.get('signal') || 'http';
+const signalMode = params.get('signal') || sessionStorage.getItem('p2p_signal') || 'http';
 const serverUrl = params.get('server') || '';
-const relayUrl = params.get('relay') || 'wss://relay.openhort.ai';
-const roomId = params.get('room') || '';
+const relayUrl = params.get('relay') || sessionStorage.getItem('p2p_relay') || 'wss://relay.openhort.ai';
+const roomId = params.get('room') || sessionStorage.getItem('p2p_room') || '';
 const authToken = params.get('token') || '';
 
-// If we have a fresh URL token, clear any stale reconnect token
-// so it doesn't interfere with the new connection
-if (authToken) {
+// If we have URL params, persist them to sessionStorage and strip from URL
+if (params.get('room')) {
+  sessionStorage.setItem('p2p_signal', signalMode);
+  sessionStorage.setItem('p2p_relay', relayUrl);
+  sessionStorage.setItem('p2p_room', roomId);
+  // Clear reconnect token for fresh connection
   sessionStorage.removeItem('p2p_reconnect_token');
+  // Strip token and room from URL so reload uses sessionStorage
+  const cleanUrl = location.pathname;
+  history.replaceState(null, '', cleanUrl);
 }
 
 if (tg) {
