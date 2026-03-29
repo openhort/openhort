@@ -80,10 +80,20 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 **`docs/ai/`** contains AI-specific reference material (writing guides, conventions) that lives in the repo so it works on any machine. Not for humans, not in the mkdocs nav — just for AI context.
 
+**Doc structure:**
+- `docs/manual/guide/` — end-user pages (quickstart, config, cloud setup). Task-oriented, no jargon.
+- `docs/manual/developer/reference/` — developer reference (protocols, providers, extensions, linux-support, etc.)
+- `docs/manual/developer/internals/` — architecture, roadmap
+- `docs/manual/developer/security/` — threat model, safety rails
+- `docs/manual/developer/messengers/` — Telegram, etc.
+- `docs/coding/` — AI/developer reference material (writing guides, conventions). Not in mkdocs nav.
+- `docs/mkdocs.yml` — nav tree. New pages MUST be added here to appear in the built site.
+
 **Rules:**
 - CLAUDE.md = compressed rules + links. Never duplicate full docs content here.
 - `docs/` = canonical detail. If CLAUDE.md and docs/ disagree, docs/ wins — update CLAUDE.md.
-- `docs/coding/` = AI/developer reference material (writing guides, conventions). Checked into repo, not in `.claude/memory`.
+- New developer docs go in `docs/manual/developer/reference/`, NOT in `docs/coding/`.
+- `docs/coding/` = AI-only reference material (writing guides, conventions). Not in mkdocs nav.
 - When changing behavior, update docs/ first, then update the CLAUDE.md summary/link.
 - Before adding content to CLAUDE.md, check if it already exists in docs/ and link instead.
 - When writing documentation, follow [docs/coding/docs-writing-guide.md](docs/coding/docs-writing-guide.md) — mermaid diagrams, admonitions, code blocks, tabs, all mkdocs-material features with syntax.
@@ -93,6 +103,10 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [UX Guidelines](docs/coding/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
 - [Plugin Ecosystem](docs/coding/plugins.md) — plugin development guide, storage, scheduler, MCP, intents, widgets
 - [Extension System](docs/coding/extensions.md) — provider interfaces, manifest, registry, creating extensions
+- [Linux Support](docs/manual/developer/reference/linux-support.md) — native Linux provider, X11 tools, Docker deployment, P2P networking
+- [Cross-Platform Testing](docs/manual/developer/reference/cross-platform-testing.md) — Azure VM provisioning, E2E testing, distribution strategy
+- [Distribution & Installation](docs/manual/developer/reference/distribution.md) — pipx/Docker/deb packaging, `hort setup` wizard, macOS .app bundle for Screen Recording
+- [Client Apps](docs/manual/developer/reference/client-apps.md) — native WebView wrappers (Android/iOS/macOS/Windows), thin shell principles, repo at `openhort-clients`
 - [Llmings](docs/coding/llmings.md) — panel architecture, shared components, plugin lifecycle
 - [Access Server](docs/coding/access-server.md) — remote proxy, Azure deployment, tunnel protocol
 - [Container Environments](docs/coding/containers.md) — Docker/Azure container management, preview panel

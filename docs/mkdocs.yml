@@ -103,6 +103,10 @@ nav:
       - Sandbox Sessions: developer/reference/sandbox-sessions.md
       - Terminal Automation: developer/reference/terminal-automation.md
       - Peer-to-Peer Library: developer/reference/peer2peer.md
+      - Linux Support: developer/reference/linux-support.md
+      - Cross-Platform Testing: developer/reference/cross-platform-testing.md
+      - Distribution & Installation: developer/reference/distribution.md
+      - Client Apps: developer/reference/client-apps.md
     - Security:
       - Threat Model: developer/security/threat-model.md
       - Container Security: developer/reference/container-security.md

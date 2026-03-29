@@ -356,6 +356,23 @@ def _register_targets() -> None:
         except ImportError:
             pass  # Quartz not available
 
+    # Register native Linux target (only on Linux with X11)
+    if sys.platform == "linux":
+        try:
+            from hort.extensions.core.linux_native.provider import (
+                LinuxNativeExtension,
+            )
+
+            ext = LinuxNativeExtension()
+            ext.activate({})
+            registry.register(
+                "local-linux",
+                TargetInfo(id="local-linux", name="This Linux", provider_type="linux"),
+                ext,
+            )
+        except ImportError:
+            pass
+
     # Docker containers are discovered by the background scanner (_refresh_docker_targets)
     # which runs every 10 seconds — no need to block startup
     _refresh_docker_targets()
