@@ -377,6 +377,220 @@ If `reconnect_token` is valid, the one-time `token` is not checked — the clien
 
 Each tab has its own P2P connection with its own WebRTC peer on the server. The reconnect token maps to that specific server-side session. Using localStorage would let tab B steal tab A's session.
 
+## Stream Frame Transport
+
+Every frame (JPEG, WebP, VP8, VP9) flows through the same binary WebSocket with a 10-byte header. The transport is identical for all codecs and all connection types (LAN, proxy, P2P).
+
+### Frame Wire Format
+
+```
+[stream_id: 2 bytes, big-endian]
+[seq: 4 bytes, big-endian]
+[timestamp_ms: 4 bytes, big-endian]
+[payload: N bytes]
+```
+
+| Field | Size | Description |
+|-------|------|-------------|
+| `stream_id` | 2B | Which stream (0 = primary display, future: 1 = second monitor, 2 = webcam) |
+| `seq` | 4B | Monotonically increasing sequence number. **Never restarts** on codec switch. |
+| `timestamp_ms` | 4B | Milliseconds since stream start. Used by client for staleness detection. |
+| `payload` | NB | JPEG bytes, WebP bytes, WebM init segment, or WebM Cluster |
+
+### Full Stream Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant SPA as Browser SPA
+    participant SW as Stream WebSocket
+    participant CW as Control WebSocket
+    participant SS as stream.py (server)
+    participant CAP as Screen Capture
+    participant ENC as _VideoEncoder
+
+    SPA->>CW: stream_config {window_id, fps, quality, codec: "vp8"}
+    CW->>SS: Updates entry.stream_config
+    SS->>SS: Detects codec change → creates _VideoEncoder
+
+    loop Capture Loop
+        SS->>CAP: capture_pil(window_id, max_width)
+        CAP-->>SS: PIL Image
+
+        alt Codec = JPEG/WebP
+            SS->>SS: PIL.save(format=JPEG/WEBP)
+            SS->>SW: [header + JPEG/WebP bytes]
+        else Codec = VP8/VP9
+            SS->>ENC: encode(PIL Image)
+            ENC-->>SS: (init_segment, cluster_data)
+            Note over SS: Init sent directly (not queued)
+            SS->>SW: [header + init_segment]
+            Note over SS: Cluster sent via single-slot queue
+            SS->>SW: [header + cluster_data]
+        end
+
+        SS->>SS: sleep(1/fps - capture_time)
+    end
+
+    SPA->>CW: stream_ack {stream_id: 0, seq: 42}
+    CW->>SS: StreamState.ack(42)
+```
+
+### Frame Flow Control (ACK-Based)
+
+```mermaid
+flowchart TD
+    subgraph Server["Server (stream.py)"]
+        CAP[Capture frame] --> CHECK{unacked > 5?<br/>OR<br/>unacked_time > 1s?}
+        CHECK -->|Yes| PAUSE[Sleep 50ms<br/>check again]
+        CHECK -->|No| ENCODE[Encode + send]
+        ENCODE --> SEQ[seq++, pack header]
+        SEQ --> QUEUE{Codec?}
+        QUEUE -->|JPEG/WebP| SINGLE[Single-slot queue<br/>drop old if full]
+        QUEUE -->|VP8/VP9 init| DIRECT[Send directly<br/>not queued]
+        QUEUE -->|VP8/VP9 cluster| VIDEO_Q[Video queue<br/>max 4, drop oldest]
+        SINGLE --> SEND[WebSocket send]
+        DIRECT --> SEND
+        VIDEO_Q --> SEND
+        PAUSE --> CHECK
+    end
+    subgraph Client["Client (browser)"]
+        RECV[ws.onmessage] --> PARSE[Parse 10-byte header]
+        PARSE --> STALE{timestamp_ms<br/>stale > 2s?}
+        STALE -->|Yes, image codec| DROP[Drop frame<br/>ACK anyway]
+        STALE -->|No| DETECT{First 4 bytes?}
+        DETECT -->|0xFF... JPEG/WebP| RAF[requestAnimationFrame<br/>render latest only]
+        DETECT -->|0x1A45 EBML init| MSE_INIT[_initMSE<br/>create MediaSource]
+        DETECT -->|0x1F43 Cluster| MSE_APPEND[appendBuffer<br/>or queue max 30]
+        RAF --> ACK[Send stream_ack]
+        MSE_INIT --> ACK
+        MSE_APPEND --> ACK
+        DROP --> ACK
+    end
+    SEND -.->|binary WebSocket| RECV
+    ACK -.->|JSON control WS| CAP
+
+    style Server fill:#1a2a3a
+    style Client fill:#1a3a1a
+```
+
+### JPEG/WebP Frame Dropping
+
+For image codecs, frames are independently decodable — dropping is safe and encouraged:
+
+```mermaid
+flowchart LR
+    subgraph Server
+        Q["Single-slot queue<br/>(maxsize=1)"]
+        F1[Frame 1] --> Q
+        F2[Frame 2] -->|"replaces F1<br/>(F1 dropped)"| Q
+        F3[Frame 3] -->|"replaces F2<br/>(F2 dropped)"| Q
+        Q --> WS[WebSocket send]
+    end
+    subgraph Client
+        RECV[Receive] --> PEND["_pendingFrame<br/>(latest only)"]
+        F4[Frame 4] -->|"replaces pending"| PEND
+        PEND --> RAF[requestAnimationFrame]
+        RAF --> IMG["<img> blob URL"]
+    end
+    WS --> RECV
+```
+
+**Server drops:** single-slot queue means at most 1 frame buffered. If capture produces a new frame before the previous was sent, the old one is replaced.
+
+**Client drops:** `_pendingFrame` holds only the latest. If multiple frames arrive between rAF ticks, only the newest renders. The `_lastRenderedSeq` check skips frames older than what's displayed.
+
+**Timestamp drops:** If a frame's `timestamp_ms` is >2 seconds behind the client's elapsed time, it's dropped immediately (never rendered, but ACKed so the server knows).
+
+### VP8/VP9 MSE Pipeline
+
+For video codecs, frames are NOT independently decodable — the MSE SourceBuffer must receive them in order. Dropping causes glitches until the next keyframe.
+
+```mermaid
+flowchart TD
+    subgraph Server
+        INIT["Init segment<br/>(EBML + Segment + Tracks)"]
+        C1[Cluster 1]
+        C2[Cluster 2]
+        C3[Cluster 3]
+        INIT -->|"sent directly<br/>(own seq)"| WS[WebSocket]
+        C1 -->|"via queue"| WS
+        C2 -->|"via queue"| WS
+        C3 -->|"via queue"| WS
+    end
+    subgraph Client["Client MSE Pipeline"]
+        RX[ws.onmessage] --> DET{EBML?}
+        DET -->|Yes| CREATE["_initMSE()<br/>new MediaSource<br/>new SourceBuffer"]
+        DET -->|No, Cluster| BUSY{SB updating?}
+        BUSY -->|No| APPEND[appendBuffer]
+        BUSY -->|Yes| QUEUE["Queue (max 30)"]
+        QUEUE --> UE[updateend event]
+        UE --> DRAIN[appendBuffer from queue]
+        DRAIN --> UE
+        APPEND --> UE
+        CREATE --> APPEND
+    end
+    subgraph LiveEdge["Live-Edge Seeker (200ms interval)"]
+        CHECK_LAG{lag?}
+        CHECK_LAG -->|"> 2s"| SEEK["video.currentTime = liveEdge"]
+        CHECK_LAG -->|"> 0.8s"| FAST["playbackRate = 1 + lag"]
+        CHECK_LAG -->|"> 0.3s"| GENTLE["playbackRate = 1.2"]
+        CHECK_LAG -->|"< 0.3s"| NORMAL["playbackRate = 1.0"]
+    end
+
+    WS --> RX
+
+    style Server fill:#1a2a3a
+    style Client fill:#1a3a1a
+    style LiveEdge fill:#2a1a2a
+```
+
+### Stream Stop / Cleanup
+
+When the user navigates away from the viewer:
+
+```mermaid
+sequenceDiagram
+    participant SPA as Browser SPA
+    participant CW as Control WS
+    participant SW as Stream WS
+    participant SS as Server stream.py
+
+    SPA->>CW: stream_stop
+    CW->>SS: entry.stream_config = None
+    CW->>SS: entry.stream_ws.close(4002)
+    SS->>SS: WebSocketDisconnect caught
+    SS->>SS: finally: stream_ws=None, stream_config=None
+
+    Note over SPA: disconnectStreamWs()
+    SPA->>SPA: Close stream WS
+    SPA->>SPA: Clear MSE (endOfStream, null refs)
+    SPA->>SPA: Clear liveSeeker interval
+    SPA->>SPA: Reset _lastRenderedSeq = -1
+    SPA->>SPA: Revoke blob URLs
+```
+
+!!! warning "stream_stop via control WS is essential"
+    The stream WS close message might be stuck behind buffered binary frames in the DataChannel. `stream_stop` is sent via the control channel (which is never clogged with binary data) to guarantee the server stops capturing immediately.
+
+### Server-Side Pause / Auto-Recovery
+
+```mermaid
+stateDiagram-v2
+    [*] --> Streaming: stream_config received
+    Streaming --> Paused: unacked > 5 frames<br/>OR unacked_time > 1s
+    Paused --> Streaming: ACK received<br/>(unacked drops below threshold)
+    Paused --> AutoRecovery: No ACK for 5s
+    AutoRecovery --> Streaming: Reset acked = seq<br/>Resume sending
+    Streaming --> [*]: stream_stop<br/>OR WebSocketDisconnect
+```
+
+The auto-recovery prevents permanent deadlock when:
+- The client tab is backgrounded (ACKs stop)
+- The DataChannel dies silently
+- A burst of large frames fills the SCTP buffer
+
+After recovery, the server resumes with the latest frame — no stale data.
+
 ## DataChannel Proxy Protocol
 
 The proxy multiplexes HTTP and WebSocket traffic over a single WebRTC DataChannel.
@@ -575,140 +789,182 @@ The `/connect` command generates a Telegram Web App inline button. The `/p2p` co
 
 The static menu button was removed — it can't include dynamic tokens and would be a security risk.
 
-## Video Streaming (VP8/VP9)
+## Video Streaming (VP8/VP9 via MSE)
 
-Screen content is streamed as VP8 or VP9 encoded video — not JPEG frames. This enables hardware-decoded 30fps UHD streaming with inter-frame compression.
+Real inter-frame compressed video streaming using VP8 or VP9 in WebM containers, decoded via Media Source Extensions (MSE). Works identically over LAN, proxy, and P2P.
 
-### Why Not MJPEG?
+### Available Codecs
 
-| | MJPEG (old) | VP8/VP9 (new) |
-|---|---|---|
-| Compression | Each frame standalone (~50-200 KB) | Inter-frame (~5-20 KB) |
-| UHD 30fps bandwidth | ~150 MB/s | ~2-5 MB/s |
-| Hardware decode | No (JS canvas) | Yes (native `<video>`) |
-| Latency | ~50ms | ~30ms |
-| License | N/A | **Royalty-free** (BSD) |
-
-### Codec Choice
-
-| Codec | License | Encoding Speed | Compression | aiortc Native |
-|-------|---------|---------------|-------------|---------------|
-| **VP8** | BSD, royalty-free | Fast | Good | Yes |
-| **VP9** | BSD, royalty-free | Slower | Better | Via av/libvpx |
-| H.264 | Patent pool (MPEG-LA) | Fast | Good | Yes (but license risk) |
-| AV1 | Royalty-free | Slow | Best | No |
-
-VP8 is the default for P2P (native aiortc support, fast encoding). VP9 is available for the WebM/MSE proxy path where encoding speed is less critical.
+| Codec | Type | Compression | Drop-safe | Zoom/Pan | Use case |
+|-------|------|-------------|-----------|----------|----------|
+| **JPEG** | Image per frame | None | Yes | Yes | Default, universal |
+| **WebP** | Image per frame | ~30% smaller than JPEG | Yes | Yes | Bandwidth-constrained |
+| **VP8** | Video stream (MSE) | ~10x smaller (inter-frame) | No | Via `<video>` | Smooth video, hardware decode |
+| **VP9** | Video stream (MSE) | ~15x smaller (inter-frame) | No | Via `<video>` | Best compression |
 
 ### Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Server["Home Machine"]
-        CAPTURE[Screen Capture<br/>PIL Image]
-        TRACK[ScreenCaptureTrack<br/>aiortc VideoStreamTrack]
-        WEBM[WebMEncoder<br/>VP8/VP9 in WebM]
+    subgraph Server["Home Machine (stream.py)"]
+        CAPTURE[Screen Capture → PIL Image]
+        JPEG_ENC[JPEG/WebP encoder<br/>PIL.save]
+        VP8_ENC["_VideoEncoder<br/>libvpx VP8/VP9 → WebM clusters"]
     end
-    subgraph P2P["P2P Mode (WebRTC)"]
-        VP8_RTP[VP8 via RTP<br/>aiortc native encoder]
-        VIDEO_TAG[Browser &lt;video&gt;<br/>hardware decode]
+    subgraph Transport["Stream WebSocket (binary)"]
+        HEADER["10-byte header<br/>[stream_id:2][seq:4][ts:4]"]
+        FRAME[Frame data]
     end
-    subgraph Proxy["Proxy Mode (WebSocket)"]
-        MSE[WebM segments<br/>via WebSocket]
-        MSE_VIDEO[Browser MSE<br/>SourceBuffer → &lt;video&gt;]
+    subgraph Browser["Browser (index.html)"]
+        IMG["<img> renderer<br/>(JPEG/WebP)"]
+        MSE["MSE SourceBuffer<br/>→ <video> element"]
+        DETECT{Auto-detect<br/>EBML? Cluster?<br/>Image?}
     end
 
-    CAPTURE --> TRACK --> VP8_RTP --> VIDEO_TAG
-    CAPTURE --> WEBM --> MSE --> MSE_VIDEO
+    CAPTURE --> JPEG_ENC -->|JPEG/WebP bytes| HEADER
+    CAPTURE --> VP8_ENC -->|WebM init + clusters| HEADER
+    HEADER --> FRAME --> DETECT
+    DETECT -->|0xFF 0xD8 or other| IMG
+    DETECT -->|0x1A 0x45 EBML| MSE
+    DETECT -->|0x1F 0x43 Cluster| MSE
 
-    style P2P fill:#1a3a1a
-    style Proxy fill:#1a2a3a
+    style Server fill:#1a2a3a
+    style Browser fill:#1a3a1a
 ```
 
-**P2P mode:** `ScreenCaptureTrack` (extends `aiortc.VideoStreamTrack`) feeds `av.VideoFrame` objects to aiortc, which encodes them as VP8 via RTP. The browser receives the stream as a native `MediaStreamTrack` and renders it in a `<video>` element with hardware decoding.
+### How VP8/VP9 Streaming Works
 
-**Proxy mode:** `WebMEncoder` encodes frames as VP8 or VP9 in a WebM container. Segments are sent over the existing binary WebSocket. The browser uses Media Source Extensions (MSE) to decode and render.
+1. **Server** captures screen as PIL Image
+2. **`_VideoEncoder`** encodes to WebM using `libvpx` / `libvpx-vp9`
+3. First frame produces an **init segment** (EBML + Segment + Tracks, no frame data) sent directly
+4. Each subsequent frame produces a **Cluster** (one frame per cluster) via the queue
+5. **Browser** auto-detects format from first 4 bytes of payload:
+   - `0x1A 0x45 0xDF 0xA3` → EBML init → `_initMSE()` creates MediaSource + SourceBuffer
+   - `0x1F 0x43 0xB6 0x75` → Cluster → `appendBuffer()` to SourceBuffer
+   - Anything else → JPEG/WebP image → `<img>` blob URL
 
-### ScreenCaptureTrack
+### Critical Encoder Settings
 
 ```python
-from hort.peer2peer.video_track import ScreenCaptureTrack
+# Container: WebM with per-frame flush
+container = av.open(buf, mode="w", format="webm",
+                    options={"live": "1", "cluster_size_limit": "0"})
 
-track = ScreenCaptureTrack(fps=30, max_width=1920)
-track.set_capture_function(capture_pil_fn)  # fn(window_id, max_width) -> PIL.Image
-track.set_window(window_id=101)
+# Stream: conservative rate matching actual capture speed
+stream = container.add_stream(codec_lib, rate=10)
 
-# Add to WebRTC peer before accept_offer()
-peer.add_video_track(track)
+# Encoding: fastest possible
+stream.options = {"cpu-used": "8", "deadline": "realtime", "lag-in-frames": "0"}
+
+# PTS: sequential (0, 1, 2, ...) — MSE sequence mode handles timing
+frame.pts = frame_counter
 ```
 
-The track:
-- Calls the capture function at the target FPS
-- Converts PIL Images to `av.VideoFrame`
-- Falls back to a test pattern if capture fails (purple bar on dark blue)
-- Paces frames to the target FPS using monotonic clock
+!!! danger "Critical settings — changing these breaks MSE"
 
-### WebMEncoder (proxy mode)
+    | Setting | Value | Why |
+    |---------|-------|-----|
+    | `cluster_size_limit` | `"0"` | Forces one frame per WebM Cluster. Without this, the muxer buffers ~11 frames before flushing → video frozen for seconds |
+    | `rate` | `10` | Must be ≤ actual capture FPS. If rate > capture speed, the video plays faster than frames arrive → freeze/refill stutter. Capture at 1920px takes ~80ms (12fps), so rate=10 is safe |
+    | `frame.pts` | Sequential `0,1,2,...` | NOT wall-clock. MSE `sequence` mode assigns timing from PTS. With rate=10, each PTS unit = 100ms |
+    | SourceBuffer `mode` | `'sequence'` | NOT `'segments'`. `segments` mode uses container timestamps which create fragmented buffer ranges. `sequence` mode appends data sequentially |
+    | `live` | `"1"` | Tells the muxer this is a live stream, not a file |
+
+### Init Segment (MSE Initialization)
+
+The init segment must be **MSE-compatible** — just the WebM header, NOT a complete file:
 
 ```python
-from hort.peer2peer.video_track import WebMEncoder
+def _make_init(self) -> bytes:
+    # Encode one black frame to force header + tracks to be written
+    container = av.open(buf, mode="w", format="webm")
+    stream = container.add_stream(codec_lib, rate=10)
+    # ... encode one frame, close container ...
+    data = buf.getvalue()
 
-encoder = WebMEncoder(codec='vp9', fps=30, width=1920, height=1080, bitrate=4_000_000)
+    # Truncate BEFORE the Cluster element (0x1F43B675)
+    cluster_pos = data.find(b'\x1f\x43\xb6\x75')
+    data = data[:cluster_pos]
 
-# Get WebM header for MSE initialization
-init_segment = encoder.get_init_segment()
-await websocket.send_bytes(init_segment)
+    # Patch Segment size to "unknown" (0x01FFFFFFFFFFFFFF)
+    # so MSE accepts dynamically appended clusters
+    seg_pos = data.find(b'\x18\x53\x80\x67')
+    data[seg_pos + 4 : seg_pos + 12] = b'\x01\xff\xff\xff\xff\xff\xff\xff'
 
-# Encode and send frames
-for pil_image in capture_loop():
-    data = encoder.encode_frame(pil_image)
-    if data:
-        await websocket.send_bytes(data)
-
-encoder.close()
+    return data
 ```
 
-### Low-Latency Encoding Settings
+!!! danger "Init segment mistakes that break MSE"
 
-Both VP8 and VP9 use aggressive real-time settings:
+    | Mistake | Symptom | Fix |
+    |---------|---------|-----|
+    | Init includes a Cluster (frame data) | MSE sees end-of-stream, stops accepting data | Truncate at Cluster marker `0x1F43B675` |
+    | Segment size is a fixed number | MSE rejects appended clusters (size exceeded) | Patch to unknown `0x01FFFFFFFFFFFFFF` |
+    | Init sent through frame queue | Dropped by single-slot queue, MSE never initializes | Send init directly via `await websocket.send_bytes()` |
+    | Init and first frame share same seq | Client drops one (seq ≤ lastRenderedSeq) | Give init and frame separate seq numbers |
+    | Init seq restarts at 0 on codec switch | Client drops init (0 < lastRenderedSeq from JPEG) | Keep seq counter continuous across codec switches |
 
-```python
-# VP8
-{"cpu-used": "8", "deadline": "realtime", "lag-in-frames": "0"}
-
-# VP9
-{"cpu-used": "8", "deadline": "realtime", "lag-in-frames": "0", "row-mt": "1"}
-```
-
-`cpu-used=8` is the fastest quality preset. `lag-in-frames=0` disables lookahead buffering. `row-mt=1` enables multi-threaded row encoding for VP9.
-
-### Browser Integration
-
-The viewer adds a video transceiver before creating the SDP offer:
+### Client-Side MSE Pipeline
 
 ```javascript
-pc.addTransceiver('video', { direction: 'recvonly' });
+// 1. Auto-detect from payload bytes (not state.codec — avoids race on switch)
+const isEBML = b[0]===0x1A && b[1]===0x45;     // init segment
+const isCluster = b[0]===0x1F && b[1]===0x43;   // frame data
 
-pc.ontrack = (evt) => {
-  if (evt.track.kind === 'video') {
-    const video = document.createElement('video');
-    video.srcObject = evt.streams[0];
-    video.autoplay = true;
-    video.playsInline = true;
-    document.body.appendChild(video);
-  }
-};
+// 2. Init → create MediaSource + SourceBuffer
+_sourceBuffer = _mediaSource.addSourceBuffer('video/webm; codecs="vp8"');
+_sourceBuffer.mode = 'sequence';
+
+// 3. Frames → queue and drain via updateend
+// Queue max 30 frames. On updateend, append next from queue.
+// If SourceBuffer is idle, kick the drain immediately.
+
+// 4. Live-edge seeker (every 200ms) — adaptive playbackRate
+if (lag > 2.0) video.currentTime = liveEdge;      // hard seek
+else if (lag > 0.8) video.playbackRate = 1 + lag;  // proportional speedup
+else if (lag > 0.3) video.playbackRate = 1.2;       // gentle catchup
+else video.playbackRate = 1.0;                       // normal speed
 ```
 
-The SPA can access `window._p2pVideoStream` after the P2P connection is established and use it for the stream viewer instead of JPEG-over-WebSocket.
+!!! danger "Client-side mistakes that break MSE"
+
+    | Mistake | Symptom | Fix |
+    |---------|---------|-----|
+    | `SourceBuffer.remove()` in `updateend` | Locks SourceBuffer in `updating=true` permanently → all frames rejected → video freezes | NEVER call `remove()`. Let browser manage buffer memory |
+    | Queue too small (2 frames) | SourceBuffer busy → frames dropped → ~1fps | Queue 30 frames, drain as fast as `updateend` fires |
+    | Live-edge seeker seeks past buffer | `currentTime` > `bufferEnd` → video stuck | Only seek within the last buffered range |
+    | `playbackRate` too low (1.1x) | Can't catch up if buffer grows | Use proportional speedup: `1 + lag` |
+    | `sequence` mode with wall-clock PTS + rate=1000 | Each frame = 1ms → 10 frames = 10ms of video | Use rate=10 with sequential PTS (each frame = 100ms) |
+
+### Measured Performance
+
+Tested over P2P (WebRTC DataChannel) for 60+ seconds:
+
+| Metric | Value |
+|--------|-------|
+| Lag | 0.3-0.4s (stable, no drift) |
+| Buffer ranges | 1 (single continuous) |
+| readyState | 4 (HAVE_ENOUGH_DATA) |
+| Freezes | None |
+| Resolution | 1920px |
+| Frame rate | ~10fps (capture-limited) |
+| playbackRate | 1.0-1.2 (adaptive) |
+
+### Codec Switching
+
+The user can switch between JPEG, WebP, VP8, VP9 at any time via the settings panel. The server:
+
+1. Receives new `stream_config` with `codec` field
+2. Keeps the seq counter continuous (NO new StreamState)
+3. Creates a new `_VideoEncoder` for VP8/VP9
+4. Sends the init segment with the next seq number
+5. Client auto-detects EBML → reinitializes MSE
+
+The client auto-detects the frame format from the first 4 bytes — no need for a `codec_change` message. JPEG/WebP frames go to `<img>`, VP8/VP9 frames go to MSE `<video>`.
 
 ### Future: Audio (Opus)
 
-Opus audio can be added the same way — create an `AudioStreamTrack`, capture system audio, add to the peer:
-
-```python
-peer.add_audio_track(audio_track)  # before accept_offer()
-```
+Opus audio can be muxed into the same WebM container alongside VP8/VP9. The SourceBuffer accepts interleaved audio+video clusters. This enables sound transport over the same stream WebSocket with zero additional infrastructure.
 
 Opus is royalty-free, mandatory for WebRTC, and supported in every browser.
 

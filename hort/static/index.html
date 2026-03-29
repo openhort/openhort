@@ -58,6 +58,44 @@
   window.__hortBasePath = _basePath;
   window.__hortState = null; // set after state is created
 
+  // ===== STREAM SETTINGS PERSISTENCE (IndexedDB) =====
+  const _STREAM_DB = 'hort-stream-settings';
+  const _STREAM_STORE = 'config';
+  const _STREAM_KEY = 'streaming';
+  const _STREAM_FIELDS = ['quality', 'fps', 'maxWidth', 'codec'];
+
+  function _openStreamDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(_STREAM_DB, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(_STREAM_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function _saveStreamSettings(st) {
+    try {
+      const db = await _openStreamDB();
+      const tx = db.transaction(_STREAM_STORE, 'readwrite');
+      const obj = {};
+      for (const k of _STREAM_FIELDS) obj[k] = st[k];
+      tx.objectStore(_STREAM_STORE).put(obj, _STREAM_KEY);
+      db.close();
+    } catch (e) { /* IndexedDB not available */ }
+  }
+
+  async function _loadStreamSettings() {
+    try {
+      const db = await _openStreamDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(_STREAM_STORE, 'readonly');
+        const req = tx.objectStore(_STREAM_STORE).get(_STREAM_KEY);
+        req.onsuccess = () => { db.close(); resolve(req.result || null); };
+        req.onerror = () => { db.close(); resolve(null); };
+      });
+    } catch (e) { return null; }
+  }
+
   // ===== SHARED STATE =====
   const state = reactive({
     // Connection
@@ -154,6 +192,15 @@
     extensionPanels: [],
   });
   window.__hortState = state;
+
+  // Restore stream settings from IndexedDB
+  _loadStreamSettings().then(saved => {
+    if (saved) {
+      for (const k of _STREAM_FIELDS) {
+        if (saved[k] !== undefined) state[k] = saved[k];
+      }
+    }
+  });
 
   // ===== PERSISTENCE HELPERS =====
   function loadGroups() {
@@ -534,42 +581,37 @@
         _sourceBuffer = _mediaSource.addSourceBuffer('video/webm; codecs="' + codec + '"');
         _sourceBuffer.mode = 'sequence';
         _sourceBuffer.addEventListener('updateend', () => {
-          // Drain queue first
+          // Priority: append queued frames as fast as possible
           if (_mseQueue.length > 0 && !_sourceBuffer.updating) {
             try { _sourceBuffer.appendBuffer(_mseQueue.shift()); }
             catch (e) { _mseQueue = []; }
           }
-          // Aggressively trim — keep max 1s of buffer
-          try {
-            if (_sourceBuffer.buffered.length > 0 && !_sourceBuffer.updating) {
-              const end = _sourceBuffer.buffered.end(0);
-              if (end > 1.5) _sourceBuffer.remove(0, end - 1);
-            }
-          } catch(e) {}
-          // Seek to live edge — prevent video from falling behind
-          try {
-            if (video.buffered.length > 0) {
-              const liveEdge = video.buffered.end(video.buffered.length - 1);
-              if (liveEdge - video.currentTime > 0.5) {
-                video.currentTime = liveEdge - 0.1;
-              }
-            }
-          } catch(e) {}
         });
         _sourceBuffer.appendBuffer(initData);
         _mseReady = true;
         state.mseActive = true;
 
-        // Force video to live edge every 500ms — prevents drift
+        // Live-edge seeker — keeps video within 0.3s of the live edge
+        // Uses playbackRate adjustment instead of seeking (smoother)
         const liveSeeker = setInterval(() => {
           if (!_mseReady || !video.buffered.length) return;
           try {
             const liveEdge = video.buffered.end(video.buffered.length - 1);
-            if (liveEdge - video.currentTime > 0.3) {
-              video.currentTime = liveEdge;
+            const lag = liveEdge - video.currentTime;
+            if (lag > 2.0) {
+              // Way behind — hard seek
+              video.currentTime = liveEdge - 0.1;
+              video.playbackRate = 1.0;
+            } else if (lag > 0.8) {
+              // Behind — speed up proportionally to catch up
+              video.playbackRate = 1.0 + Math.min(lag, 2.0);
+            } else if (lag > 0.3) {
+              video.playbackRate = 1.2;
+            } else {
+              video.playbackRate = 1.0;
             }
           } catch(e) {}
-        }, 500);
+        }, 200);
         video._liveSeeker = liveSeeker;
       } catch (e) {
         console.error('MSE init error:', e);
@@ -629,15 +671,18 @@
       const isVideo = isEBML || isCluster;
 
       if (isVideo) {
-        // VP8/VP9 WebM data — append to MSE in order (never drop)
         if (isEBML) {
-          // Init segment — always initialize/reinitialize MSE
           _initMSE(payload);
-        } else if (_sourceBuffer && !_sourceBuffer.updating) {
-          try { _sourceBuffer.appendBuffer(payload); }
-          catch(ex) { /* skip on error */ }
-        } else if (_mseQueue.length < 4) {
+        } else {
+          // Always queue, let updateend drain as fast as possible
+          // Keep max 30 frames (~2s at 15fps) — drop oldest if full
+          if (_mseQueue.length >= 30) _mseQueue.shift();
           _mseQueue.push(payload);
+          // Kick the drain if SourceBuffer is idle
+          if (_sourceBuffer && !_sourceBuffer.updating && _mseQueue.length > 0) {
+            try { _sourceBuffer.appendBuffer(_mseQueue.shift()); }
+            catch(ex) { /* skip */ }
+          }
         }
         _lastRenderedSeq = seq;
         state.frameCount++;
@@ -1005,6 +1050,7 @@
       function onSettingChange() {
         const win = currentWindow();
         if (win) sendStreamConfig(win.window_id, win.target_id);
+        _saveStreamSettings(state);
       }
 
       function toggleFullscreen() {

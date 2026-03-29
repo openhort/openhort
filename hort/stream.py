@@ -132,13 +132,8 @@ class _VideoEncoder:
             pil_image = pil_image.resize((self._width, self._height), Image.Resampling.LANCZOS)
 
         frame = av.VideoFrame.from_image(pil_image)
-        # Use wall-clock PTS to prevent drift between encode rate and playback rate
-        import time as _time
-        if self._enc["start"] == 0:
-            self._enc["start"] = _time.monotonic()
-        elapsed = _time.monotonic() - self._enc["start"]
-        # PTS in timebase units (1/fps). Use wall clock so MSE plays at real speed.
-        frame.pts = int(elapsed * self._fps)
+        # Sequential PTS with rate=10 → each frame = 100ms of video time
+        frame.pts = self._enc["fc"]
         self._enc["fc"] += 1
 
         buf = self._enc["buf"]
@@ -162,7 +157,10 @@ class _VideoEncoder:
         # cluster_size_limit=0 forces one frame per cluster → immediate flush
         container = av.open(buf, mode="w", format="webm",
                             options={"live": "1", "cluster_size_limit": "0"})
-        stream = container.add_stream(codec_lib, rate=self._fps)
+        # Rate=10 (conservative) — ensures the video never plays faster than
+        # frames arrive. Each frame = 100ms of video time. Real capture is
+        # ~80-100ms so the buffer stays stable (no freeze/refill cycle).
+        stream = container.add_stream(codec_lib, rate=10)
         stream.width = self._width
         stream.height = self._height
         stream.bit_rate = self._bitrate
@@ -184,7 +182,7 @@ class _VideoEncoder:
         buf = io.BytesIO()
         codec_lib = "libvpx" if self._codec == "vp8" else "libvpx-vp9"
         c = av.open(buf, mode="w", format="webm")
-        s = c.add_stream(codec_lib, rate=self._fps)
+        s = c.add_stream(codec_lib, rate=10)
         s.width, s.height, s.pix_fmt = self._width, self._height, "yuv420p"
         # Encode one frame to force header + tracks to be written
         black = _Image.new("RGB", (self._width, self._height), (0, 0, 0))
