@@ -45,14 +45,30 @@ flowchart TD
 
 ### VM Images & Sizes
 
-| OS | Image URN | Size | Spot ~Cost |
-|----|-----------|------|------------|
-| Ubuntu 24.04 | `Canonical:ubuntu-24_04-lts:server-gen2:latest` | `Standard_B2s` (2 vCPU, 4 GB) | ~$0.01/hr |
-| Windows 10 | `MicrosoftWindowsDesktop:windows-10:win10-22h2-pro-g2:latest` | `Standard_B2ms` (2 vCPU, 8 GB) | ~$0.03/hr |
-| Windows 11 | `MicrosoftWindowsDesktop:windows-11:win11-24h2-pro:latest` | `Standard_B2ms` (2 vCPU, 8 GB) | ~$0.03/hr |
+| OS | Image URN | Size | ~Cost/hr |
+|----|-----------|------|----------|
+| Ubuntu 24.04 | `Canonical:ubuntu-24_04-lts:server:latest` | `Standard_B2s` (2 vCPU, 4 GB) | ~$0.04 |
+| Windows 10 | `MicrosoftWindowsDesktop:windows-10:win10-22h2-pro-g2:latest` | `Standard_B2ms` (2 vCPU, 8 GB) | ~$0.08 |
+| Windows 11 | `MicrosoftWindowsDesktop:windows-11:win11-24h2-pro:latest` | `Standard_B2ms` (2 vCPU, 8 GB) | ~$0.08 |
+
+!!! note "Spot instances"
+    Spot pricing (`--priority Spot`) is 60-90% cheaper but B-series availability varies by region. Use `SPOT=1` with the provisioning script when available. The scripts default to pay-as-you-go for reliability.
 
 !!! warning "Windows Desktop Licensing"
     Windows 10/11 desktop images from `MicrosoftWindowsDesktop` require a Visual Studio subscription. For CI/CD, Windows Server with Desktop Experience is an alternative that doesn't require VS licensing.
+
+### Accessing the VM Desktop
+
+Every test VM gets a desktop environment accessible via RDP. This allows manual inspection of what openhort sees and captures.
+
+| OS | Remote Access | Port | Desktop |
+|----|--------------|------|---------|
+| Ubuntu | xrdp (RDP protocol) | 3389 | XFCE |
+| Windows 10/11 | Native RDP | 3389 | Windows Desktop |
+
+Connect with any RDP client (Microsoft Remote Desktop on macOS, `mstsc` on Windows, Remmina on Linux).
+
+The Ubuntu VM also runs a Xvfb virtual framebuffer on `:10` that openhort captures. When you RDP in, you get an independent XFCE session — the openhort-visible desktop runs headless on `:10`.
 
 ### Provisioning Flow
 
@@ -506,6 +522,8 @@ flowchart LR
 
 | File | Purpose |
 |------|---------|
+| `scripts/ci/provision-ubuntu.sh` | One-command Ubuntu VM provisioning |
+| `scripts/ci/cloud-init-ubuntu-desktop.yml` | Ubuntu cloud-init (XFCE + xrdp + openhort) |
 | `deploy/linux/Dockerfile` | Docker distribution (Linux) |
 | `deploy/linux/docker-compose.yml` | One-command Docker deployment |
 | `deploy/linux/entrypoint.sh` | Container startup (Xvfb + server) |
