@@ -89,19 +89,11 @@ provision_windows() {
     az vm auto-shutdown --resource-group "$RG" --name "$NAME" --time 0000 -o none &
     wait
 
-    # Run setup script via Custom Script Extension
-    echo "  Installing openhort via PowerShell (takes 5-10 min)..."
-    az vm run-command invoke \
-        --resource-group "$RG" \
-        --name "$NAME" \
-        --command-id RunPowerShellScript \
-        --scripts @"$SCRIPT_DIR/setup-windows.ps1" \
-        -o none &
-
     echo "  $DISPLAY_NAME ready:"
     echo "    RDP:      $IP:3389  (hortuser / OpenHort2026!)"
-    echo "    openhort: http://$IP:8940  (after setup completes)"
-    echo "    Setup runs in background — RDP in to monitor progress"
+    echo ""
+    echo "    After RDP login, open PowerShell as Admin and run:"
+    echo "      iex (irm https://raw.githubusercontent.com/openhort/openhort/feature/windows-support/scripts/ci/setup-windows.ps1)"
     echo ""
 }
 
