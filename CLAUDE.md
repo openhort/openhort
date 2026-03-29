@@ -104,6 +104,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Plugin Ecosystem](docs/coding/plugins.md) — plugin development guide, storage, scheduler, MCP, intents, widgets
 - [Extension System](docs/coding/extensions.md) — provider interfaces, manifest, registry, creating extensions
 - [Linux Support](docs/manual/developer/reference/linux-support.md) — native Linux provider, X11 tools, Docker deployment, P2P networking
+- [Windows Support](docs/manual/developer/reference/windows-support.md) — native Windows provider, Win32 API (ctypes), Azure VM testing
 - [Cross-Platform Testing](docs/manual/developer/reference/cross-platform-testing.md) — Azure VM provisioning, E2E testing, distribution strategy
 - [Distribution & Installation](docs/manual/developer/reference/distribution.md) — pipx/Docker/deb packaging, `hort setup` wizard, macOS .app bundle for Screen Recording
 - [Client Apps](docs/manual/developer/reference/client-apps.md) — native WebView wrappers (Android/iOS/macOS/Windows), thin shell principles, repo at `openhort-clients`
