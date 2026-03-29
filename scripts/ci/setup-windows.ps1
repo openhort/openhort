@@ -12,29 +12,42 @@ Write-Host "=== openhort Windows Setup ==="
 # ── Install OpenSSH Server ───────────────────────────────────────────
 Write-Host "Installing OpenSSH Server..."
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-Start-Service sshd
-Set-Service -Name sshd -StartupType Automatic
+
+# Generate host keys if missing (some Azure images don't auto-generate)
+$sshDir = "C:\ProgramData\ssh"
+if (-not (Test-Path "$sshDir\ssh_host_rsa_key")) {
+    & "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -A 2>$null
+    Write-Host "  Host keys generated"
+}
+
+# Write a clean sshd_config with password auth enabled
+@"
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+PasswordAuthentication yes
+PermitEmptyPasswords no
+Subsystem sftp sftp-server.exe
+"@ | Set-Content "$sshDir\sshd_config" -Encoding ASCII
 
 # Set PowerShell as default SSH shell
 New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell `
     -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" `
     -PropertyType String -Force
 
-# Enable password auth (remove admin key-only override)
-$sshdConfig = "C:\ProgramData\ssh\sshd_config"
-$content = Get-Content $sshdConfig
-$content = $content -replace "#PasswordAuthentication yes","PasswordAuthentication yes"
-$content = $content -replace "PasswordAuthentication no","PasswordAuthentication yes"
-# Remove Match Group administrators block (forces key-only for admins)
-$content = $content | Where-Object {
-    $_ -notmatch "^Match Group administrators" -and
-    $_ -notmatch "^\s+AuthorizedKeysFile __PROGRAMDATA__"
-}
-$content | Set-Content $sshdConfig
-
 # Firewall
 netsh advfirewall firewall add rule name="SSH" dir=in action=allow protocol=TCP localport=22
-Restart-Service sshd
+
+# Fix host key permissions (sshd is very strict about this)
+icacls "$sshDir\ssh_host*" /inheritance:r /grant "NT AUTHORITY\SYSTEM:(F)" /grant "BUILTIN\Administrators:(R)" 2>$null
+
+# Start sshd
+Start-Service sshd -ErrorAction SilentlyContinue
+Set-Service -Name sshd -StartupType Automatic
+Write-Host "  sshd: $((Get-Service sshd -ErrorAction SilentlyContinue).Status)"
 
 # ── Install Python 3.12 ─────────────────────────────────────────────
 Write-Host "Installing Python 3.12..."
