@@ -86,6 +86,7 @@ provision_windows() {
         --query publicIpAddress -o tsv)
 
     az vm open-port --resource-group "$RG" --name "$NAME" --port 8940 --priority 1020 -o none &
+    az vm open-port --resource-group "$RG" --name "$NAME" --port 22 --priority 1030 -o none &
     az vm auto-shutdown --resource-group "$RG" --name "$NAME" --time 0000 -o none &
     wait
 
