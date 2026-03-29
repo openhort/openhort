@@ -223,6 +223,50 @@ cd C:\openhort && python run.py
 cd C:\openhort; python run.py
 ```
 
+### Starting the Server Correctly
+
+The server MUST run in the interactive RDP session for screen capture to work. The correct startup sequence:
+
+1. Create a scheduled task with `/IT` (interactive) flag:
+
+```powershell title="Create interactive scheduled task"
+schtasks /Create /TN "openhort" /TR "powershell -ExecutionPolicy Bypass -File C:\openhort\run.ps1" /SC ONLOGON /RL HIGHEST /IT /F
+```
+
+2. Start it via `schtasks /Run` with the `/I` flag (runs in the interactive session):
+
+```powershell title="Start in interactive session"
+schtasks /Run /TN "openhort" /I
+```
+
+3. Verify it's in Session 2 (RDP):
+
+```powershell title="Check session ID"
+Get-Process python* | Format-Table Id,SessionId
+```
+
+!!! danger "Start-Process and Start-ScheduledTask don't work"
+    - `Start-ScheduledTask` from PowerShell does **not** guarantee the interactive session. Use `schtasks /Run /I` instead.
+    - `Start-Process` from SSH starts the process in Session 0 — screen capture returns black.
+
+### File Sync During Development
+
+Use `scp` for direct file sync instead of git push/pull cycles:
+
+```bash title="Sync files to Azure VM"
+# Sync a single file
+scp hort/termd_client.py hortuser@<IP>:C:/openhort/src/hort/termd_client.py
+
+# Sync entire directory
+scp -r hort/extensions/core/windows_native/ hortuser@<IP>:C:/openhort/src/hort/extensions/core/windows_native/
+```
+
+After syncing, reinstall the editable package if module structure changed:
+
+```powershell title="Reinstall editable package"
+C:\openhort\venv\Scripts\pip.exe install -e C:\openhort\src
+```
+
 ### Screen Capture Requires Active Desktop
 
 Windows screen capture APIs (`BitBlt`, `PrintWindow`) render from the desktop compositor. Under a SYSTEM service account or a bare SSH session, there is no desktop — capture returns black or fails.
@@ -235,6 +279,21 @@ Windows screen capture APIs (`BitBlt`, `PrintWindow`) render from the desktop co
     - **Console session** — on physical hardware, log in at the console
 
     Running as a Windows service or from an SSH session **will not work** for screen capture.
+
+### BitBlt from Thread Pool Returns Black
+
+The thumbnailer uses `run_in_executor()` (thread pool) for capture. On Windows, `BitBlt` from a thread pool thread doesn't have access to the desktop DC — it returns black pixels. The stream handler calls `capture_window()` directly on the main asyncio thread, which **does** have desktop access. This means:
+
+- **Live streaming works** — direct call on main thread
+- **Thumbnail cards may show black** — thread pool call has no desktop DC
+
+### Capture Verified in RDP Session (Session 2)
+
+When the server process runs in the RDP session (Session 2) **and** the capture runs on the main thread, `BitBlt` returns real desktop content (average brightness ~325, not black). Per-window `PrintWindow` also works with real content.
+
+### Session 0 Always Returns Black
+
+Any process in Session 0 (SSH, SYSTEM services) gets black from `BitBlt` — there is no desktop to capture. This is a fundamental Windows limitation: Session 0 has no interactive desktop since Windows Vista (Session 0 isolation).
 
 ## Target Registration
 
@@ -257,14 +316,17 @@ if sys.platform == "win32":
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Window listing | Working | Filters to real app windows |
-| Screenshot (per-window) | Working | `PrintWindow` captures even occluded windows |
-| Screenshot (desktop) | Working | `BitBlt` from screen DC |
-| Mouse input | Working | Absolute positioning via `SetCursorPos` |
+| Screenshot (per-window) | Working | `PrintWindow` — works on main thread |
+| Screenshot (desktop) | Working | `BitBlt` — works on main thread |
+| Live streaming | Working | Main thread capture, real content |
+| Thumbnails | Partial | Thread pool capture may return black |
+| Mouse input | Working | `SetCursorPos` + `SendInput` |
 | Keyboard input | Working | VK codes + Unicode |
-| Window activation | Working | `SetForegroundWindow` (may fail if another window has focus lock) |
-| Virtual desktops | Not yet | Windows 10+ has virtual desktops via undocumented COM interfaces |
-| Multi-monitor | Partial | Desktop capture gets primary monitor only |
-| DPI scaling | Partial | High-DPI displays may report scaled coordinates |
+| Window activation | Working | `SetForegroundWindow` |
+| Terminal (PTY) | Not supported | Unix sockets not available on Windows |
+| Virtual desktops | Not yet | Undocumented COM interfaces |
+| Multi-monitor | Partial | Primary monitor only |
+| DPI scaling | Partial | High-DPI may report scaled coordinates |
 
 ## Key Files
 

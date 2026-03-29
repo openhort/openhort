@@ -55,11 +55,19 @@ write_files:
       # Clone and install openhort
       git clone https://github.com/openhort/openhort.git /opt/openhort/src || true
       cd /opt/openhort/src
-      git checkout feature/linux-support || true
+      git checkout feature/windows-support || git checkout feature/linux-support || true
       pip install -e .
 
-      # Create logs dir
+      # Install runtime deps explicitly (editable install may skip some)
+      pip install "uvicorn[standard]" "Pillow" "qrcode[pil]" "pydantic>=2.10" \
+          "websockets" "itsdangerous" "pyyaml" "psutil" "aiortc"
+
+      # Create .env and logs dir
       mkdir -p /opt/openhort/src/logs
+      cat > /opt/openhort/src/.env << 'ENVEOF'
+LLMING_DEV=0
+LLMING_AUTH_SECRET=openhort-test
+ENVEOF
 
       echo "=== openhort installed ==="
 
