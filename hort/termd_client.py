@@ -27,6 +27,8 @@ SOCKET_PATH = Path("/tmp/hort-termd.sock")
 
 async def _send_cmd(cmd: dict[str, Any]) -> dict[str, Any]:
     """Send a command to the daemon and return the response."""
+    if sys.platform == "win32":
+        return {"error": "Terminal daemon not supported on Windows"}
     reader, writer = await asyncio.open_unix_connection(str(SOCKET_PATH))
     try:
         writer.write(json.dumps(cmd).encode() + b"\n")
@@ -40,6 +42,9 @@ async def _send_cmd(cmd: dict[str, Any]) -> dict[str, Any]:
 
 def ensure_daemon() -> None:
     """Start the terminal daemon if it's not already running."""
+    if sys.platform == "win32":
+        # Terminal daemon uses Unix sockets — not available on Windows
+        return
     if SOCKET_PATH.exists():
         # Check if the socket is actually alive
         try:
