@@ -91,6 +91,12 @@ const relayUrl = params.get('relay') || 'wss://relay.openhort.ai';
 const roomId = params.get('room') || '';
 const authToken = params.get('token') || '';
 
+// If we have a fresh URL token, clear any stale reconnect token
+// so it doesn't interfere with the new connection
+if (authToken) {
+  sessionStorage.removeItem('p2p_reconnect_token');
+}
+
 if (tg) {
   tg.ready();
   tg.expand();

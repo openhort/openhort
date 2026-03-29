@@ -263,6 +263,7 @@ async def run_stream(
 
     prev_window_id: int = 0
     prev_codec: str = ""
+    prev_quality: int = 0
     frame_count = 0
     video_encoder: _VideoEncoder | None = None
     stream_state: StreamState | None = None
@@ -298,13 +299,16 @@ async def run_stream(
             codec = config.codec if config.codec in ("vp8", "vp9", "webp") else "jpeg"
             is_video = codec in ("vp8", "vp9")
 
-            # Switch codec: restart encoder and queue, but KEEP seq continuous
-            if codec != prev_codec:
+            # Recreate encoder on codec or quality change, KEEP seq continuous
+            quality_changed = is_video and config.quality != prev_quality
+            if codec != prev_codec or quality_changed:
                 if video_encoder:
                     video_encoder.close()
                     video_encoder = None
                 if is_video:
-                    video_encoder = _VideoEncoder(codec, config.fps)
+                    # Map quality (10-100) to bitrate (500Kbps - 8Mbps)
+                    bitrate = int(500_000 + (config.quality / 100) * 7_500_000)
+                    video_encoder = _VideoEncoder(codec, config.fps, bitrate=bitrate)
 
                 send_task.cancel()
                 if is_video:
@@ -324,7 +328,8 @@ async def run_stream(
                     stream_state._max_unacked = MAX_UNACKED_FRAMES_VIDEO if is_video else MAX_UNACKED_FRAMES
                 entry.stream_states[0] = stream_state  # type: ignore[attr-defined]
                 prev_codec = codec
-                logger.info("Stream codec → %s (seq=%d)", codec, stream_state.seq)
+                prev_quality = config.quality
+                logger.info("Stream codec → %s q=%d (seq=%d)", codec, config.quality, stream_state.seq)
                 # Notify client to reset frame tracking (seq restarts from 0)
                 if entry.websocket is not None:
                     try:

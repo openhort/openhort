@@ -282,14 +282,21 @@ class RelayListener:
                 msg_type = msg.get("type", "")
 
                 if msg_type == "offer" and msg.get("sdp"):
-                    # Check one-time token OR reconnect token
+                    # Accept if ANY valid auth is present:
+                    # 1. Valid reconnect token (reusable, 4min TTL)
+                    # 2. Valid one-time token (consumed on use, 60s)
                     token = msg.get("token", "")
                     reconnect_token = msg.get("reconnect_token", "")
 
+                    auth_ok = False
                     if reconnect_token and self.reconnect_tokens.verify(reconnect_token):
-                        # Valid reconnect — no one-time token needed
-                        logger.info("reconnect accepted (token valid)")
-                    elif not self.tokens.verify(token):
+                        auth_ok = True
+                        logger.info("reconnect accepted")
+                    elif token and self.tokens.verify(token):
+                        auth_ok = True
+                        logger.info("one-time token accepted")
+
+                    if not auth_ok:
                         await ws.send(json.dumps({
                             "type": "error",
                             "message": "invalid or expired token",
