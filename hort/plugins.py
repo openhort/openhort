@@ -38,7 +38,15 @@ def setup_plugins(app: FastAPI) -> ExtensionRegistry:
 
 def load_plugins_sync(registry: ExtensionRegistry) -> None:  # pragma: no cover
     """Load compatible plugins synchronously (no scheduler start — call start_schedulers separately)."""
-    registry.load_compatible()
+    # Pass per-plugin config from the YAML config store
+    from hort.config import get_store
+    store = get_store()
+    plugin_configs: dict[str, dict] = {}
+    for manifest in registry._manifests:
+        cfg = store.get(manifest.name)
+        if cfg:
+            plugin_configs[manifest.name] = cfg
+    registry.load_compatible(plugin_configs or None)
     loaded = list(registry._instances.keys())
     logger.info("Loaded %d plugins: %s", len(loaded), loaded)
 

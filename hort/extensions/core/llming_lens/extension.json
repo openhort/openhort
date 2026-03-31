@@ -9,6 +9,7 @@
   "icon": "ph ph-monitor",
   "author": "openhort",
   "plugin_type": "tool",
+  "mcp": true,
   "features": {
     "desktop_preview": { "description": "Auto-fetch desktop thumbnail for grid card", "default": true }
   },
