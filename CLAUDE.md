@@ -55,8 +55,16 @@ All control communication flows through a single JSON WebSocket per session:
 
 **Always prefer Playwright for UI testing** — it runs headless and produces screenshots.
 
+**NEVER run the full test suite with `--cov=hort` or run tests in background (`run_in_background`).** Coverage instrumentation force-imports every module under `hort/`, which loads Quartz/pyobjc and the screen capture code. Autoreleased native `CFData` from `CGDataProviderCopyData` leaks 10-50 MB per frame and is invisible to Python's GC. A single `--cov=hort` run can consume 10+ GB of RAM; multiple stacked runs have crashed the entire system. Always run targeted tests instead:
+
 ```bash
-# Unit tests (100% coverage required)
+# Run specific test files (PREFERRED — fast, safe)
+poetry run pytest tests/test_foo.py -v
+
+# Run the full suite WITHOUT coverage (if you must)
+poetry run pytest tests/ -x -q --ignore=tests/test_ui_playwright.py
+
+# Coverage only when explicitly requested by the user
 poetry run pytest tests/ --cov=hort
 
 # Playwright UI tests (integration, skipped by default)
@@ -119,12 +127,14 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 ## Critical Rules
 
+- **NEVER use `alert()`, `confirm()`, or `prompt()`.** Always use `Quasar.Dialog.create()` — see [UX Guidelines: No JavaScript Dialogs](docs/coding/ux-guidelines.md#no-javascript-dialogs).
 - **NEVER block the async event loop.** Every subprocess call, Docker exec, provider method, file I/O, and network call MUST run in a thread executor (`await _run_sync(fn)`) or use native async I/O (`add_reader`, `asyncio.open_unix_connection`). A single blocking call on the main thread can hang the entire server and prevent clean shutdown (uvicorn --reload). No exceptions.
 - **NEVER use `lsof -ti :PORT | xargs kill`** — this kills Docker containers. Always kill by process name: `pgrep -f "uvicorn hort.app" | xargs kill -9`
 - **NEVER load or start plugins at import time or in `create_app()`.** Plugin loading (`load_plugins_sync`), scheduler start, and connector start MUST happen exclusively in the FastAPI `on_event("startup")` handler. With uvicorn `--reload`, `create_app()` runs multiple times per module import — loading plugins there causes duplicate instances (e.g. multiple Telegram bots competing for the same token via `TelegramConflictError`). Clean shutdown via `stop_plugins()` in `on_event("shutdown")`.
 - **NEVER use `asyncio.create_task` for deferred plugin startup.** Background tasks created in startup events get killed silently on `--reload`. Run plugin startup synchronously in the startup event instead.
 - **ALWAYS release native macOS resources promptly.** `CGWindowListCreateImage` returns Core Foundation objects whose pixel buffers (10-50 MB each) are NOT tracked by Python's GC. **NEVER use `CGDataProviderCopyData()` on background threads** — it creates autoreleased CFData that never drains (leaked 17 GB in production). Use `CGBitmapContextCreate` + `CGContextDrawImage` to render into a Python-owned `bytearray` instead. Call `pil_image.close()` after encoding. Do NOT call `CFRelease()` directly — pyobjc owns the ref and double-release causes SIGABRT. See [Memory Safety](docs/coding/memory-safety.md).
 - **Desktop capture uses `CGDisplayCreateImage(CGMainDisplayID())`** — captures the main display only (not all monitors). Window_id `-1` (`DESKTOP_WINDOW_ID`) triggers this path. Desktop bounds come from `CGDisplayBounds()` for correct coordinate mapping. Input clicks go to absolute screen coordinates (no app activation).
+- **Status bar IPC uses a shared key file.** Both the plugin and status bar read/write `~/.hort/statusbar.key`. Whoever starts first creates it; either side rotates when it's older than 24 h. The status bar sends the key as `X-Hort-Key` header on every request. The plugin's `/verify` endpoint validates with `secrets.compare_digest`. Atomic writes (tempfile + rename) prevent corruption from concurrent starts. See [Threat Model](docs/manual/developer/security/threat-model.md).
 
 ## Quality Standards
 

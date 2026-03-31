@@ -547,6 +547,7 @@ flowchart TD
 | Audit Log | Host filesystem | JSONL log files | Tampering, deletion |
 | Access Proxy | Internet | HTTP/WebSocket endpoints | Unauthorized access, DDoS |
 | SSE Proxy | Container network | `host.docker.internal:PORT` | Request forgery from container |
+| Status Bar IPC | Localhost | `X-Hort-Key` header on HTTP | Local process impersonation |
 | Session Metadata | Host filesystem | JSON files with config | Credential exposure if read |
 
 ---
@@ -562,6 +563,7 @@ flowchart TD
 | Node claims to be different node | H2H tunnel | Per-node pre-shared connection keys; keys never logged (rail 12) | Mitigated |
 | API caller spoofs source header | REST API | Source detected at framework edge, not from request headers | Mitigated |
 | Replay of captured tunnel message | H2H tunnel | TLS prevents capture; request IDs prevent replay | Mitigated |
+| Local process impersonates status bar | Localhost API | Shared key file at `~/.hort/statusbar.key` (mode 0600); 24 h auto-rotation; constant-time comparison (`secrets.compare_digest`); handshake via `/api/plugins/macos-statusbar/verify` | Mitigated |
 
 ### Tampering
 
@@ -594,6 +596,7 @@ flowchart TD
 | Session metadata exposes secrets | `secret_env` | Excluded from Pydantic serialization; never written to disk | Mitigated |
 | Cloud metadata endpoint accessed | Cloud credentials | `169.254.169.254` blocked in all network configurations (rail 3) | Mitigated |
 | Container env inspectable | API keys | `secret_env` injected per-exec, not in `docker run` env; `/proc/1/environ` clean | Mitigated |
+| Status bar key leaked via filesystem | `~/.hort/statusbar.key` | File permissions (user-only); 24 h auto-rotation; not logged; atomic writes prevent partial reads | Mitigated |
 
 ### Denial of Service
 

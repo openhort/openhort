@@ -323,12 +323,19 @@ body { font-family: 'Roboto', sans-serif; background: var(--bg); color: var(--te
 
       async function remove() {
         if (!currentConfig.value || currentConfig.value._isNew) return;
-        if (!confirm('Delete this Hort Map?')) return;
-        await fetch(api('/api/hortmap/configs/' + currentConfig.value.hort_id), { method: 'DELETE' });
-        currentConfig.value = null;
-        currentConfigId.value = '';
-        clearCanvas();
-        await loadConfigs();
+        Quasar.Dialog.create({
+          title: 'Delete Hort Map',
+          message: 'Delete this Hort Map?',
+          dark: true,
+          ok: { label: 'Delete', color: 'negative' },
+          cancel: { label: 'Cancel', flat: true },
+        }).onOk(async () => {
+          await fetch(api('/api/hortmap/configs/' + currentConfig.value.hort_id), { method: 'DELETE' });
+          currentConfig.value = null;
+          currentConfigId.value = '';
+          clearCanvas();
+          await loadConfigs();
+        });
       }
 
       /* ── Config selection ─────────────────────────────────────── */

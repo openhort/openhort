@@ -140,6 +140,23 @@ async def handle_terminal_ws(
 
     await websocket.accept()
 
+    # Resize PTY to client dimensions before sending scrollback so that
+    # the buffered content is reflowed for the actual terminal size.
+    qs_cols = websocket.query_params.get("cols")
+    qs_rows = websocket.query_params.get("rows")
+    if qs_cols and qs_rows:
+        try:
+            resize_cmd = {
+                "cmd": "resize",
+                "terminal_id": terminal_id,
+                "cols": int(qs_cols),
+                "rows": int(qs_rows),
+            }
+            writer.write(json.dumps(resize_cmd).encode() + b"\n")
+            await writer.drain()
+        except (ValueError, OSError):
+            pass
+
     # Send scrollback
     scrollback_b64 = resp.get("scrollback", "")
     if scrollback_b64:

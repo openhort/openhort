@@ -191,7 +191,12 @@
 
       function handleFile(file) {
         if (file.size > props.maxSize) {
-          alert(`File too large (max ${Math.round(props.maxSize / 1024 / 1024)}MB)`);
+          Quasar.Dialog.create({
+            title: 'File Too Large',
+            message: `File exceeds the maximum size of ${Math.round(props.maxSize / 1024 / 1024)} MB.`,
+            dark: true,
+            ok: { label: 'OK' },
+          });
           return;
         }
         const reader = new FileReader();
