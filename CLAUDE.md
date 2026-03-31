@@ -127,6 +127,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 ## Critical Rules
 
+- **NEVER run `git commit`.** Only the user commits.
 - **NEVER use `alert()`, `confirm()`, or `prompt()`.** Always use `Quasar.Dialog.create()` — see [UX Guidelines: No JavaScript Dialogs](docs/coding/ux-guidelines.md#no-javascript-dialogs).
 - **NEVER block the async event loop.** Every subprocess call, Docker exec, provider method, file I/O, and network call MUST run in a thread executor (`await _run_sync(fn)`) or use native async I/O (`add_reader`, `asyncio.open_unix_connection`). A single blocking call on the main thread can hang the entire server and prevent clean shutdown (uvicorn --reload). No exceptions.
 - **NEVER use `lsof -ti :PORT | xargs kill`** — this kills Docker containers. Always kill by process name: `pgrep -f "uvicorn hort.app" | xargs kill -9`
