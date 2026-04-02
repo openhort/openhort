@@ -18,7 +18,7 @@
   <style>
     html, body, #app { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
     .q-page { padding: 0 !important; }
-    .canvas-wrap { width: 100%; height: 100%; }
+    .canvas-wrap { position: absolute; inset: 0; }
     .palette-item { border-left: 3px solid transparent; transition: all .15s; }
     .palette-item:hover { background: rgba(255,255,255,.06); }
     .palette-item.active-tool { border-left-color: var(--q-primary); background: rgba(59,130,246,.12); }
@@ -56,6 +56,11 @@
           </template>
 
           <q-space></q-space>
+
+          <!-- Home — jump to origin, see whole world -->
+          <q-btn flat dense round icon="home" @click="goHome" class="q-mr-xs">
+            <q-tooltip>Home — see whole world (H)</q-tooltip>
+          </q-btn>
 
           <!-- Load Preset -->
           <q-btn flat no-caps icon="folder_open" label="Presets" color="amber"
@@ -242,9 +247,9 @@
       {
         label: 'Machine Horts', icon: 'dns',
         items: [
-          { type: 'mac-mini', label: 'Mac Mini', icon: 'computer', color: '#94a3b8', desc: 'Apple Mac Mini server' },
-          { type: 'macbook', label: 'MacBook Pro', icon: 'laptop_mac', color: '#71717a', desc: 'Apple MacBook Pro' },
-          { type: 'rpi', label: 'Raspberry Pi', icon: 'developer_board', color: '#22c55e', desc: 'Raspberry Pi board' },
+          { type: 'mac-mini', label: 'SnackMini', icon: 'computer', color: '#94a3b8', desc: 'Compact desktop server' },
+          { type: 'macbook', label: 'SnackBook Pro', icon: 'laptop_mac', color: '#71717a', desc: 'Portable workstation' },
+          { type: 'rpi', label: 'Strawberry Pi', icon: 'developer_board', color: '#22c55e', desc: 'Single-board computer' },
           { type: 'cloud-vm', label: 'Cloud VM', icon: 'cloud', color: '#60a5fa', desc: 'Cloud virtual machine' },
         ],
       },
@@ -311,6 +316,7 @@
         function onKey(e) {
           if (e.key === 'Escape') { activeTool.value = null; engine?.setActiveTool(null); }
           if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
+          if (e.key === 'h' || e.key === 'H') goHome();
         }
 
         function setTool(type) {
@@ -321,6 +327,8 @@
         function onDragStart(event, type) {
           event.dataTransfer.setData('text/plain', type);
           event.dataTransfer.effectAllowed = 'copy';
+          // stash type for dragover preview (getData restricted in dragover)
+          document.body.dataset.hortDragType = type;
         }
         function onDragOver(event) { event.dataTransfer.dropEffect = 'copy'; }
         function onDrop(event) {
@@ -343,6 +351,7 @@
         }
 
         function navigateToRoot() { engine?.navigateToRoot(); }
+        function goHome() { engine?.goHome(); }
         function navigateToLevel(id) { engine?.navigateToLevel(id); }
         function updateProp(key, val) {
           if (selected.value) engine?.updateProperty(selected.value.id, key, val);
@@ -358,7 +367,7 @@
           presetsDialog, presetList,
           catalog: CATALOG, setTool, onDragStart, onDragOver, onDrop,
           onViewChange, typeColor,
-          deleteSelected, enterSelected, navigateToRoot, navigateToLevel, updateProp, loadPreset,
+          deleteSelected, enterSelected, navigateToRoot, navigateToLevel, updateProp, loadPreset, goHome,
         };
       },
     });

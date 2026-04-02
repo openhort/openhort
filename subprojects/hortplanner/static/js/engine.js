@@ -8,6 +8,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { WorldGrid, InternalGrid, GRID } from './grid.js';
 
 // ── Colors ──────────────────────────────────────────────────
 
@@ -33,17 +34,41 @@ const C = {
 
 // ── Component definitions ───────────────────────────────────
 
+// DEFS: visual properties per type. Grid sizing lives in grid.js (GRID).
+// w/d are now derived from GRID at runtime for machine horts.
+// h = wall height for containers, body height for tools (tools ~2× container to be visible inside walls)
 const DEFS = {
-  'mac-mini':     { w: 5,   h: 1.0, d: 5,   color: C.macMini, container: true,  metal: 0.85, rough: 0.20, ports: { in: 2, out: 2 } },
-  'macbook':      { w: 5,   h: 0.8, d: 4,   color: C.macBook, container: true,  metal: 0.80, rough: 0.25, ports: { in: 2, out: 2 }, screen: true },
-  'rpi':          { w: 3.5, h: 0.5, d: 4,   color: C.rpi,     container: true,  metal: 0.30, rough: 0.70, ports: { in: 1, out: 1 } },
-  'cloud-vm':     { w: 5,   h: 1.5, d: 5,   color: C.cloudVM, container: true,  metal: 0.10, rough: 0.90, ports: { in: 2, out: 2 }, opacity: 0.55 },
-  'docker':       { w: 2.0, h: 1.2, d: 2.0, color: C.docker,  container: true,  metal: 0.40, rough: 0.50, ports: { in: 1, out: 1 } },
-  'virtual-hort': { w: 2.0, h: 1.0, d: 2.0, color: C.virtual, container: false, metal: 0.10, rough: 0.90, ports: { in: 1, out: 1 }, opacity: 0.45 },
-  'mcp-server':   { w: 1.0, h: 1.1, d: 1.0, color: C.mcp,     container: false, metal: 0.60, rough: 0.30, ports: { in: 1, out: 1 }, shape: 'hex' },
-  'llming':       { w: 1.0, h: 1.0, d: 1.0, color: C.llming,  container: false, metal: 0.30, rough: 0.50, ports: { in: 2, out: 1 }, shape: 'ico' },
-  'program':      { w: 1.0, h: 1.0, d: 1.0, color: C.program, container: false, metal: 0.50, rough: 0.40, ports: { in: 1, out: 1 }, shape: 'box' },
+  'mac-mini':     { h: 1.0, color: C.macMini, container: true,  metal: 0.85, rough: 0.20, ports: { in: 2, out: 2 }, cornerR: 0.35, feet: true },
+  'macbook':      { h: 0.4, color: C.macBook, container: true,  metal: 0.80, rough: 0.25, ports: { in: 2, out: 2 }, screen: true, cornerR: 0.2 },
+  'rpi':          { h: 0.5, color: C.rpi,     container: true,  metal: 0.30, rough: 0.70, ports: { in: 1, out: 1 }, cornerR: 0.08 },
+  'cloud-vm':     { h: 1.2, color: C.cloudVM, container: true,  metal: 0.10, rough: 0.90, ports: { in: 2, out: 2 }, opacity: 0.55, cornerR: 0.1 },
+  'docker':       { h: 1.0, color: C.docker,  container: true,  metal: 0.40, rough: 0.50, ports: { in: 1, out: 1 }, cornerR: 0.1 },
+  'virtual-hort': { h: 1.0, color: C.virtual, container: false, metal: 0.10, rough: 0.90, ports: { in: 1, out: 1 }, opacity: 0.45, cornerR: 0.1 },
+  'mcp-server':   { h: 2.0, color: C.mcp,     container: false, metal: 0.60, rough: 0.30, ports: { in: 1, out: 1 }, shape: 'hex' },
+  'llming':       { h: 2.0, color: C.llming,  container: false, metal: 0.30, rough: 0.50, ports: { in: 2, out: 1 }, shape: 'ico' },
+  'program':      { h: 2.0, color: C.program, container: false, metal: 0.50, rough: 0.40, ports: { in: 1, out: 1 }, shape: 'box' },
 };
+
+const DISPLAY_NAMES = {
+  'mac-mini': 'SnackMini', 'macbook': 'SnackBook Pro',
+  'rpi': 'Strawberry Pi', 'cloud-vm': 'Cloud VM',
+  'docker': 'Docker', 'virtual-hort': 'Virtual Hort',
+  'mcp-server': 'MCP Server', 'llming': 'LLMing', 'program': 'Program',
+};
+function displayName(type) { return DISPLAY_NAMES[type] || type.replace(/-/g, ' '); }
+
+/** Get the visual w/d for a component type (derived from GRID). */
+function vizSize(type) {
+  const g = GRID[type];
+  if (g.cat === 'machine') {
+    return { w: g.innerW + 0.7, d: g.innerD + 0.7 };
+  }
+  if (g.cat === 'tool') {
+    return { w: g.footW * 0.8, d: g.footD * 0.8 };
+  }
+  // sub-horts: use footprint as visual size
+  return { w: g.footW, d: g.footD };
+}
 
 // ── Shaders ─────────────────────────────────────────────────
 
@@ -55,8 +80,11 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 
+// World-bounded version uses uWorldHalf to clip grid to the world area
+
 const GRID_FS = `
 uniform float uTime;
+uniform float uWorldHalf;
 uniform vec3 uMinor;
 uniform vec3 uMajor;
 varying vec3 vWorld;
@@ -64,25 +92,56 @@ varying vec3 vWorld;
 void main() {
   vec2 c = vWorld.xz;
 
-  // minor grid (every 1 unit)
+  // world boundary — grid only inside the world square
+  float dx = max(abs(c.x) - uWorldHalf, 0.0);
+  float dz = max(abs(c.y) - uWorldHalf, 0.0);
+  float outside = max(dx, dz);
+  float inWorld = 1.0 - smoothstep(0.0, 1.5, outside);
+  if (inWorld < 0.01) discard;
+
+  // grid lines every 1 unit — each cell = 1 tile, 50×50 world = 50 visible tiles
   vec2 g1 = abs(fract(c - 0.5) - 0.5) / fwidth(c);
-  float minor = 1.0 - min(min(g1.x, g1.y), 1.0);
+  float grid = 1.0 - min(min(g1.x, g1.y), 1.0);
 
-  // major grid (every 5 units)
-  vec2 g5 = abs(fract(c / 5.0 - 0.5) - 0.5) / fwidth(c / 5.0);
-  float major = 1.0 - min(min(g5.x, g5.y), 1.0);
+  // boundary edge glow
+  float edgeDist = min(abs(abs(c.x) - uWorldHalf), abs(abs(c.y) - uWorldHalf));
+  float edge = smoothstep(0.5, 0.0, edgeDist) * 0.6;
 
-  // fade at edges
-  float dist = length(c) / 35.0;
-  float fade = 1.0 - smoothstep(0.4, 1.0, dist);
+  float pulse = 0.92 + 0.08 * sin(uTime * 0.3);
 
-  // subtle pulse
-  float pulse = 0.93 + 0.07 * sin(uTime * 0.4);
+  vec3 col = uMajor * grid * 0.45 + vec3(0.15, 0.30, 0.85) * edge;
+  float a = (grid * 0.25 * pulse + edge) * inWorld;
 
-  vec3 col = uMinor * minor * 0.35 + uMajor * major * 0.55;
-  float a = (minor * 0.12 + major * 0.30) * fade * pulse;
+  gl_FragColor = vec4(col, a);
+}`;
 
-  gl_FragColor = vec4(col * fade, a);
+// ── Dot grid shader (n8n-style, for 2D mode) ───────────────
+
+const DOT_VS = `
+varying vec3 vWorld;
+void main() {
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorld = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+const DOT_FS = `
+varying vec3 vWorld;
+
+void main() {
+  vec2 c = vWorld.xz;
+
+  // dot at every grid intersection (every 2 units = lower density)
+  vec2 nearest = round(c / 2.0) * 2.0;
+  float dist = length(c - nearest);
+
+  // crisp circle — large enough to be visible at any zoom
+  float radius = 0.12;
+  float aa = fwidth(dist) * 1.5;
+  float dot = 1.0 - smoothstep(radius - aa, radius + aa, dist);
+
+  vec3 col = vec3(0.18, 0.14, 0.32);
+  gl_FragColor = vec4(col, dot * 0.55);
 }`;
 
 // ── Factory: labels ─────────────────────────────────────────
@@ -92,14 +151,17 @@ function makeLabel(text) {
   canvas.width = 512; canvas.height = 128;
   const ctx = canvas.getContext('2d');
   ctx.font = 'bold 44px -apple-system, "Segoe UI", Roboto, sans-serif';
-  ctx.fillStyle = '#e2e8f0';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.strokeStyle = '#0a0e1a';
+  ctx.lineWidth = 4;
+  ctx.strokeText(text, 256, 64);
+  ctx.fillStyle = '#ffffff';
   ctx.fillText(text, 256, 64);
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
   const sprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false })
+    new THREE.SpriteMaterial({ map: tex, transparent: true })
   );
   sprite.scale.set(3, 0.75, 1);
   sprite.userData.isLabel = true;
@@ -142,58 +204,100 @@ function addPorts(group, def) {
   }
 }
 
-// ── Factory: open-top container ─────────────────────────────
+// ── Rounded rect helpers ────────────────────────────────────
+
+function rrShape(w, d, r) {
+  const s = new THREE.Shape();
+  const x = -w / 2, y = -d / 2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + d - r); s.quadraticCurveTo(x + w, y + d, x + w - r, y + d);
+  s.lineTo(x + r, y + d); s.quadraticCurveTo(x, y + d, x, y + d - r);
+  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y);
+  return s;
+}
+
+function rrPath(w, d, r) {
+  const p = new THREE.Path();
+  const x = -w / 2, y = -d / 2;
+  p.moveTo(x + r, y);
+  p.lineTo(x + w - r, y); p.quadraticCurveTo(x + w, y, x + w, y + r);
+  p.lineTo(x + w, y + d - r); p.quadraticCurveTo(x + w, y + d, x + w - r, y + d);
+  p.lineTo(x + r, y + d); p.quadraticCurveTo(x, y + d, x, y + d - r);
+  p.lineTo(x, y + r); p.quadraticCurveTo(x, y, x + r, y);
+  return p;
+}
+
+// ── Factory: open-top container (single extruded wall ring, no corner artifacts) ──
 
 function makeContainer(def) {
   const { w, h, d, color, metal, rough } = def;
-  const t = 0.08;
+  const t = 0.10;
+  const r = def.cornerR || 0.15;
   const group = new THREE.Group();
 
+  const isTransparent = !!def.opacity && def.opacity < 1;
   const mat = new THREE.MeshStandardMaterial({
-    color, metalness: metal, roughness: rough, side: THREE.DoubleSide,
-    transparent: !!def.opacity, opacity: def.opacity ?? 1,
+    color, metalness: metal, roughness: rough,
+    side: isTransparent ? THREE.FrontSide : THREE.DoubleSide,
+    transparent: isTransparent, opacity: def.opacity ?? 1,
+    depthWrite: !isTransparent, // transparent objects don't write depth (prevents z-fight)
+    polygonOffset: isTransparent, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
   });
 
-  // floor
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(w, t, d), mat);
-  floor.position.y = t / 2;
+  // floor (simple box)
+  const ft = 0.08; // floor thickness
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(w, ft, d), mat);
+  floor.position.y = ft / 2; // sits from y=0 to y=ft
   floor.receiveShadow = true;
   group.add(floor);
 
-  // walls — front / back
-  for (const zSign of [1, -1]) {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, t), mat);
-    wall.position.set(0, h / 2 + t, zSign * (d / 2 - t / 2));
-    wall.castShadow = true;
-    wall.userData.isWall = true;
-    group.add(wall);
-  }
-  // walls — left / right
-  for (const xSign of [-1, 1]) {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(t, h, d), mat);
-    wall.position.set(xSign * (w / 2 - t / 2), h / 2 + t, 0);
-    wall.castShadow = true;
-    wall.userData.isWall = true;
-    group.add(wall);
-  }
+  // wall ring (extruded hollow shape, sits directly on floor top)
+  const wallOuter = rrShape(w, d, r);
+  const iw = w - t * 2, id = d - t * 2;
+  const ir = Math.max(0.02, r - t);
+  wallOuter.holes.push(rrPath(iw, id, ir));
+  const wallGeo = new THREE.ExtrudeGeometry(wallOuter, { depth: h, bevelEnabled: false });
+  wallGeo.rotateX(-Math.PI / 2);
+  // after rotate: ring from y=0 (top) to y=-h (bottom)
+  // translate so bottom = ft (floor top)
+  wallGeo.translate(0, ft, 0); // extrude goes y=0..h after rotate; shift up by ft to sit on floor top
+  const walls = new THREE.Mesh(wallGeo, mat);
+  walls.castShadow = true;
+  walls.userData.isWall = true;
+  group.add(walls);
 
   // dark interior floor
   const inner = new THREE.Mesh(
-    new THREE.PlaneGeometry(w - t * 4, d - t * 4),
+    new THREE.PlaneGeometry(iw - 0.02, id - 0.02),
     new THREE.MeshStandardMaterial({ color: C.floor, roughness: 0.95 })
   );
   inner.rotation.x = -Math.PI / 2;
-  inner.position.y = t + 0.005;
+  inner.position.y = ft + 0.005; // just above the floor box
   inner.receiveShadow = true;
   group.add(inner);
 
-  // LED indicator on front face
+  // LED indicator
   const led = new THREE.Mesh(
     new THREE.SphereGeometry(0.06, 8, 8),
     new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x22c55e, emissiveIntensity: 3 })
   );
-  led.position.set(0, h * 0.35, d / 2 + 0.01);
+  led.position.set(0, ft + h * 0.4, d / 2 + 0.01);
   group.add(led);
+
+  // Feet (Snack Mini / Mac Mini style)
+  if (def.feet) {
+    const footMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.6, roughness: 0.4 });
+    const footGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.06, 12);
+    const inset = 0.35;
+    for (const [fx, fz] of [[-w/2+inset, -d/2+inset], [w/2-inset, -d/2+inset], [-w/2+inset, d/2-inset], [w/2-inset, d/2-inset]]) {
+      const foot = new THREE.Mesh(footGeo, footMat);
+      foot.position.set(fx, -0.03, fz);
+      group.add(foot);
+    }
+    // raise entire model to sit on feet
+    group.position.y = 0.06;
+  }
 
   return group;
 }
@@ -202,26 +306,37 @@ function makeContainer(def) {
 
 function addScreen(group, def) {
   const { w, h, d } = def;
-  const screenH = 2.2, screenT = 0.06;
+  const screenT = 0.05;
+  // screen is roughly same depth as the base, tilted back ~110° from horizontal
+  const screenD = d * 0.95;
+  const tiltAngle = -0.17; // ~10° slight tilt
 
   const hinge = new THREE.Group();
-  hinge.position.set(0, h + 0.08, -d / 2 + 0.04);
-  hinge.rotation.x = 0.18; // lean back slightly
+  // hinge at the back edge of the base, at wall top
+  hinge.position.set(0, h, -d / 2 + 0.05);
 
-  const shell = new THREE.Mesh(
-    new THREE.BoxGeometry(w, screenH, screenT),
+  // screen shell (tilted back like an open laptop)
+  const shellGeo = new THREE.BoxGeometry(w - 0.1, screenD, screenT);
+  const shell = new THREE.Mesh(shellGeo,
     new THREE.MeshStandardMaterial({ color: def.color, metalness: 0.8, roughness: 0.25 })
   );
-  shell.position.y = screenH / 2;
+  shell.position.y = screenD / 2;
   shell.castShadow = true;
   hinge.add(shell);
 
-  const display = new THREE.Mesh(
-    new THREE.PlaneGeometry(w - 0.3, screenH - 0.3),
-    new THREE.MeshStandardMaterial({ color: 0x111827, emissive: 0x0a1628, emissiveIntensity: 0.5 })
+  // display face (dark with subtle glow)
+  const displayGeo = new THREE.PlaneGeometry(w - 0.4, screenD - 0.25);
+  const display = new THREE.Mesh(displayGeo,
+    new THREE.MeshStandardMaterial({
+      color: 0x0c1829, emissive: 0x1a3050, emissiveIntensity: 0.6,
+      metalness: 0.1, roughness: 0.9,
+    })
   );
-  display.position.set(0, screenH / 2, screenT / 2 + 0.002);
+  display.position.set(0, screenD / 2, screenT / 2 + 0.002);
   hinge.add(display);
+
+  // tilt the whole screen assembly back
+  hinge.rotation.x = tiltAngle;
 
   group.add(hinge);
 }
@@ -278,20 +393,23 @@ function makeBox(def) {
 
 function createComponentMesh(type) {
   const def = DEFS[type];
+  const sz = vizSize(type);
+  // merge size into a combined object for factory functions
+  const p = { ...def, w: sz.w, d: sz.d };
   let group;
 
   if (def.container) {
-    group = makeContainer(def);
-    if (def.screen) addScreen(group, def);
+    group = makeContainer(p);
+    if (def.screen) addScreen(group, p);
   } else if (def.shape === 'hex') {
-    group = makeHexPrism(def);
+    group = makeHexPrism(p);
   } else if (def.shape === 'ico') {
-    group = makeIcosphere(def);
+    group = makeIcosphere(p);
   } else {
-    group = makeBox(def);
+    group = makeBox(p);
   }
 
-  addPorts(group, def);
+  addPorts(group, p);
   group.userData.compType = type;
   return group;
 }
@@ -359,6 +477,9 @@ export class HortPlannerEngine {
     this._dragCandidate = null;   // compId that might be dragged
     this._dragging = null;        // compId currently being dragged
     this._dragOffset = new THREE.Vector3();
+    this._dropPreviewType = null; // type being dragged from palette
+    this.worldGrid = new WorldGrid();
+    this.worldSize = 50;          // initial world: 50×50 centered on origin
 
     this._init();
   }
@@ -370,17 +491,16 @@ export class HortPlannerEngine {
     let w = this.container.clientWidth || 800;
     let h = this.container.clientHeight || 600;
 
-    // scene
+    // scene (no fog — grid shader handles its own fade)
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(C.bg);
-    this.scene.fog = new THREE.FogExp2(C.bg, 0.012);
 
     // camera (orthographic for true isometric)
     const size = 28;
     const aspect = w / h;
     this.camera = new THREE.OrthographicCamera(
       -size * aspect / 2, size * aspect / 2,
-      size / 2, -size / 2, 0.1, 500
+      size / 2, -size / 2, 0.1, 2000
     );
     this._setIsometricCamera();
 
@@ -402,37 +522,55 @@ export class HortPlannerEngine {
     ));
     this.composer.addPass(new OutputPass());
 
-    // lighting
-    this.scene.add(new THREE.AmbientLight(0x404060, 0.7));
+    // lighting — strong global directional illumination
+    this.scene.add(new THREE.AmbientLight(0x506080, 1.0));
 
-    const dir = new THREE.DirectionalLight(0xffffff, 1.3);
-    dir.position.set(15, 30, 20);
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
-    const sc = dir.shadow.camera;
-    sc.near = 1; sc.far = 80;
-    sc.left = sc.bottom = -25; sc.right = sc.top = 25;
-    this.scene.add(dir);
+    // key light (main shadow caster, top-right)
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
+    keyLight.position.set(20, 40, 25);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    const sc = keyLight.shadow.camera;
+    sc.near = 1; sc.far = 120;
+    sc.left = sc.bottom = -40; sc.right = sc.top = 40;
+    this.scene.add(keyLight);
 
-    this.scene.add(new THREE.HemisphereLight(0x3b82f6, 0x0f172a, 0.4));
+    // fill light (softer, opposite side — reduces harsh shadows)
+    const fillLight = new THREE.DirectionalLight(0x8090b0, 0.6);
+    fillLight.position.set(-15, 25, -10);
+    this.scene.add(fillLight);
+
+    // hemisphere (sky/ground ambient)
+    this.scene.add(new THREE.HemisphereLight(0x4060a0, 0x101828, 0.5));
 
     // grid
     this._createGrid();
 
-    // ambient particles
-    this._createParticles();
+    // dot grid (2D mode)
+    this._createDotGrid();
 
-    // controls
+    // world boundary diamond
+    this._createWorldBorder();
+
+    // preview cells (drag highlighting)
+    this._createPreviewCells();
+
+    // controls — fixed isometric angle, pan + zoom only (SimCity style)
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
-    this.controls.maxPolarAngle = Math.PI / 2.1;
-    this.controls.minZoom = 0.25;
+    this.controls.enableRotate = false;          // no rotation ever
+    this.controls.minZoom = 0.15;  // zoom out far enough to see 50×50 world
     this.controls.maxZoom = 5;
+    this.controls.screenSpacePanning = true;     // pan in screen plane
     this.controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
-      MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: THREE.MOUSE.PAN,
+      LEFT: THREE.MOUSE.PAN,                     // left-click pans
+      MIDDLE: THREE.MOUSE.DOLLY,                 // scroll zooms
+      RIGHT: THREE.MOUSE.PAN,                    // right-click also pans
+    };
+    this.controls.touches = {
+      ONE: THREE.TOUCH.PAN,
+      TWO: THREE.TOUCH.DOLLY_PAN,
     };
 
     // raycaster
@@ -451,13 +589,24 @@ export class HortPlannerEngine {
   }
 
   _createGrid() {
-    const geo = new THREE.PlaneGeometry(120, 120);
+    // solid ground fill — covers the horizon so no background shows through
+    const groundGeo = new THREE.PlaneGeometry(1, 1);
+    groundGeo.rotateX(-Math.PI / 2);
+    this._groundFill = new THREE.Mesh(groundGeo, new THREE.MeshBasicMaterial({
+      color: C.bg, depthWrite: true,
+    }));
+    this._groundFill.renderOrder = -3;
+    this.scene.add(this._groundFill);
+
+    // grid (bounded by world size)
+    const geo = new THREE.PlaneGeometry(200, 200);
     geo.rotateX(-Math.PI / 2);
     this.gridMesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
       vertexShader: GRID_VS,
       fragmentShader: GRID_FS,
       uniforms: {
         uTime: { value: 0 },
+        uWorldHalf: { value: this.worldSize / 2 },
         uMinor: { value: new THREE.Color(C.grid) },
         uMajor: { value: new THREE.Color(C.gridMajor) },
       },
@@ -469,22 +618,138 @@ export class HortPlannerEngine {
     this.scene.add(this.gridMesh);
   }
 
-  _createParticles() {
-    const count = 300;
-    const positions = new Float32Array(count * 3);
-    const spread = 60;
-    for (let i = 0; i < count; i++) {
-      positions[i * 3]     = (Math.random() - 0.5) * spread;
-      positions[i * 3 + 1] = Math.random() * 18;
-      positions[i * 3 + 2] = (Math.random() - 0.5) * spread;
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.particleSystem = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0x3b82f6, size: 0.08, transparent: true, opacity: 0.35,
-      blending: THREE.AdditiveBlending, depthWrite: false,
+  _createDotGrid() {
+    const geo = new THREE.PlaneGeometry(200, 200);
+    geo.rotateX(-Math.PI / 2);
+    this.dotGridMesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+      vertexShader: DOT_VS,
+      fragmentShader: DOT_FS,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
     }));
-    this.scene.add(this.particleSystem);
+    this.dotGridMesh.position.y = 0.01; // slightly above ground
+    this.dotGridMesh.renderOrder = -1;
+    this.dotGridMesh.visible = false;  // hidden by default (shown in 2D mode)
+    this.scene.add(this.dotGridMesh);
+  }
+
+  _showDotGrid(show) {
+    if (this.dotGridMesh) this.dotGridMesh.visible = show;
+    if (this.gridMesh) this.gridMesh.visible = !show;
+    if (show) this.camera.up.set(0, 0, -1);
+    else this.camera.up.set(0, 1, 0);
+  }
+
+  // world border is drawn by the grid shader (uWorldHalf) — no separate mesh needed
+  _createWorldBorder() {}
+  _rebuildWorldBorder() {}
+
+  /** Grow world if a component is near the edge. */
+  _checkWorldGrowth() {
+    const half = this.worldSize / 2;
+    let needGrow = false;
+    this.components.forEach(comp => {
+      if (comp.parentId !== null) return;
+      const g = GRID[comp.type];
+      if (!g) return;
+      const margin = 3; // grow when within 3 cells of edge
+      const right = comp.gridX + (comp.innerW || 4);
+      const bottom = comp.gridZ + (comp.innerD || 4);
+      if (right > half - margin || bottom > half - margin ||
+          comp.gridX < -half + margin || comp.gridZ < -half + margin) {
+        needGrow = true;
+      }
+    });
+    if (needGrow) {
+      this.worldSize += 20; // grow by 20 units
+      this._rebuildWorldBorder();
+    }
+  }
+
+  /** Pre-allocate a pool of flat cell planes for drag preview. */
+  _createPreviewCells() {
+    this._previewPool = [];
+    this._previewGroup = new THREE.Group();
+    this._previewGroup.visible = false;
+    const geo = new THREE.PlaneGeometry(0.96, 0.96);
+    geo.rotateX(-Math.PI / 2);
+    for (let i = 0; i < 120; i++) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.25, depthWrite: false });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.visible = false;
+      mesh.renderOrder = 1;
+      this._previewGroup.add(mesh);
+      this._previewPool.push(mesh);
+    }
+    this.scene.add(this._previewGroup);
+  }
+
+  /** Show preview cells at given grid positions with color. */
+  _showPreview(contentCells, gapCells, valid) {
+    this._previewGroup.visible = true;
+    let idx = 0;
+    const green = 0x22c55e, red = 0xef4444, dimBlue = 0x1e3a5f;
+    for (const c of contentCells) {
+      if (idx >= this._previewPool.length) break;
+      const m = this._previewPool[idx++];
+      m.visible = true;
+      m.position.set(c.x + 0.5, 0.02, c.z + 0.5);
+      m.material.color.setHex(valid ? green : red);
+      m.material.opacity = valid ? 0.22 : 0.30;
+    }
+    for (const c of gapCells) {
+      if (idx >= this._previewPool.length) break;
+      const m = this._previewPool[idx++];
+      m.visible = true;
+      m.position.set(c.x + 0.5, 0.015, c.z + 0.5);
+      m.material.color.setHex(valid ? dimBlue : red);
+      m.material.opacity = valid ? 0.08 : 0.12;
+    }
+    // hide unused
+    for (; idx < this._previewPool.length; idx++)
+      this._previewPool[idx].visible = false;
+  }
+
+  _hidePreview() {
+    this._previewGroup.visible = false;
+    for (const m of this._previewPool) m.visible = false;
+  }
+
+  /** Show grid preview during palette dragover. */
+  _updateDropPreview(e) {
+    // read the type from the dragover event (set by dragstart)
+    // browsers restrict getData in dragover, so we stash the type via a class on body
+    const type = document.body.dataset.hortDragType;
+    if (!type || !GRID[type]) { this._hidePreview(); return; }
+
+    const g = GRID[type];
+    const pos = this._screenToGround(e.clientX, e.clientY);
+    if (!pos) { this._hidePreview(); return; }
+
+    if (this.currentLevelId === null && g.cat !== 'machine') {
+      // check if hovering over a hort → show hort highlight
+      const hortId = this.worldGrid.hortAt(pos.x, pos.z);
+      if (hortId) {
+        const comp = this.components.get(hortId);
+        if (comp) {
+          const cells = this.worldGrid.getContentCells(comp.gridX, comp.gridZ, comp.gridW, comp.gridD);
+          this._showPreview(cells, [], true);
+          return;
+        }
+      }
+      this._hidePreview();
+      return;
+    }
+
+    if (g.cat === 'machine' && this.currentLevelId === null) {
+      const gx = Math.round(pos.x - g.innerW / 2);
+      const gz = Math.round(pos.z - g.innerD / 2);
+      const content = this.worldGrid.getContentCells(gx, gz, g.innerW, g.innerD);
+      const gap = this.worldGrid.getGapCells(gx, gz, g.innerW, g.innerD);
+      const { valid } = this.worldGrid.canPlace(gx, gz, g.innerW, g.innerD);
+      this._showPreview(content, gap, valid);
+    }
   }
 
   _setIsometricCamera() {
@@ -510,49 +775,304 @@ export class HortPlannerEngine {
   setViewMode(mode) {
     this.viewMode = mode;
     if (mode === 'flat') {
-      this.controls.enableRotate = false;
-      this._tweenCamera(new THREE.Vector3(0.01, 45, 0.01));
+      // true top-down: camera directly above target, up = -Z
+      const t = this.controls.target;
+      this.camera.up.set(0, 0, -1);
+      this.camera.position.set(t.x, 60, t.z);
+      this.camera.lookAt(t);
+      this.controls.update();
+      this._showDotGrid(true);
     } else {
-      this.controls.enableRotate = true;
+      // isometric
+      this.camera.up.set(0, 1, 0);
+      const t = this.controls.target;
       const d = 35;
-      this._tweenCamera(new THREE.Vector3(d, d, d));
+      this._tweenCamera(t.clone().add(new THREE.Vector3(d, d, d)));
+      this._showDotGrid(false);
     }
   }
 
+  // ── Placement System (grid-based, relative coords) ────────
+
   handleDrop(type, clientX, clientY) {
-    if (!DEFS[type]) return null;
+    if (!DEFS[type] || !GRID[type]) return null;
+    this._hidePreview();
+
+    const g = GRID[type];
     const pos = this._screenToGround(clientX, clientY);
     if (!pos) return null;
-    pos.x = Math.round(pos.x);
-    pos.z = Math.round(pos.z);
-    return this.addComponent(type, pos);
+
+    if (this.currentLevelId === null) {
+      // MAIN WORLD
+      if (g.cat !== 'machine') {
+        // dropping non-machine onto world → check if over a hort
+        const hortId = this.worldGrid.hortAt(pos.x, pos.z);
+        if (hortId) return this._addChild(hortId, type);
+        return null;
+      }
+      const gx = Math.round(pos.x - g.innerW / 2);
+      const gz = Math.round(pos.z - g.innerD / 2);
+      if (!this.worldGrid.canPlace(gx, gz, g.innerW, g.innerD).valid) return null;
+      return this._placeMachineHort(type, gx, gz);
+    } else {
+      // INSIDE A CONTAINER (isolated view)
+      if (g.cat === 'machine') return null;
+      return this._addChild(this.currentLevelId, type);
+    }
   }
 
-  addComponent(type, worldPos, name) {
-    const id = this._nextId++;
+  /** Place a machine hort in the world grid. */
+  _placeMachineHort(type, gx, gz) {
+    const g = GRID[type];
     const def = DEFS[type];
+    const id = this._nextId++;
     const mesh = createComponentMesh(type);
-    mesh.position.copy(worldPos);
+    mesh.position.set(gx + g.innerW / 2, 0, gz + g.innerD / 2);
     mesh.userData.componentId = id;
 
-    // label
-    const label = makeLabel(name || type.replace(/-/g, ' '));
+    const label = makeLabel(displayName(type));
     label.position.y = def.h + (def.screen ? 2.8 : 0.9);
     mesh.add(label);
-
-    // entrance animation
     mesh.scale.set(0, 0, 0);
     this._tweenScale(mesh, 1, 350);
-
     this.scene.add(mesh);
-    const comp = { mesh, type, name: name || type.replace(/-/g, ' '), children: [], parentId: null };
+
+    this.worldGrid.occupy(id, gx, gz, g.innerW, g.innerD);
+
+    const comp = {
+      mesh, type, name: displayName(type),
+      children: [], parentId: null,
+      gridX: gx, gridZ: gz,
+      footW: g.innerW, footD: g.innerD,
+      innerW: g.innerW, innerD: g.innerD,
+      internalGrid: new InternalGrid(g.innerW, g.innerD),
+      relX: 0, relZ: 0,
+    };
     this.components.set(id, comp);
-
-    // check if placed inside a container
-    this._tryNestInContainer(id, worldPos);
-
+    this._checkWorldGrowth();
     this._emitCounts();
     return { id, type, name: comp.name };
+  }
+
+  /** Add a child (sub-hort or tool) into a container. */
+  _addChild(parentId, type) {
+    const parent = this.components.get(parentId);
+    if (!parent || !parent.internalGrid) return null;
+    const g = GRID[type];
+    const def = DEFS[type];
+    const fw = g.footW || 1;
+    const fd = g.footD || 1;
+
+    // find space in parent's internal grid
+    let slot = parent.internalGrid.findSpace(fw, fd);
+    if (!slot) {
+      // grow until space found (try wider, then taller, repeat)
+      for (let attempt = 0; attempt < 20 && !slot; attempt++) {
+        parent.internalGrid.grow(parent.innerW + 1, parent.innerD);
+        parent.innerW += 1;
+        slot = parent.internalGrid.findSpace(fw, fd);
+        if (slot) break;
+        parent.internalGrid.grow(parent.innerW, parent.innerD + 1);
+        parent.innerD += 1;
+        slot = parent.internalGrid.findSpace(fw, fd);
+      }
+      if (!slot) return null;
+      // if parent is a machine hort, resize world grid
+      if (parent.parentId === null) {
+        this.worldGrid.vacate(parentId);
+        if (!this.worldGrid.canPlace(parent.gridX, parent.gridZ, parent.innerW, parent.innerD).valid) {
+          return null;
+        }
+        this.worldGrid.occupy(parentId, parent.gridX, parent.gridZ, parent.innerW, parent.innerD);
+        parent.footW = parent.innerW;
+        parent.footD = parent.innerD;
+        this._rebuildContainerMesh(parentId);
+      }
+    }
+
+    const id = this._nextId++;
+    parent.internalGrid.occupy(id, slot.x, slot.z, fw, fd);
+    const mesh = createComponentMesh(type);
+    mesh.userData.componentId = id;
+    const label = makeLabel(displayName(type));
+    label.position.y = def.h + 0.6;
+    mesh.add(label);
+    mesh.scale.set(0, 0, 0);
+    this._tweenScale(mesh, 1, 300);
+    this.scene.add(mesh);
+
+    const hasInner = g.cat === 'subhort';
+    const comp = {
+      mesh, type, name: displayName(type),
+      children: [], parentId,
+      relX: slot.x, relZ: slot.z,
+      footW: fw, footD: fd,
+      innerW: hasInner ? (g.innerW || 4) : null,
+      innerD: hasInner ? (g.innerD || 4) : null,
+      internalGrid: hasInner ? new InternalGrid(g.innerW || 4, g.innerD || 4) : null,
+      gridX: 0, gridZ: 0,
+    };
+    this.components.set(id, comp);
+    parent.children.push(id);
+
+    this._updateLevelView();
+    this._emitCounts();
+    return { id, type, name: comp.name };
+  }
+
+  /** Rebuild a container's 3D mesh after resize. */
+  _rebuildContainerMesh(compId) {
+    const comp = this.components.get(compId);
+    if (!comp) return;
+    const def = DEFS[comp.type];
+    const g = GRID[comp.type];
+    const wall = g.wall || 0.15;
+    const w = comp.innerW + wall * 2;
+    const d = comp.innerD + wall * 2;
+    const h = def.h;
+    const t = 0.08;
+
+    comp.mesh.traverse(c => {
+      if (!c.userData?.isWall) return;
+      const isZ = Math.abs(c.position.z) > Math.abs(c.position.x);
+      c.geometry.dispose();
+      if (isZ) {
+        c.geometry = new THREE.BoxGeometry(w, h, t);
+        c.position.z = Math.sign(c.position.z) * (d / 2 - t / 2);
+      } else {
+        c.geometry = new THREE.BoxGeometry(t, h, d);
+        c.position.x = Math.sign(c.position.x) * (w / 2 - t / 2);
+      }
+      c.position.y = h / 2 + t;
+    });
+
+    if (comp.parentId === null) {
+      comp.mesh.position.set(comp.gridX + comp.innerW / 2, 0, comp.gridZ + comp.innerD / 2);
+    }
+  }
+
+  // ── Level View Rendering ──────────────────────────────────
+
+  /**
+   * Position and scale all meshes based on the current navigation level.
+   * - World view: machine horts at world coords, children miniature inside.
+   * - Isolated view: current container's children at 1:1, others hidden.
+   */
+  _updateLevelView() {
+    if (this.currentLevelId === null) {
+      this._renderWorldView();
+    } else {
+      this._renderIsolatedView(this.currentLevelId);
+    }
+  }
+
+  _renderWorldView() {
+    this.components.forEach((comp, id) => {
+      if (comp.parentId === null) {
+        // machine hort — visible at world position
+        comp.mesh.visible = true;
+        comp.mesh.position.set(comp.gridX + comp.innerW / 2, 0, comp.gridZ + comp.innerD / 2);
+        comp.mesh.scale.set(1, 1, 1);
+      } else {
+        // child — render miniature inside parent chain
+        this._positionInAncestorView(comp, id);
+      }
+    });
+    // connections
+    this.connections.forEach(conn => {
+      const fv = this.components.get(conn.from.compId)?.mesh.visible;
+      const tv = this.components.get(conn.to.compId)?.mesh.visible;
+      conn.mesh.visible = fv && tv;
+    });
+  }
+
+  _renderIsolatedView(containerId) {
+    const container = this.components.get(containerId);
+    if (!container) return;
+
+    this.components.forEach((comp, id) => {
+      if (id === containerId) {
+        // the container itself — visible as the "room" (walls + floor)
+        comp.mesh.visible = true;
+        // position so its internal grid origin is at (0,0)
+        const g = GRID[comp.type];
+        const wall = g?.wall || 0.15;
+        comp.mesh.position.set(comp.innerW / 2, 0, comp.innerD / 2);
+        comp.mesh.scale.set(1, 1, 1);
+      } else if (comp.parentId === containerId) {
+        // direct children — visible at relative grid position, full 1:1 scale
+        comp.mesh.visible = true;
+        comp.mesh.position.set(comp.relX + comp.footW / 2, 0.05, comp.relZ + comp.footD / 2);
+        comp.mesh.scale.set(1, 1, 1);
+        // show their sub-children as miniatures
+        for (const gcId of comp.children) {
+          this._positionInParentView(this.components.get(gcId), gcId, comp, id);
+        }
+      } else if (this._isDescendantOf(id, containerId) && comp.parentId !== containerId) {
+        // handled by _positionInParentView above
+      } else {
+        comp.mesh.visible = false;
+      }
+    });
+
+    // connections: only show if both endpoints are inside this container
+    this.connections.forEach(conn => {
+      const fromComp = this.components.get(conn.from.compId);
+      const toComp = this.components.get(conn.to.compId);
+      const fromInside = fromComp && (fromComp.parentId === containerId || conn.from.compId === containerId);
+      const toInside = toComp && (toComp.parentId === containerId || conn.to.compId === containerId);
+      conn.mesh.visible = fromInside && toInside;
+    });
+  }
+
+  /** Position a child as a miniature inside its parent's footprint in the current view. */
+  _positionInAncestorView(comp, id) {
+    const parent = this.components.get(comp.parentId);
+    if (!parent) { comp.mesh.visible = false; return; }
+
+    if (!parent.mesh.visible) { comp.mesh.visible = false; return; }
+
+    // scale: parent footprint / parent internal size
+    const scaleX = (parent.footW || parent.innerW) / (parent.innerW || 1);
+    const scaleZ = (parent.footD || parent.innerD) / (parent.innerD || 1);
+    const scale = Math.min(scaleX, scaleZ);
+
+    // position relative to parent mesh center
+    const parentPos = parent.mesh.position;
+    const halfW = (parent.footW || parent.innerW) / 2;
+    const halfD = (parent.footD || parent.innerD) / 2;
+
+    const wx = parentPos.x - halfW + (comp.relX + comp.footW / 2) * scaleX;
+    const wz = parentPos.z - halfD + (comp.relZ + comp.footD / 2) * scaleZ;
+
+    comp.mesh.visible = true;
+    comp.mesh.position.set(wx, parent.mesh.position.y + 0.1, wz);
+    comp.mesh.scale.set(scale, scale, scale);
+  }
+
+  /** Position a grandchild as miniature inside its parent (in isolated view). */
+  _positionInParentView(comp, id, parent, parentId) {
+    if (!comp) return;
+    const scaleX = parent.footW / (parent.innerW || 1);
+    const scaleZ = parent.footD / (parent.innerD || 1);
+    const scale = Math.min(scaleX, scaleZ);
+
+    const px = parent.mesh.position;
+    const wx = px.x - parent.footW / 2 + (comp.relX + comp.footW / 2) * scaleX;
+    const wz = px.z - parent.footD / 2 + (comp.relZ + comp.footD / 2) * scaleZ;
+
+    comp.mesh.visible = true;
+    comp.mesh.position.set(wx, px.y + 0.1, wz);
+    comp.mesh.scale.set(scale, scale, scale);
+  }
+
+  _isDescendantOf(childId, ancestorId) {
+    let cur = this.components.get(childId);
+    while (cur) {
+      if (cur.parentId === ancestorId) return true;
+      cur = this.components.get(cur.parentId);
+    }
+    return false;
   }
 
   removeComponent(id) {
@@ -572,14 +1092,18 @@ export class HortPlannerEngine {
       return true;
     });
 
-    // unparent
+    // unparent + vacate from parent's internal grid
     if (comp.parentId !== null) {
       const parent = this.components.get(comp.parentId);
-      if (parent) parent.children = parent.children.filter(c => c !== id);
+      if (parent) {
+        parent.children = parent.children.filter(c => c !== id);
+        parent.internalGrid?.vacate(id);
+      }
     }
 
     this.scene.remove(comp.mesh);
     comp.mesh.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    this.worldGrid.vacate(id);
     this.components.delete(id);
 
     if (this.selectedId === id) { this.selectedId = null; this.cb.onDeselect?.(); }
@@ -604,20 +1128,29 @@ export class HortPlannerEngine {
 
   enterComponent(id) {
     const comp = this.components.get(id);
-    if (!comp || !DEFS[comp.type].container) return;
+    if (!comp || !comp.internalGrid) return; // must be a container
 
-    // push current level
-    this.levelStack.push({ id: this.currentLevelId, name: this.currentLevelId ? this.components.get(this.currentLevelId)?.name ?? '?' : 'Infrastructure' });
+    this.levelStack.push({
+      id: this.currentLevelId,
+      name: this.currentLevelId ? this.components.get(this.currentLevelId)?.name ?? '?' : 'Infrastructure',
+    });
     this.currentLevelId = id;
 
-    // hide siblings, show only this container's children
-    this._applyVisibility();
+    this._updateLevelView();
 
-    // zoom camera to the component
-    const target = comp.mesh.position.clone();
-    this.controls.target.copy(target);
-    const d = 18;
-    this._tweenCamera(target.clone().add(new THREE.Vector3(d, d, d)));
+    // zoom into the internal grid — fill the screen with the hort contents
+    const iw = comp.innerW || 4;
+    const ih = comp.innerD || 4;
+    const center = new THREE.Vector3(iw / 2, 0, ih / 2);
+    this.controls.target.copy(center);
+
+    // set zoom to fit the internal grid
+    const frustumH = this.camera.top - this.camera.bottom; // 28
+    this.camera.zoom = Math.max(0.3, frustumH / (Math.max(iw, ih) * 2.2));
+    this.camera.updateProjectionMatrix();
+
+    const camD = Math.max(iw, ih) * 0.6 + 3;
+    this._tweenCamera(center.clone().add(new THREE.Vector3(camD, camD, camD)));
 
     this.deselectAll();
     this._emitLevelChange();
@@ -627,10 +1160,21 @@ export class HortPlannerEngine {
     if (!this.levelStack.length) return;
     const prev = this.levelStack.pop();
     this.currentLevelId = prev.id;
-    this._applyVisibility();
-    this.controls.target.set(0, 0, 0);
-    const d = 35;
-    this._tweenCamera(new THREE.Vector3(d, d, d));
+
+    this._updateLevelView();
+
+    if (this.currentLevelId === null) {
+      this.controls.target.set(0, 0, 0);
+      this._tweenCamera(new THREE.Vector3(35, 35, 35));
+    } else {
+      const comp = this.components.get(this.currentLevelId);
+      if (comp) {
+        const center = new THREE.Vector3((comp.innerW || 4) / 2, 0, (comp.innerD || 4) / 2);
+        this.controls.target.copy(center);
+        const d = Math.max(comp.innerW || 4, comp.innerD || 4) + 8;
+        this._tweenCamera(center.clone().add(new THREE.Vector3(d, d, d)));
+      }
+    }
     this._emitLevelChange();
   }
 
@@ -639,8 +1183,28 @@ export class HortPlannerEngine {
   }
 
   navigateToLevel(id) {
-    // pop stack until we reach the desired level
     while (this.levelStack.length && this.currentLevelId !== id) this.exitLevel();
+  }
+
+  /** Jump camera to origin, show whole world, navigate to root level. */
+  goHome() {
+    this.navigateToRoot();
+    this.controls.target.set(0, 0, 0);
+    // zoom to fit world: frustumSize / worldSize ≈ needed zoom
+    const frustumH = this.camera.top - this.camera.bottom; // base frustum height (28)
+    this.camera.zoom = Math.max(0.15, frustumH / (this.worldSize * 1.5));
+    this.camera.updateProjectionMatrix();
+    if (this.viewMode === 'flat') {
+      this.camera.up.set(0, 0, -1);
+      this.camera.position.set(0, 60, 0);
+    } else {
+      this.camera.up.set(0, 1, 0);
+      const d = 35;
+      this.camera.position.set(d, d, d);
+    }
+    this.camera.lookAt(this.controls.target);
+    this.controls.update();
+    this._updateLevelView();
   }
 
   updateProperty(id, key, value) {
@@ -680,6 +1244,9 @@ export class HortPlannerEngine {
     this._cancelConnection();
     this._dragging = null;
     this._dragCandidate = null;
+    this.worldGrid.clear();
+    this.worldSize = 50;
+    this._rebuildWorldBorder();
     this.cb.onDeselect?.();
     this._emitCounts();
     this._emitLevelChange();
@@ -689,34 +1256,44 @@ export class HortPlannerEngine {
     this.clearAll();
     const idMap = new Map();
 
-    // 1. create all components
+    // 1. place machine horts first (world grid)
+    let firstMachineId = null;
     for (let i = 0; i < preset.components.length; i++) {
       const c = preset.components[i];
-      const pos = new THREE.Vector3(c.x, 0, c.z);
-      const data = this.addComponent(c.type, pos, c.name);
-      idMap.set(i, data.id);
-    }
-
-    // 2. parent-child relationships
-    for (let i = 0; i < preset.components.length; i++) {
-      const c = preset.components[i];
-      if (c.parent === undefined) continue;
-      const childId = idMap.get(i);
-      const parentId = idMap.get(c.parent);
-      const child = this.components.get(childId);
-      const parent = this.components.get(parentId);
-      if (child && parent) {
-        child.parentId = parentId;
-        parent.children.push(childId);
+      if (c.parent !== undefined) continue;
+      const g = GRID[c.type];
+      if (g?.cat === 'machine') {
+        const gx = Math.round(c.x ?? 0);
+        const gz = Math.round(c.z ?? 0);
+        const data = this._placeMachineHort(c.type, gx, gz);
+        if (data) {
+          idMap.set(i, data.id);
+          if (!firstMachineId) firstMachineId = data.id;
+          const comp = this.components.get(data.id);
+          if (comp) comp.name = c.name;
+        }
       }
     }
-    // grow containers after all children are assigned
-    const grownSet = new Set();
+
+    // 2. place children inside their parents (and orphan tools into first machine)
     for (let i = 0; i < preset.components.length; i++) {
       const c = preset.components[i];
+      const g = GRID[c.type];
+      let parentId;
       if (c.parent !== undefined) {
-        const pid = idMap.get(c.parent);
-        if (!grownSet.has(pid)) { grownSet.add(pid); this._growContainer(pid); }
+        parentId = idMap.get(c.parent);
+      } else if (g?.cat !== 'machine') {
+        // orphan tool/subhort — put in first machine hort
+        parentId = firstMachineId;
+      } else {
+        continue; // machine hort already placed
+      }
+      if (!parentId) continue;
+      const data = this._addChild(parentId, c.type);
+      if (data) {
+        idMap.set(i, data.id);
+        const comp = this.components.get(data.id);
+        if (comp) comp.name = c.name;
       }
     }
 
@@ -738,7 +1315,7 @@ export class HortPlannerEngine {
     }
 
     this._centerCamera();
-    this._applyVisibility();
+    this._updateLevelView();
     this._emitCounts();
   }
 
@@ -779,96 +1356,7 @@ export class HortPlannerEngine {
     cancelAnimationFrame(this._rafId);
   }
 
-  // ── Nesting ───────────────────────────────────────────────
-
-  _tryNestInContainer(childId, worldPos) {
-    const child = this.components.get(childId);
-    if (!child) return;
-
-    // find best container at worldPos (largest first to prefer top-level)
-    let bestId = null;
-    let bestArea = -1;
-    this.components.forEach((comp, cid) => {
-      if (cid === childId) return;
-      const def = DEFS[comp.type];
-      if (!def.container) return;
-      const p = comp.mesh.position;
-      const hw = def.w / 2 - 0.2, hd = def.d / 2 - 0.2;
-      if (worldPos.x > p.x - hw && worldPos.x < p.x + hw &&
-          worldPos.z > p.z - hd && worldPos.z < p.z + hd) {
-        const area = def.w * def.d;
-        if (area > bestArea) { bestArea = area; bestId = cid; }
-      }
-    });
-
-    if (bestId !== null) {
-      child.parentId = bestId;
-      this.components.get(bestId).children.push(childId);
-      // grow container walls if needed
-      this._growContainer(bestId);
-    }
-  }
-
-  _growContainer(containerId) {
-    const comp = this.components.get(containerId);
-    if (!comp) return;
-    const def = DEFS[comp.type];
-    const baseH = def.h;
-
-    // find tallest child
-    let maxTop = 0;
-    for (const cid of comp.children) {
-      const ch = this.components.get(cid);
-      if (!ch) continue;
-      const chDef = DEFS[ch.type];
-      const localY = ch.mesh.position.y - comp.mesh.position.y;
-      maxTop = Math.max(maxTop, localY + chDef.h + 0.4);
-    }
-
-    const newH = Math.max(baseH, maxTop);
-    if (Math.abs(newH - baseH) < 0.01) return;
-
-    // update walls
-    comp.mesh.traverse(c => {
-      if (!c.userData?.isWall) return;
-      // determine if it's a front/back or left/right wall
-      const isXWall = Math.abs(c.position.x) > 0.5;
-      if (isXWall) {
-        c.geometry.dispose();
-        c.geometry = new THREE.BoxGeometry(0.08, newH, def.d);
-      } else {
-        c.geometry.dispose();
-        c.geometry = new THREE.BoxGeometry(def.w, newH, 0.08);
-      }
-      c.position.y = newH / 2 + 0.08;
-    });
-
-    // update label position
-    comp.mesh.children.forEach(c => {
-      if (c.userData?.isLabel) c.position.y = newH + (def.screen ? 2.8 : 0.9);
-    });
-  }
-
-  // ── Visibility for multi-layer ────────────────────────────
-
-  _applyVisibility() {
-    this.components.forEach((comp, id) => {
-      if (this.currentLevelId === null) {
-        // top level: show only root components (no parent)
-        comp.mesh.visible = comp.parentId === null;
-      } else {
-        // inside a container: show the container itself + its children
-        comp.mesh.visible = id === this.currentLevelId || comp.parentId === this.currentLevelId;
-      }
-    });
-
-    // also show/hide connections
-    this.connections.forEach(conn => {
-      const fromVis = this.components.get(conn.from.compId)?.mesh.visible;
-      const toVis = this.components.get(conn.to.compId)?.mesh.visible;
-      conn.mesh.visible = fromVis && toVis;
-    });
-  }
+  // (Legacy nesting/visibility removed — replaced by _updateLevelView)
 
   // ── Connections ───────────────────────────────────────────
 
@@ -933,8 +1421,9 @@ export class HortPlannerEngine {
     const comp = this.components.get(compId);
     if (!comp) return new THREE.Vector3();
     const def = DEFS[comp.type];
+    const sz = vizSize(comp.type);
     const count = portType === 'input' ? def.ports.in : def.ports.out;
-    const x = portType === 'input' ? -def.w / 2 - 0.2 : def.w / 2 + 0.2;
+    const x = portType === 'input' ? -sz.w / 2 - 0.2 : sz.w / 2 + 0.2;
     const y = (portIndex + 1) / (count + 1) * def.h + 0.15;
     const local = new THREE.Vector3(x, y, 0);
     comp.mesh.updateMatrixWorld();
@@ -1018,13 +1507,22 @@ export class HortPlannerEngine {
         const pos = this._screenToGround(e.clientX, e.clientY);
         if (pos) {
           const comp = this.components.get(this._dragging);
-          if (comp) {
-            comp.mesh.position.x = Math.round(pos.x + this._dragOffset.x);
-            comp.mesh.position.z = Math.round(pos.z + this._dragOffset.z);
+          if (comp && comp.gridW) {
+            // snap to grid
+            const gx = Math.round(pos.x + this._dragOffset.x - comp.gridW / 2);
+            const gz = Math.round(pos.z + this._dragOffset.z - comp.gridD / 2);
+            comp.mesh.position.set(gx + comp.gridW / 2, 0, gz + comp.gridD / 2);
             this._rebuildConnectionsFor(this._dragging);
+            // show grid preview
+            const content = this.worldGrid.getContentCells(gx, gz, comp.gridW, comp.gridD);
+            const gap = this.worldGrid.getGapCells(gx, gz, comp.gridW, comp.gridD);
+            const { valid } = this.worldGrid.canPlace(gx, gz, comp.gridW, comp.gridD, this._dragging);
+            this._showPreview(content, gap, valid);
+            comp._pendingGridX = gx;
+            comp._pendingGridZ = gz;
           }
         }
-        return; // don't run port highlight while dragging
+        return;
       }
 
       this._highlightPort(e);
@@ -1041,16 +1539,24 @@ export class HortPlannerEngine {
         this._pointerStart = null;
         this.controls.enabled = true;
         this.renderer.domElement.style.cursor = '';
-        // re-check nesting
+        this._hidePreview();
+
         const comp = this.components.get(id);
-        if (comp) {
-          // un-parent first
-          if (comp.parentId !== null) {
-            const parent = this.components.get(comp.parentId);
-            if (parent) parent.children = parent.children.filter(c => c !== id);
-            comp.parentId = null;
+        if (comp && comp._pendingGridX !== undefined) {
+          const gx = comp._pendingGridX;
+          const gz = comp._pendingGridZ;
+          delete comp._pendingGridX;
+          delete comp._pendingGridZ;
+
+          // try to commit the new position
+          if (this.worldGrid.move(id, gx, gz)) {
+            comp.gridX = gx;
+            comp.gridZ = gz;
+            comp.mesh.position.set(gx + comp.gridW / 2, 0, gz + comp.gridD / 2);
+          } else {
+            // revert to original position
+            comp.mesh.position.set(comp.gridX + comp.gridW / 2, 0, comp.gridZ + comp.gridD / 2);
           }
-          this._tryNestInContainer(id, comp.mesh.position);
         }
         this._rebuildConnectionsFor(id);
         return;
@@ -1065,12 +1571,18 @@ export class HortPlannerEngine {
       if (this._connectingFrom) { e.preventDefault(); this._cancelConnection(); }
     });
 
-    // drag & drop — must attach directly to the <canvas> AND the container
+    // drag & drop with grid preview
     for (const target of [el, this.container]) {
-      target.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+      target.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        this._updateDropPreview(e);
+      });
+      target.addEventListener('dragleave', () => { this._hidePreview(); });
       target.addEventListener('drop', e => {
         e.preventDefault();
-        e.stopPropagation(); // prevent double-fire from bubbling
+        e.stopPropagation();
+        this._hidePreview();
         const type = e.dataTransfer.getData('text/plain');
         if (type) this.handleDrop(type, e.clientX, e.clientY);
       });
@@ -1129,7 +1641,7 @@ export class HortPlannerEngine {
       if (compMesh) {
         const id = compMesh.userData.componentId;
         const comp = this.components.get(id);
-        if (comp && DEFS[comp.type].container) this.enterComponent(id);
+        if (comp && comp.internalGrid) this.enterComponent(id);
       }
     }
   }
@@ -1247,8 +1759,10 @@ export class HortPlannerEngine {
     const def = DEFS[comp.type];
     return {
       id, type: comp.type, name: comp.name,
-      isContainer: def.container, children: comp.children.length,
+      isContainer: !!comp.internalGrid, children: comp.children.length,
       ports: { ...def.ports },
+      innerW: comp.innerW, innerD: comp.innerD,
+      footW: comp.footW, footD: comp.footD,
     };
   }
 
@@ -1257,10 +1771,14 @@ export class HortPlannerEngine {
   }
 
   _emitLevelChange() {
-    const stack = this.levelStack.map(l => ({
-      id: l.id,
-      name: l.name,
-    }));
+    // Build breadcrumb: skip the null (world) entry, show only named levels
+    const stack = [];
+    for (const l of this.levelStack) {
+      if (l.id !== null) {
+        const comp = this.components.get(l.id);
+        stack.push({ id: l.id, name: comp?.name ?? l.name });
+      }
+    }
     if (this.currentLevelId !== null) {
       const cur = this.components.get(this.currentLevelId);
       stack.push({ id: this.currentLevelId, name: cur?.name ?? '?' });
@@ -1276,8 +1794,31 @@ export class HortPlannerEngine {
     const dt = this.clock.getDelta();
     const t = this.clock.getElapsedTime();
 
-    // grid time
-    if (this.gridMesh) this.gridMesh.material.uniforms.uTime.value = t;
+    // dynamic grid: always covers entire viewport at any zoom/pan/angle
+    const zoom = this.camera.zoom || 1;
+    const frustumMax = Math.max(
+      (this.camera.right - this.camera.left),
+      (this.camera.top - this.camera.bottom)
+    ) / zoom;
+    // 20× frustum covers the isometric ground projection generously
+    const gridScale = Math.max(2, frustumMax * 20 / 200);
+    const tx = this.controls.target.x;
+    const tz = this.controls.target.z;
+    if (this.gridMesh) {
+      this.gridMesh.material.uniforms.uTime.value = t;
+      this.gridMesh.material.uniforms.uWorldHalf.value = this.worldSize / 2;
+      this.gridMesh.scale.set(gridScale, 1, gridScale);
+      this.gridMesh.position.set(tx, 0, tz);
+    }
+    if (this.dotGridMesh) {
+      this.dotGridMesh.scale.set(gridScale, 1, gridScale);
+      this.dotGridMesh.position.set(tx, 0.01, tz);
+    }
+    // ground fill: same position/scale, covers horizon
+    if (this._groundFill) {
+      this._groundFill.scale.set(gridScale * 300, 1, gridScale * 300);
+      this._groundFill.position.set(tx, -0.02, tz);
+    }
 
     // camera tween
     if (this._cameraTween) {
@@ -1296,6 +1837,16 @@ export class HortPlannerEngine {
       });
     });
 
+    // zoom-independent label sizing
+    const labelScale = 1.0 / (this.camera.zoom || 1);
+    this.components.forEach(comp => {
+      comp.mesh.traverse(c => {
+        if (c.userData?.isLabel) {
+          c.scale.set(3 * labelScale, 0.75 * labelScale, 1);
+        }
+      });
+    });
+
     // connection flow particles
     this.connections.forEach(conn => {
       const { curve, particles } = conn.mesh.userData;
@@ -1306,16 +1857,6 @@ export class HortPlannerEngine {
         p.position.set(pt.x - conn.mesh.position.x, pt.y - conn.mesh.position.y, pt.z - conn.mesh.position.z);
       });
     });
-
-    // ambient particles drift upward
-    if (this.particleSystem) {
-      const pos = this.particleSystem.geometry.attributes.position.array;
-      for (let i = 1; i < pos.length; i += 3) {
-        pos[i] += dt * 0.08;
-        if (pos[i] > 18) pos[i] = 0;
-      }
-      this.particleSystem.geometry.attributes.position.needsUpdate = true;
-    }
 
     this.controls.update();
     // skip render when container is collapsed (avoids zero-size framebuffer errors)
