@@ -123,5 +123,9 @@ nav:
     - Security:
       - Threat Model: internals/security/threat-model.md
       - Container Security: internals/security/container-security.md
+      - Information Flow Control: internals/security/flow-control.md
+      - Taint Tracking: internals/security/taint-tracking.md
+      - Flow Policies & Zones: internals/security/flow-policies.md
+      - Boundary Filters: internals/security/boundary-filters.md
       - Safety Rails: internals/security/safety-rails.md
     - Roadmap: internals/roadmap.md
