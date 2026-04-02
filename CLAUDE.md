@@ -2,6 +2,13 @@
 
 Remote window viewer — watch and control your machine from your phone/tablet.
 
+## Terminology
+
+- **Llming** — an extension unit (plugin). The building block of the system.
+- **Soul** (`SOUL.md`) — what an Llming knows and how it behaves. Markdown file with feature-gated sections.
+- **Powers** — what an Llming can do. MCP tools exposed via `MCPMixin`.
+- **Circuits** — visual flow editor for wiring Llmings, triggers, and actions into automated workflows (`/hortmap`).
+
 ## Architecture
 
 - **Server:** FastAPI (Python 3.12+), HTTP on 8940, HTTPS on 8950 (nginx proxy)
@@ -25,7 +32,7 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/windows.py` — Window listing/filtering (Quartz + SkyLight, includes virtual Desktop entry)
 - `hort/thumbnailer.py` — Thumbnail rotation scheduler (fixed-bandwidth, one capture at a time)
 - `hort/signals/` — Signal system (event bus, processors, triggers, watchers)
-- `hort/hortmap/` — Hort Map (visual config editor, Drawflow UI at `/hortmap`)
+- `hort/hortmap/` — Circuits (visual flow editor, Drawflow UI at `/hortmap`)
 - `hort/input.py` — Input simulation (mouse/keyboard via Quartz CGEvent + AX API)
 - `hort/spaces.py` — macOS Spaces detection and switching (SkyLight)
 - `hort/network.py` — LAN IP detection, QR code generation
