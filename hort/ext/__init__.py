@@ -23,6 +23,7 @@ from hort.ext.manifest import (
     IntentManifest,
     JobManifest,
 )
+from hort.ext.credentials import CredentialStore
 from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
 from hort.ext.skills import SoulSection
 from hort.ext.plugin import PluginBase, PluginConfig, PluginContext
