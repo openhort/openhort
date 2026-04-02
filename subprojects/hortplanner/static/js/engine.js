@@ -9,6 +9,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { WorldGrid, InternalGrid, GRID } from './grid.js';
+import { ActionHistory, serializeWorld } from './history.js';
 
 // ── Colors ──────────────────────────────────────────────────
 
@@ -245,10 +246,13 @@ function makeContainer(def) {
     polygonOffset: isTransparent, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
   });
 
-  // floor (simple box)
-  const ft = 0.08; // floor thickness
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(w, ft, d), mat);
-  floor.position.y = ft / 2; // sits from y=0 to y=ft
+  // floor (rounded rect matching wall shape)
+  const ft = 0.08;
+  const floorShape = rrShape(w, d, r);
+  const floorGeo = new THREE.ExtrudeGeometry(floorShape, { depth: ft, bevelEnabled: false });
+  floorGeo.rotateX(-Math.PI / 2);
+  // after rotate: extrudes from y=0 upward to y=ft
+  const floor = new THREE.Mesh(floorGeo, mat);
   floor.receiveShadow = true;
   group.add(floor);
 
@@ -479,6 +483,7 @@ export class HortPlannerEngine {
     this._dragOffset = new THREE.Vector3();
     this._dropPreviewType = null; // type being dragged from palette
     this.worldGrid = new WorldGrid();
+    this.history = new ActionHistory();
     this.worldSize = 50;          // initial world: 50×50 centered on origin
 
     this._init();
@@ -551,6 +556,9 @@ export class HortPlannerEngine {
 
     // world boundary diamond
     this._createWorldBorder();
+
+    // ghost preview for drop-into-hort
+    this._createGhostPreview();
 
     // preview cells (drag highlighting)
     this._createPreviewCells();
@@ -668,6 +676,46 @@ export class HortPlannerEngine {
   }
 
   /** Pre-allocate a pool of flat cell planes for drag preview. */
+  /** Dry-run: where would a child be placed? Returns {relX, relZ, fw, fd} or null. */
+  _previewChildPlacement(parentId, type) {
+    const parent = this.components.get(parentId);
+    if (!parent || !parent.internalGrid) return null;
+    const g = GRID[type];
+    const fw = g.footW || 1;
+    const fd = g.footD || 1;
+    // try finding space in the current grid without modifying it
+    const slot = parent.internalGrid.findSpace(fw, fd);
+    if (slot) return { relX: slot.x, relZ: slot.z, fw, fd, wouldGrow: false };
+    // would need growth — estimate where it would go
+    let testW = parent.innerW, testD = parent.innerD;
+    for (let i = 0; i < 10; i++) {
+      testW++; testD++;
+      // create a temporary grid to test
+      const testGrid = new InternalGrid(testW, testD);
+      // copy existing occupants
+      if (parent.internalGrid.childRects) {
+        for (const [cid, rect] of parent.internalGrid.childRects) {
+          testGrid.occupy(cid, rect.x, rect.z, rect.w, rect.d);
+        }
+      }
+      const testSlot = testGrid.findSpace(fw, fd);
+      if (testSlot) return { relX: testSlot.x, relZ: testSlot.z, fw, fd, wouldGrow: true, newW: testW, newD: testD };
+    }
+    return null;
+  }
+
+  /** Ghost mesh for drop-into-hort preview. */
+  _createGhostPreview() {
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    this._ghostMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color: 0x60a5fa, transparent: true, opacity: 0.4,
+      depthWrite: false, depthTest: false,
+    }));
+    this._ghostMesh.visible = false;
+    this._ghostMesh.renderOrder = 10;
+    this.scene.add(this._ghostMesh);
+  }
+
   _createPreviewCells() {
     this._previewPool = [];
     this._previewGroup = new THREE.Group();
@@ -714,6 +762,8 @@ export class HortPlannerEngine {
   _hidePreview() {
     this._previewGroup.visible = false;
     for (const m of this._previewPool) m.visible = false;
+    if (this._previewHortId) { this._setGlow(this._previewHortId, false); this._previewHortId = null; }
+    if (this._ghostMesh) this._ghostMesh.visible = false;
   }
 
   /** Show grid preview during palette dragover. */
@@ -728,17 +778,44 @@ export class HortPlannerEngine {
     if (!pos) { this._hidePreview(); return; }
 
     if (this.currentLevelId === null && g.cat !== 'machine') {
-      // check if hovering over a hort → show hort highlight
+      // hovering a sub-hort/tool over the world → preview placement inside target hort
       const hortId = this.worldGrid.hortAt(pos.x, pos.z);
       if (hortId) {
         const comp = this.components.get(hortId);
         if (comp) {
-          const cells = this.worldGrid.getContentCells(comp.gridX, comp.gridZ, comp.gridW, comp.gridD);
+          // highlight the target hort
+          const cells = this.worldGrid.getContentCells(comp.gridX, comp.gridZ, comp.innerW, comp.innerD);
           this._showPreview(cells, [], true);
+          if (this._previewHortId !== hortId) {
+            if (this._previewHortId) this._setGlow(this._previewHortId, false);
+            this._setGlow(hortId, true);
+            this._previewHortId = hortId;
+          }
+          // show ghost of where the child would land
+          const preview = this._previewChildPlacement(hortId, type);
+          if (preview) {
+            const sz = vizSize(type);
+            const scaleX = (comp.footW || comp.innerW) / (comp.innerW || 1);
+            const scaleZ = (comp.footD || comp.innerD) / (comp.innerD || 1);
+            const scale = Math.min(scaleX, scaleZ);
+            const px = comp.mesh.position.x - (comp.footW || comp.innerW) / 2
+              + (preview.relX + preview.fw / 2) * scaleX;
+            const pz = comp.mesh.position.z - (comp.footD || comp.innerD) / 2
+              + (preview.relZ + preview.fd / 2) * scaleZ;
+            this._ghostMesh.visible = true;
+            const wallH = DEFS[comp.type]?.h || 1;
+            this._ghostMesh.position.set(px, comp.mesh.position.y + wallH + 0.3, pz);
+            this._ghostMesh.scale.set(sz.w * scale, DEFS[type].h * scale * 0.7, sz.d * scale);
+          }
           return;
         }
       }
-      this._hidePreview();
+      // not over a hort → show red indicator + hide ghost
+      if (this._previewHortId) { this._setGlow(this._previewHortId, false); this._previewHortId = null; }
+      this._ghostMesh.visible = false;
+      const gx = Math.round(pos.x - 0.5);
+      const gz = Math.round(pos.z - 0.5);
+      this._showPreview([{ x: gx, z: gz }], [], false);
       return;
     }
 
@@ -850,6 +927,7 @@ export class HortPlannerEngine {
     };
     this.components.set(id, comp);
     this._checkWorldGrowth();
+    this.history.push({ type: 'place', compId: id, compType: type, gridX: gx, gridZ: gz });
     this._emitCounts();
     return { id, type, name: comp.name };
   }
@@ -1207,6 +1285,97 @@ export class HortPlannerEngine {
     this._updateLevelView();
   }
 
+  /** Undo last action — rebuilds world from snapshot. */
+  undo() {
+    const action = this.history.undo();
+    if (!action) return;
+    this._applyAction(action, true); // reverse
+  }
+
+  /** Redo last undone action. */
+  redo() {
+    const action = this.history.redo();
+    if (!action) return;
+    this._applyAction(action, false); // forward
+  }
+
+  _applyAction(action, reverse) {
+    if (action.type === 'place') {
+      if (reverse) {
+        this.removeComponent(action.compId);
+      } else {
+        this._placeMachineHort(action.compType, action.gridX, action.gridZ);
+      }
+    } else if (action.type === 'addChild') {
+      if (reverse) {
+        this.removeComponent(action.compId);
+      } else {
+        this._addChild(action.parentId, action.compType);
+      }
+    } else if (action.type === 'move') {
+      const id = action.compId;
+      const comp = this.components.get(id);
+      if (!comp) return;
+      const gx = reverse ? action.oldX : action.newX;
+      const gz = reverse ? action.oldZ : action.newZ;
+      this.worldGrid.move(id, gx, gz);
+      comp.gridX = gx;
+      comp.gridZ = gz;
+      comp.mesh.position.set(gx + comp.gridW / 2, 0, gz + comp.gridD / 2);
+      this._rebuildConnectionsFor(id);
+    } else if (action.type === 'remove') {
+      // undo remove = re-add (simplified: we store the serialized state before removal)
+      if (reverse && action.snapshot) {
+        // TODO: restore from snapshot
+      }
+    }
+    this._updateLevelView();
+    this._emitCounts();
+  }
+
+  /** Export world state as YAML-compatible JSON. */
+  exportState() {
+    return serializeWorld(this);
+  }
+
+  /** Resize a container by delta grid steps. */
+  resizeContainer(id, dw, dd) {
+    const comp = this.components.get(id);
+    if (!comp || comp.innerW == null) return;
+
+    const newW = Math.max(2, comp.innerW + dw);
+    const newD = Math.max(2, comp.innerD + dd);
+    if (newW === comp.innerW && newD === comp.innerD) return;
+
+    // check children still fit
+    if (comp.internalGrid) {
+      const bb = comp.internalGrid.boundingBox();
+      if (newW < bb.maxX || newD < bb.maxZ) return; // children would overflow
+    }
+
+    const oldW = comp.innerW, oldD = comp.innerD;
+    comp.innerW = newW;
+    comp.innerD = newD;
+    if (comp.internalGrid) comp.internalGrid.grow(newW, newD);
+
+    // update world grid if machine hort
+    if (comp.parentId === null) {
+      this.worldGrid.vacate(id);
+      if (!this.worldGrid.canPlace(comp.gridX, comp.gridZ, newW, newD).valid) {
+        comp.innerW = oldW; comp.innerD = oldD; // revert
+        this.worldGrid.occupy(id, comp.gridX, comp.gridZ, oldW, oldD);
+        return;
+      }
+      this.worldGrid.occupy(id, comp.gridX, comp.gridZ, newW, newD);
+      comp.footW = newW;
+      comp.footD = newD;
+    }
+
+    this._rebuildContainerMesh(id);
+    this._updateLevelView();
+    this.history.push({ type: 'resize', compId: id, oldW, oldD, newW, newD });
+  }
+
   updateProperty(id, key, value) {
     const comp = this.components.get(id);
     if (!comp) return;
@@ -1442,7 +1611,7 @@ export class HortPlannerEngine {
         c._origEmissiveI = c.material.emissiveIntensity ?? 0;
         c.material = c.material.clone();
         c.material.emissive = new THREE.Color(C.selected);
-        c.material.emissiveIntensity = 0.35;
+        c.material.emissiveIntensity = 0.12; // subtle tint, object stays visible
       } else if (c._origEmissive !== undefined) {
         c.material.emissive = new THREE.Color(c._origEmissive);
         c.material.emissiveIntensity = c._origEmissiveI;
@@ -1475,6 +1644,7 @@ export class HortPlannerEngine {
           const compMesh = this._findComponentParent(compHits[0].object);
           if (compMesh) {
             this._dragCandidate = compMesh.userData.componentId;
+            this.controls.enabled = false; // disable orbit so it doesn't compete with drag
             // compute offset so the component doesn't jump to cursor center
             const groundPos = this._screenToGround(e.clientX, e.clientY);
             if (groundPos) {
@@ -1549,10 +1719,12 @@ export class HortPlannerEngine {
           delete comp._pendingGridZ;
 
           // try to commit the new position
+          const oldX = comp.gridX, oldZ = comp.gridZ;
           if (this.worldGrid.move(id, gx, gz)) {
             comp.gridX = gx;
             comp.gridZ = gz;
             comp.mesh.position.set(gx + comp.gridW / 2, 0, gz + comp.gridD / 2);
+            this.history.push({ type: 'move', compId: id, oldX, oldZ, newX: gx, newZ: gz });
           } else {
             // revert to original position
             comp.mesh.position.set(comp.gridX + comp.gridW / 2, 0, comp.gridZ + comp.gridD / 2);
@@ -1563,6 +1735,7 @@ export class HortPlannerEngine {
       }
 
       this._dragCandidate = null;
+      this.controls.enabled = true; // re-enable orbit (was disabled on component click)
       this._onPointerClick(e);
     });
 

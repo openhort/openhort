@@ -82,6 +82,16 @@
 
           <q-separator vertical dark class="q-mx-xs"></q-separator>
 
+          <!-- Undo / Redo -->
+          <q-btn flat dense round icon="undo" @click="doUndo">
+            <q-tooltip>Undo (Ctrl+Z)</q-tooltip>
+          </q-btn>
+          <q-btn flat dense round icon="redo" @click="doRedo">
+            <q-tooltip>Redo (Ctrl+Shift+Z)</q-tooltip>
+          </q-btn>
+
+          <q-separator vertical dark class="q-mx-xs"></q-separator>
+
           <q-btn flat dense round icon="delete_outline" :disable="!selected"
             @click="deleteSelected">
             <q-tooltip>Delete (Del)</q-tooltip>
@@ -158,6 +168,32 @@
                   &nbsp;
                   <span class="conn-badge" style="background:#22c55e"></span>{{ selected.ports.out }} out
                 </span>
+              </div>
+
+              <!-- Resize controls -->
+              <div class="q-mb-sm" v-if="selected.isContainer">
+                <div class="prop-label q-mb-xs">Size ({{ selected.innerW }} x {{ selected.innerD }})</div>
+                <div class="row q-gutter-xs">
+                  <q-btn dense flat size="sm" icon="remove" color="grey-5"
+                    @click="resizeComp(-1, 0)">
+                    <q-tooltip>Shrink width</q-tooltip>
+                  </q-btn>
+                  <q-btn dense flat size="sm" label="W" color="grey-6" disable></q-btn>
+                  <q-btn dense flat size="sm" icon="add" color="primary"
+                    @click="resizeComp(1, 0)">
+                    <q-tooltip>Grow width</q-tooltip>
+                  </q-btn>
+                  <div style="width:8px"></div>
+                  <q-btn dense flat size="sm" icon="remove" color="grey-5"
+                    @click="resizeComp(0, -1)">
+                    <q-tooltip>Shrink depth</q-tooltip>
+                  </q-btn>
+                  <q-btn dense flat size="sm" label="D" color="grey-6" disable></q-btn>
+                  <q-btn dense flat size="sm" icon="add" color="primary"
+                    @click="resizeComp(0, 1)">
+                    <q-tooltip>Grow depth</q-tooltip>
+                  </q-btn>
+                </div>
               </div>
 
               <q-separator dark class="q-my-md"></q-separator>
@@ -317,6 +353,9 @@
           if (e.key === 'Escape') { activeTool.value = null; engine?.setActiveTool(null); }
           if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
           if (e.key === 'h' || e.key === 'H') goHome();
+          if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); engine?.undo(); }
+          if ((e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) ||
+              (e.key === 'y' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); engine?.redo(); }
         }
 
         function setTool(type) {
@@ -350,6 +389,16 @@
           if (selected.value?.isContainer) engine?.enterComponent(selected.value.id);
         }
 
+        function doUndo() { engine?.undo(); }
+        function doRedo() { engine?.redo(); }
+        function resizeComp(dw, dd) {
+          if (!selected.value) return;
+          engine?.resizeContainer(selected.value.id, dw, dd);
+          // refresh properties
+          const data = engine?._compData(selected.value.id);
+          if (data) selected.value = data;
+        }
+
         function navigateToRoot() { engine?.navigateToRoot(); }
         function goHome() { engine?.goHome(); }
         function navigateToLevel(id) { engine?.navigateToLevel(id); }
@@ -368,6 +417,7 @@
           catalog: CATALOG, setTool, onDragStart, onDragOver, onDrop,
           onViewChange, typeColor,
           deleteSelected, enterSelected, navigateToRoot, navigateToLevel, updateProp, loadPreset, goHome,
+          doUndo, doRedo, resizeComp,
         };
       },
     });
