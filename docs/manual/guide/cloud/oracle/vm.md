@@ -253,5 +253,5 @@ Your Oracle Cloud VM is running with a static IP and open ports.
 From here:
 
 - Deploy openhort as a hub/relay
-- Set up the [access server tunnel](../../../developer/reference/sandbox-sessions.md)
+- Set up the [access server tunnel](../../../develop/sandbox-sessions.md)
 - Or use it as a [multi-node worker](../../multi-node.md)

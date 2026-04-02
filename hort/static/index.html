@@ -202,6 +202,8 @@
     openWindow: null, // set after viewer component mounts
     // Send control WebSocket message
     sendControl: null, // set after control WS connects
+    // Close spirit fullscreen and return to picker
+    closeSpiritFullscreen: null, // set after picker mounts
     // URL helpers
     wsUrl: null,
     apiUrl: null,
@@ -1042,6 +1044,7 @@
     fullscreenSpirit.value = null;
     state.view = 'picker';
   }
+  window.__hort.closeSpiritFullscreen = closeSpiritFullscreen;
   const isFullscreenCapable = computed(() => {
     const name = fullscreenSpirit.value;
     if (!name || typeof HortExtension === 'undefined') return false;
@@ -1565,12 +1568,18 @@
         // Full teardown — disconnectStreamWs clears everything
         disconnectStreamWs();
         isStreamWsConnected = false;
-        state.view = 'picker';
         state.overviewOpen = false;
         state.settingsOpen = false;
         state.activeMode = false;
         localStorage.removeItem('llming-current-window');
         stopThumbRefresh();
+        // Return to spirit fullscreen if we came from one, otherwise picker
+        if (state._returnToSpirit) {
+          state._returnToSpirit = false;
+          state.view = 'spirit-fullscreen';
+        } else {
+          state.view = 'picker';
+        }
         startPickerRefresh();
       }
 
@@ -2211,7 +2220,12 @@
               <!-- Terminals for this target -->
               <div v-for="t in terminalsForTarget(group.targetId)" :key="'term-' + t.terminal_id"
                    class="grid-card terminal-card" @click="openTerminal(t.terminal_id)">
-                <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
+                <div style="position:relative">
+                  <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
+                  <i class="ph ph-x card-close-btn"
+                     style="position:absolute;top:6px;left:6px;font-size:14px;cursor:pointer;color:var(--el-text-dim);z-index:2"
+                     @click.stop="confirmCloseTerminal(t.terminal_id)"></i>
+                </div>
                 <div class="grid-card-info">
                   <div class="card-app">Terminal</div>
                   <div class="card-name">{{ t.title }}</div>
@@ -2245,8 +2259,8 @@
                 <div style="position:relative">
                   <img v-if="pluginThumbs[item.id]" class="grid-card-thumb" :src="pluginThumbs[item.id]" alt="">
                   <div v-else class="card-thumb-icon"><i :class="item.icon"></i></div>
-                  <i class="ph" :class="isFavorite(item.key) ? 'ph-fill ph-star' : 'ph ph-star'"
-                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;opacity:0.6"
+                  <i class="ph fav-star" :class="[isFavorite(item.key) ? 'ph-fill ph-star is-fav' : 'ph-star']"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;z-index:1"
                      :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
                      @click.stop="toggleFavorite(item.key)"></i>
                 </div>
@@ -2260,10 +2274,13 @@
                    @click="touch(item.key); openTerminal(item.id)">
                 <div style="position:relative">
                   <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
-                  <i class="ph" :class="isFavorite(item.key) ? 'ph-fill ph-star' : 'ph ph-star'"
-                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;opacity:0.6"
+                  <i class="ph fav-star" :class="[isFavorite(item.key) ? 'ph-fill ph-star is-fav' : 'ph-star']"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;z-index:1"
                      :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
                      @click.stop="toggleFavorite(item.key)"></i>
+                  <i class="ph ph-x card-close-btn"
+                     style="position:absolute;top:6px;left:6px;font-size:14px;cursor:pointer;color:var(--el-text-dim);z-index:2"
+                     @click.stop="confirmCloseTerminal(item.id)"></i>
                 </div>
                 <div class="grid-card-info">
                   <div class="card-app">{{ item.app }}</div>
@@ -2276,8 +2293,8 @@
                 <div style="position:relative">
                   <img class="grid-card-thumb" :src="getThumbnailSrc(item.id)"
                        loading="lazy" alt="" @error="onThumbError($event)">
-                  <i class="ph" :class="isFavorite(item.key) ? 'ph-fill ph-star' : 'ph ph-star'"
-                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;opacity:0.6"
+                  <i class="ph fav-star" :class="[isFavorite(item.key) ? 'ph-fill ph-star is-fav' : 'ph-star']"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;z-index:1"
                      :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
                      @click.stop="toggleFavorite(item.key)"></i>
                 </div>
@@ -2968,12 +2985,32 @@
         state.view = 'terminal';
       }
 
+      function confirmCloseTerminal(terminalId) {
+        Quasar.Dialog.create({
+          title: 'Close Terminal',
+          message: 'Are you sure you want to close this terminal session?',
+          dark: true,
+          ok: { label: 'Close', color: 'negative' },
+          cancel: { label: 'Cancel', flat: true },
+        }).onOk(() => {
+          Quasar.Dialog.create({
+            title: 'Confirm Close',
+            message: 'This will permanently end the terminal session. Continue?',
+            dark: true,
+            ok: { label: 'Yes, close it', color: 'negative' },
+            cancel: { label: 'Keep it', flat: true },
+          }).onOk(() => {
+            closeTerminal(terminalId);
+          });
+        });
+      }
+
       return {
         state, groupsList, targetGroups, currentTargetName,
         isInAnyGroup, onAppFilterChange, setNavMode,
         toggleGroup, editGroup, openNewGroup,
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
-        onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal,
+        onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal, confirmCloseTerminal,
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
         onCloudSave,
         viewTab, spiritsList, spiritCount, allPlugins,
@@ -3100,7 +3137,10 @@
         if (termWs) { termWs.close(); termWs = null; }
         currentTermId = terminalId;
 
-        termWs = new WebSocket(wsUrl('/ws/terminal/' + terminalId));
+        // Pass terminal dimensions so server resizes PTY before sending scrollback
+        const cols = xterm ? xterm.cols : 120;
+        const rows = xterm ? xterm.rows : 30;
+        termWs = new WebSocket(wsUrl('/ws/terminal/' + terminalId + '?cols=' + cols + '&rows=' + rows));
         termWs.binaryType = 'arraybuffer';
 
         termWs.onmessage = (e) => {

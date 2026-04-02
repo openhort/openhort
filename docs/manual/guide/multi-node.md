@@ -155,5 +155,5 @@ or set up a WireGuard VPN.
 
 For details on the tunnel protocol, connection security, and
 preventing upward control, see the
-[Security](../developer/security/threat-model.md) and
-[Architecture](../developer/internals/architecture.md) pages.
+[Security](../internals/security/threat-model.md) and
+[Architecture](../internals/architecture.md) pages.

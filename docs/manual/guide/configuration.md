@@ -156,7 +156,7 @@ hooks:
 
 ### `permissions`
 
-See [Permissions Reference](../developer/reference/permissions.md).
+See [Permissions Reference](../internals/permissions.md).
 
 ### `messaging`
 
@@ -164,7 +164,7 @@ See [Multi-Agent Setups](multi-agent.md).
 
 ### `sources`
 
-See [Access Sources](../developer/reference/source-policies.md).
+See [Access Sources](../internals/source-policies.md).
 
 ### `hooks`
 

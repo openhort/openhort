@@ -315,5 +315,5 @@ rate limits, and audit logging on every message.
 
 - [Quick Start](guide/quickstart.md) — set up your first Hort in 5 minutes
 - [Configuration](guide/configuration.md) — full YAML reference
-- [Permissions](developer/reference/permissions.md) — how tool access control works
-- [Security](developer/security/threat-model.md) — threat model and safety rails
+- [Permissions](internals/permissions.md) — how tool access control works
+- [Security](internals/security/threat-model.md) — threat model and safety rails

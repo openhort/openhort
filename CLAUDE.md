@@ -2,6 +2,13 @@
 
 Remote window viewer — watch and control your machine from your phone/tablet.
 
+## Terminology
+
+- **Llming** — an extension unit (plugin). The building block of the system.
+- **Soul** (`SOUL.md`) — what an Llming knows and how it behaves. Markdown file with feature-gated sections.
+- **Powers** — what an Llming can do. MCP tools exposed via `MCPMixin`.
+- **Circuits** — visual flow editor for wiring Llmings, triggers, and actions into automated workflows (`/hortmap`).
+
 ## Architecture
 
 - **Server:** FastAPI (Python 3.12+), HTTP on 8940, HTTPS on 8950 (nginx proxy)
@@ -25,7 +32,7 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/windows.py` — Window listing/filtering (Quartz + SkyLight, includes virtual Desktop entry)
 - `hort/thumbnailer.py` — Thumbnail rotation scheduler (fixed-bandwidth, one capture at a time)
 - `hort/signals/` — Signal system (event bus, processors, triggers, watchers)
-- `hort/hortmap/` — Hort Map (visual config editor, Drawflow UI at `/hortmap`)
+- `hort/hortmap/` — Circuits (visual flow editor, Drawflow UI at `/hortmap`)
 - `hort/input.py` — Input simulation (mouse/keyboard via Quartz CGEvent + AX API)
 - `hort/spaces.py` — macOS Spaces detection and switching (SkyLight)
 - `hort/network.py` — LAN IP detection, QR code generation
@@ -55,8 +62,16 @@ All control communication flows through a single JSON WebSocket per session:
 
 **Always prefer Playwright for UI testing** — it runs headless and produces screenshots.
 
+**NEVER run the full test suite with `--cov=hort` or run tests in background (`run_in_background`).** Coverage instrumentation force-imports every module under `hort/`, which loads Quartz/pyobjc and the screen capture code. Autoreleased native `CFData` from `CGDataProviderCopyData` leaks 10-50 MB per frame and is invisible to Python's GC. A single `--cov=hort` run can consume 10+ GB of RAM; multiple stacked runs have crashed the entire system. Always run targeted tests instead:
+
 ```bash
-# Unit tests (100% coverage required)
+# Run specific test files (PREFERRED — fast, safe)
+poetry run pytest tests/test_foo.py -v
+
+# Run the full suite WITHOUT coverage (if you must)
+poetry run pytest tests/ -x -q --ignore=tests/test_ui_playwright.py
+
+# Coverage only when explicitly requested by the user
 poetry run pytest tests/ --cov=hort
 
 # Playwright UI tests (integration, skipped by default)
@@ -82,50 +97,51 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 **Doc structure:**
 - `docs/manual/guide/` — end-user pages (quickstart, config, cloud setup). Task-oriented, no jargon.
-- `docs/manual/developer/reference/` — developer reference (protocols, providers, extensions, linux-support, etc.)
-- `docs/manual/developer/internals/` — architecture, roadmap
-- `docs/manual/developer/security/` — threat model, safety rails
-- `docs/manual/developer/messengers/` — Telegram, etc.
-- `docs/coding/` — AI/developer reference material (writing guides, conventions). Not in mkdocs nav.
+- `docs/manual/develop/` — extension developer docs (plugins, extensions, providers, platform support, etc.)
+- `docs/manual/internals/` — core architecture, protocols, security, roadmap (coding agents)
 - `docs/mkdocs.yml` — nav tree. New pages MUST be added here to appear in the built site.
 
 **Rules:**
 - CLAUDE.md = compressed rules + links. Never duplicate full docs content here.
 - `docs/` = canonical detail. If CLAUDE.md and docs/ disagree, docs/ wins — update CLAUDE.md.
-- New developer docs go in `docs/manual/developer/reference/`, NOT in `docs/coding/`.
-- `docs/coding/` = AI-only reference material (writing guides, conventions). Not in mkdocs nav.
+- New extension developer docs go in `docs/manual/develop/`.
+- New core/internals docs go in `docs/manual/internals/`.
 - When changing behavior, update docs/ first, then update the CLAUDE.md summary/link.
 - Before adding content to CLAUDE.md, check if it already exists in docs/ and link instead.
-- When writing documentation, follow [docs/coding/docs-writing-guide.md](docs/coding/docs-writing-guide.md) — mermaid diagrams, admonitions, code blocks, tabs, all mkdocs-material features with syntax.
+- When writing documentation, follow [docs/manual/develop/docs-writing-guide.md](docs/manual/develop/docs-writing-guide.md) — mermaid diagrams, admonitions, code blocks, tabs, all mkdocs-material features with syntax.
 
 ## Guidelines
 
-- [UX Guidelines](docs/coding/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
-- [Plugin Ecosystem](docs/coding/plugins.md) — plugin development guide, storage, scheduler, MCP, intents, widgets
-- [Extension System](docs/coding/extensions.md) — provider interfaces, manifest, registry, creating extensions
-- [Linux Support](docs/manual/developer/reference/linux-support.md) — native Linux provider, X11 tools, Docker deployment, P2P networking
-- [Windows Support](docs/manual/developer/reference/windows-support.md) — native Windows provider, Win32 API (ctypes), Azure VM testing
-- [Cross-Platform Testing](docs/manual/developer/reference/cross-platform-testing.md) — Azure VM provisioning, E2E testing, distribution strategy
-- [Distribution & Installation](docs/manual/developer/reference/distribution.md) — pipx/Docker/deb packaging, `hort setup` wizard, macOS .app bundle for Screen Recording
-- [Client Apps](docs/manual/developer/reference/client-apps.md) — native WebView wrappers (Android/iOS/macOS/Windows), thin shell principles, repo at `openhort-clients`
-- [Llmings](docs/coding/llmings.md) — panel architecture, shared components, plugin lifecycle
-- [Access Server](docs/coding/access-server.md) — remote proxy, Azure deployment, tunnel protocol
-- [Container Environments](docs/coding/containers.md) — Docker/Azure container management, preview panel
+- [UX Guidelines](docs/manual/develop/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
+- [Plugin Ecosystem](docs/manual/develop/plugins.md) — plugin development guide, storage, scheduler, MCP, intents, widgets
+- [Extension System](docs/manual/develop/extensions.md) — provider interfaces, manifest, registry, creating extensions
+- [Linux Support](docs/manual/develop/linux-support.md) — native Linux provider, X11 tools, Docker deployment, P2P networking
+- [Windows Support](docs/manual/develop/windows-support.md) — native Windows provider, Win32 API (ctypes), Azure VM testing
+- [Cross-Platform Testing](docs/manual/develop/cross-platform-testing.md) — Azure VM provisioning, E2E testing, distribution strategy
+- [Distribution & Installation](docs/manual/develop/distribution.md) — pipx/Docker/deb packaging, `hort setup` wizard, macOS .app bundle for Screen Recording
+- [Client Apps](docs/manual/develop/client-apps.md) — native WebView wrappers (Android/iOS/macOS/Windows), thin shell principles, repo at `openhort-clients`
+- [Llmings](docs/manual/develop/llmings.md) — panel architecture, shared components, plugin lifecycle
+- [Access Server](docs/manual/develop/access-server.md) — remote proxy, Azure deployment, tunnel protocol
+- [Container Environments](docs/manual/develop/containers.md) — Docker/Azure container management, preview panel
 - [Agent Framework](docs/manual/index.md) — AI agent sandboxing, permissions, budget, multi-node orchestration
-- [Screen Capture](docs/coding/screen-capture.md) — per-window + desktop capture, viewport-based streaming, output resolution rules (no DPR!), resize strategy, VP8 considerations, zoom behavior
-- [Memory Safety](docs/coding/memory-safety.md) — CGImage native leaks, CGDataProviderCopyData autorelease trap, CGBitmapContext fix, WebSocket backpressure, frame queue patterns, debug endpoint
-- [Peer-to-Peer](docs/coding/peer2peer.md) — P2P hole punching library, STUN, signaling, UDP tunnel, Azure test VM
-- [Telegram & Mini Apps](docs/manual/developer/messengers/telegram.md) — Bot API, Mini App WebView, WebRTC signaling, debugging
-- [Docs Writing Guide](docs/coding/docs-writing-guide.md) — mkdocs-material features, mermaid, admonitions, syntax reference
+- [Screen Capture](docs/manual/develop/screen-capture.md) — per-window + desktop capture, viewport-based streaming, output resolution rules (no DPR!), resize strategy, VP8 considerations, zoom behavior
+- [Memory Safety](docs/manual/develop/memory-safety.md) — CGImage native leaks, CGDataProviderCopyData autorelease trap, CGBitmapContext fix, WebSocket backpressure, asyncio buffer limits
+- [MCP Bridge & Chat Backend](docs/manual/develop/mcp-servers.md#in-process-mcp-bridge) — extension MCP tools, tool namespacing, chat routing, SOUL.md prompt system
+- [Peer-to-Peer](docs/manual/develop/peer2peer.md) — P2P hole punching library, STUN, signaling, UDP tunnel, Azure test VM
+- [Telegram & Mini Apps](docs/manual/develop/telegram.md) — Bot API, Mini App WebView, WebRTC signaling, debugging
+- [Docs Writing Guide](docs/manual/develop/docs-writing-guide.md) — mkdocs-material features, mermaid, admonitions, syntax reference
 
 ## Critical Rules
 
+- **NEVER run `git commit`.** Only the user commits.
+- **NEVER use `alert()`, `confirm()`, or `prompt()`.** Always use `Quasar.Dialog.create()` — see [UX Guidelines: No JavaScript Dialogs](docs/manual/develop/ux-guidelines.md#no-javascript-dialogs).
 - **NEVER block the async event loop.** Every subprocess call, Docker exec, provider method, file I/O, and network call MUST run in a thread executor (`await _run_sync(fn)`) or use native async I/O (`add_reader`, `asyncio.open_unix_connection`). A single blocking call on the main thread can hang the entire server and prevent clean shutdown (uvicorn --reload). No exceptions.
 - **NEVER use `lsof -ti :PORT | xargs kill`** — this kills Docker containers. Always kill by process name: `pgrep -f "uvicorn hort.app" | xargs kill -9`
 - **NEVER load or start plugins at import time or in `create_app()`.** Plugin loading (`load_plugins_sync`), scheduler start, and connector start MUST happen exclusively in the FastAPI `on_event("startup")` handler. With uvicorn `--reload`, `create_app()` runs multiple times per module import — loading plugins there causes duplicate instances (e.g. multiple Telegram bots competing for the same token via `TelegramConflictError`). Clean shutdown via `stop_plugins()` in `on_event("shutdown")`.
 - **NEVER use `asyncio.create_task` for deferred plugin startup.** Background tasks created in startup events get killed silently on `--reload`. Run plugin startup synchronously in the startup event instead.
-- **ALWAYS release native macOS resources promptly.** `CGWindowListCreateImage` returns Core Foundation objects whose pixel buffers (10-50 MB each) are NOT tracked by Python's GC. **NEVER use `CGDataProviderCopyData()` on background threads** — it creates autoreleased CFData that never drains (leaked 17 GB in production). Use `CGBitmapContextCreate` + `CGContextDrawImage` to render into a Python-owned `bytearray` instead. Call `pil_image.close()` after encoding. Do NOT call `CFRelease()` directly — pyobjc owns the ref and double-release causes SIGABRT. See [Memory Safety](docs/coding/memory-safety.md).
+- **ALWAYS release native macOS resources promptly.** `CGWindowListCreateImage` returns Core Foundation objects whose pixel buffers (10-50 MB each) are NOT tracked by Python's GC. **NEVER use `CGDataProviderCopyData()` on background threads** — it creates autoreleased CFData that never drains (leaked 17 GB in production). Use `CGBitmapContextCreate` + `CGContextDrawImage` to render into a Python-owned `bytearray` instead. Call `pil_image.close()` after encoding. Do NOT call `CFRelease()` directly — pyobjc owns the ref and double-release causes SIGABRT. See [Memory Safety](docs/manual/develop/memory-safety.md).
 - **Desktop capture uses `CGDisplayCreateImage(CGMainDisplayID())`** — captures the main display only (not all monitors). Window_id `-1` (`DESKTOP_WINDOW_ID`) triggers this path. Desktop bounds come from `CGDisplayBounds()` for correct coordinate mapping. Input clicks go to absolute screen coordinates (no app activation).
+- **Status bar IPC uses a shared key file.** Both the plugin and status bar read/write `~/.hort/statusbar.key`. Whoever starts first creates it; either side rotates when it's older than 24 h. The status bar sends the key as `X-Hort-Key` header on every request. The plugin's `/verify` endpoint validates with `secrets.compare_digest`. Atomic writes (tempfile + rename) prevent corruption from concurrent starts. See [Threat Model](docs/manual/internals/security/threat-model.md).
 
 ## Quality Standards
 
@@ -240,7 +256,7 @@ poetry run python -m hort.access.tunnel_client --server=http://localhost:8400 --
 
 ## Sandbox Sessions (hort/sandbox/)
 
-Core infrastructure for isolated Docker execution environments with session lifecycle, MCP server support, and automatic cleanup. See [sandbox docs](docs/manual/developer/reference/sandbox-sessions.md) and [MCP docs](docs/manual/developer/reference/mcp-servers.md).
+Core infrastructure for isolated Docker execution environments with session lifecycle, MCP server support, and automatic cleanup. See [sandbox docs](docs/manual/develop/sandbox-sessions.md) and [MCP docs](docs/manual/develop/mcp-servers.md).
 
 Key files: `hort/sandbox/{session,reaper,mcp,mcp_proxy}.py`
 Tests: `poetry run pytest tests/test_sandbox*.py -v`

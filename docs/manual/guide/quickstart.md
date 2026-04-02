@@ -79,4 +79,4 @@ poetry run hort agent start agents/my-agent.yaml
 5. Responses are streamed back through the typewriter display engine
 6. Conversation context is maintained via `--resume` across turns
 
-See [Architecture](../developer/internals/architecture.md) for the full picture.
+See [Architecture](../internals/architecture.md) for the full picture.
