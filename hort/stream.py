@@ -518,46 +518,58 @@ async def _capture_pil(provider: PlatformProvider, window_id: int, max_width: in
 
 
 def _capture_pil_sync(provider: PlatformProvider, window_id: int, max_width: int) -> Any:
+    from PIL import Image as _Img
+
+    # macOS: use native Quartz path (avoids JPEG round-trip)
     try:
         from hort.screen import (
             DESKTOP_WINDOW_ID, _cgimage_to_pil, _raw_capture, _raw_capture_desktop,
         )
+        cg_image = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
+        if cg_image is not None:
+            try:
+                pil_image = _cgimage_to_pil(cg_image)
+            finally:
+                del cg_image
+            if pil_image is not None:
+                if pil_image.width > max_width:
+                    ratio = max_width / pil_image.width
+                    resized = pil_image.resize((max_width, int(pil_image.height * ratio)), _Img.Resampling.LANCZOS)
+                    pil_image.close()
+                    return resized
+                return pil_image
     except ImportError:
-        return None
-    cg_image = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
-    if cg_image is None:
-        return None
-    try:
-        pil_image = _cgimage_to_pil(cg_image)
-    finally:
-        del cg_image
-    if pil_image is None:
-        return None
-    if pil_image.width > max_width:
-        ratio = max_width / pil_image.width
-        from PIL import Image
-        resized = pil_image.resize((max_width, int(pil_image.height * ratio)), Image.Resampling.LANCZOS)
-        pil_image.close()
-        return resized
-    return pil_image
+        pass
+
+    # Cross-platform fallback: use provider.capture_window() → JPEG → PIL
+    jpeg = provider.capture_window(window_id, max_width)
+    if jpeg and len(jpeg) > 10:
+        return _Img.open(io.BytesIO(jpeg))
+    return None
 
 
 def _get_source_dims(provider: PlatformProvider, window_id: int) -> tuple[int, int] | None:
     """Get the native pixel dimensions of a window/desktop."""
-    import objc  # type: ignore[import-untyped]
+    # macOS: use Quartz for native resolution (may differ from logical)
     try:
+        import objc  # type: ignore[import-untyped]
         from hort.screen import DESKTOP_WINDOW_ID, _raw_capture, _raw_capture_desktop
         import Quartz
+        with objc.autorelease_pool():
+            cg = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
+            if cg is not None:
+                w = Quartz.CGImageGetWidth(cg)
+                h = Quartz.CGImageGetHeight(cg)
+                del cg
+                return (w, h)
     except ImportError:
-        return None
-    with objc.autorelease_pool():
-        cg = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
-        if cg is None:
-            return None
-        w = Quartz.CGImageGetWidth(cg)
-        h = Quartz.CGImageGetHeight(cg)
-        del cg
-    return (w, h)
+        pass
+
+    # Cross-platform fallback: get dims from window list
+    for w in provider.list_windows():
+        if w.window_id == window_id:
+            return (int(w.bounds.width), int(w.bounds.height))
+    return None
 
 
 def _capture_crop_resize(
@@ -566,37 +578,57 @@ def _capture_crop_resize(
     vp_x: float, vp_y: float, vp_w: float, vp_h: float,
     out_w: int, out_h: int,
 ) -> Any:
-    """Capture at native res, crop at CGImage level, convert + resize.
+    """Capture, crop viewport, and resize to output dimensions.
 
-    All native Quartz work happens inside an ObjC autorelease pool so
-    CF/CG objects (tens of MB each) are freed deterministically, not
-    deferred to a pool that may never drain on background threads.
+    On macOS: uses native Quartz APIs with CGImage-level cropping for
+    efficiency (avoids copying full Retina buffer into Python).
+
+    On Linux/Windows: uses the provider's capture_window() which returns
+    JPEG bytes, then decodes to PIL for crop+resize.
     """
-    import objc  # type: ignore[import-untyped]
     from PIL import Image as _Img
 
+    pil_image = None
+
+    # macOS: native Quartz path with CGImage-level crop
     try:
+        import objc  # type: ignore[import-untyped]
         from hort.screen import (
             DESKTOP_WINDOW_ID, _cgimage_crop, _cgimage_to_pil,
             _raw_capture, _raw_capture_desktop,
         )
+
+        with objc.autorelease_pool():
+            cg_image = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
+            if cg_image is not None:
+                # Crop at the native CGImage level
+                if vp_w < 0.99 or vp_h < 0.99:
+                    cropped_cg = _cgimage_crop(cg_image, vp_x, vp_y, vp_w, vp_h)
+                    del cg_image
+                    cg_image = cropped_cg
+
+                pil_image = _cgimage_to_pil(cg_image)
+                del cg_image
+            # autorelease pool drained
     except ImportError:
-        return None
+        pass
 
-    with objc.autorelease_pool():
-        cg_image = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
-        if cg_image is None:
-            return None
-
-        # Crop at the native CGImage level — avoids copying full Retina buffer
-        if vp_w < 0.99 or vp_h < 0.99:
-            cropped_cg = _cgimage_crop(cg_image, vp_x, vp_y, vp_w, vp_h)
-            del cg_image
-            cg_image = cropped_cg
-
-        pil_image = _cgimage_to_pil(cg_image)
-        del cg_image
-    # autorelease pool drained — all CG/CF temporaries freed
+    # Cross-platform fallback: provider.capture_window() → JPEG → PIL → crop
+    if pil_image is None:
+        # Capture at high res for crop quality
+        jpeg = provider.capture_window(window_id, max_width=out_w * 2, quality=85)
+        if jpeg and len(jpeg) > 10:
+            pil_image = _Img.open(io.BytesIO(jpeg))
+            # Crop viewport in PIL (since we can't crop at capture level)
+            if vp_w < 0.99 or vp_h < 0.99:
+                w, h = pil_image.size
+                left = int(vp_x * w)
+                top = int(vp_y * h)
+                right = int((vp_x + vp_w) * w)
+                bottom = int((vp_y + vp_h) * h)
+                cropped = pil_image.crop((left, top, right, bottom))
+                pil_image.close()
+                pil_image = cropped
 
     if pil_image is None:
         return None

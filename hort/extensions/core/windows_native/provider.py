@@ -241,8 +241,7 @@ class WindowsNativeExtension(ExtensionBase, PlatformProvider):
         windows.sort(key=lambda w: (w.space_index, w.owner_name.lower(), w.window_name.lower()))
         return windows
 
-    def get_app_names(self) -> list[str]:
-        return sorted({w.owner_name for w in self.list_windows() if w.window_id != DESKTOP_WINDOW_ID})
+    # get_app_names() — inherited from WindowProvider base class
 
     # ── CaptureProvider ──────────────────────────────────────────────
 
