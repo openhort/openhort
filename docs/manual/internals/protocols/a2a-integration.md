@@ -210,7 +210,7 @@ reason string, and the sender receives the rejection immediately.
 ## Permission Integration
 
 A2A permissions are configured in the agent's YAML alongside all
-other permissions (see [Permissions](permissions.md)).
+other permissions (see [Permissions](../permissions.md)).
 
 ```yaml
 messaging:
@@ -442,9 +442,9 @@ and the card uses default input/output modes.
 
 ## Related Documentation
 
-- [Permissions](permissions.md) — tool, MCP, command, file, and network permissions
+- [Permissions](../permissions.md) — tool, MCP, command, file, and network permissions
 - [Wire Protocol](wire-protocol.md) — stream-json, AgentMessage, tunnel protocol
-- [Budget Limits](budget.md) — cost, turn, and runtime caps
-- [Access Sources](source-policies.md) — per-source permission policies
+- [Budget Limits](../budget.md) — cost, turn, and runtime caps
+- [Access Sources](../source-policies.md) — per-source permission policies
 - [Multi-Agent Setups](../../guide/multi-agent.md) — topologies, examples, loop protection
-- [Architecture](../internals/architecture.md) — module structure, multi-node design
+- [Architecture](../architecture.md) — module structure, multi-node design

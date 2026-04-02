@@ -169,7 +169,7 @@ stateDiagram-v2
     Running --> Destroyed: cleanup (forced)
 ```
 
-Cleanup policies (see [sandbox sessions](sandbox-sessions.md)):
+Cleanup policies (see [sandbox sessions](../develop/sandbox-sessions.md)):
 - **Timeout**: idle sessions destroyed after configurable timeout (default: 30 min)
 - **Count**: max sessions per Machine Hort (oldest destroyed first)
 - **Disk space**: sessions destroyed when disk usage exceeds threshold
@@ -179,7 +179,7 @@ Cleanup policies (see [sandbox sessions](sandbox-sessions.md)):
 | Component | Description | Details |
 |-----------|-------------|---------|
 | Tools | MCPs, LLMings, Programs | See [tool system](tool-system.md) |
-| Agents (LLMings) | AI models with tool access | See [LLM extensions](llm-extensions.md) |
+| Agents (LLMings) | AI models with tool access | See [LLM extensions](../develop/llm-extensions.md) |
 | Data | Files, databases, state stores | Scoped to the Hort's filesystem |
 | Configuration | Permissions, budgets, network rules | YAML config or inherited from parent |
 | Exports | Tools made available to other Horts | See [export/import](export-import.md) |
@@ -199,7 +199,7 @@ Each Hort type enforces its boundary differently:
 | Syscall filtering | None (full OS) | Seccomp profile | None |
 | Mandatory access control | OS-level (if configured) | AppArmor/SELinux | None |
 
-For Container Hort hardening details, see [container security](container-security.md).
+For Container Hort hardening details, see [container security](security/container-security.md).
 
 ## The Root Hort (Default State)
 
@@ -277,7 +277,7 @@ Permissions can be revoked at any time:
 
 | Attack | Target | Mitigation |
 |--------|--------|------------|
-| Container escape | Container → Host | Seccomp, capabilities, gVisor (see [container security](container-security.md)) |
+| Container escape | Container → Host | Seccomp, capabilities, gVisor (see [container security](security/container-security.md)) |
 | Permission escalation | Sub-Hort gains parent perms | Intersection rule enforced at registry + proxy |
 | Identity spoofing | Hort impersonates another | UUID + connection key verification |
 | Parent trust abuse | Parent injects malicious tools | By design: parent IS trusted (documented assumption) |

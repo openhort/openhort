@@ -463,6 +463,132 @@ automatically matches however the client connected — whether via
 |-----------|-------|--------|
 | `test_mcp.py` | 21 | Config parsing, inline MCP specs, scope resolution, JSON generation, allow/deny filtering |
 | `test_mcp_proxy.py` | 11 | Proxy lifecycle, SSE protocol, message roundtrip, tool list filtering, tool call blocking, ProxyManager |
+| `test_extension_mcp.py` | 23 | MCP bridge routing, tool namespacing, LlmingLens tools (filters, grid, screenshot) |
+| `test_chat_backend.py` | 9 | Chat session lifecycle, result parsing, tool tracking, security guard |
 
 Proxy tests use a real mock MCP subprocess (Python script speaking
 the stdio protocol) for full end-to-end verification.
+
+## In-Process MCP Bridge
+
+The MCP bridge (`hort/mcp/`) aggregates tools from all `MCPMixin`
+extensions and serves them as a single MCP server. Unlike the SSE
+proxy (which wraps external stdio MCP subprocesses), the bridge runs
+tools **in-process** — the extension code executes directly.
+
+### Architecture
+
+```
+Extension (MCPMixin)          MCP Bridge              Claude Code
+┌──────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│ llming-lens      │    │                  │    │                 │
+│  - list_windows  │───▶│  MCPBridge       │◀──▶│  claude -p      │
+│  - screenshot    │    │  (JSON-RPC)      │    │  --mcp-config   │
+│  - click         │    │                  │    │                 │
+├──────────────────┤    │  Namespacing:    │    │  Connects via   │
+│ system-monitor   │    │  {pid}__{tool}   │    │  SSE or stdio   │
+│  - get_metrics   │───▶│                  │    │                 │
+├──────────────────┤    │  Transports:     │    └─────────────────┘
+│ disk-usage       │    │  - stdio (local) │
+│  - get_disk      │───▶│  - SSE (container│
+└──────────────────┘    └──────────────────┘
+```
+
+### Tool namespacing
+
+Tools are namespaced as `{plugin_id}__{tool_name}` to avoid
+collisions. For example, `llming-lens__screenshot` and
+`system-monitor__get_system_metrics`.
+
+### Running standalone
+
+```bash
+# Stdio mode (for local Claude Code)
+python -m hort.mcp.server
+
+# SSE mode (for containerized Claude Code or chat backend)
+python -m hort.mcp.server --sse --port 9100
+
+# With app filter for screen tools
+python -m hort.mcp.server --app-filter "Chrome*,iTerm*"
+```
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `hort/mcp/bridge.py` | `MCPBridge` (JSON-RPC router), `MCPSseServer` (SSE transport), `run_stdio` |
+| `hort/mcp/server.py` | Extension discovery, standalone launcher (`python -m hort.mcp`) |
+| `hort/ext/mcp.py` | `MCPMixin`, `MCPToolDef`, `MCPToolResult` — the plugin interface |
+
+## Chat Backend
+
+The chat backend (`hort/ext/chat_backend.py`) is a connector-agnostic
+layer that routes non-command messages from any connector (Telegram,
+WhatsApp, Teams, web chat) to a chat provider (currently Claude Code).
+
+### Flow
+
+```
+Telegram message "What's on my screen?"
+  → TelegramConnector._handle() detects non-command
+  → ChatBackendManager.get_session(user_id)
+  → ChatSession.send(message)
+  → claude -p --mcp-config bridge.json --resume SESSION_ID "message"
+  → Claude uses openhort MCP tools (screenshot, list_windows, ...)
+  → Response text returned
+  → ConnectorResponse.simple(text) → Telegram
+```
+
+### Components
+
+- **`ChatBackendManager`** — starts the MCP bridge subprocess,
+  manages per-user sessions. Any connector creates one instance.
+- **`ChatSession`** — wraps Claude Code CLI with `--resume` for
+  conversation continuity. Parses `stream-json` output. Emits
+  `ChatProgressEvent` for tool use and thinking status.
+- **`MCPBridgeProcess`** — starts `python -m hort.mcp.server --sse`
+  as a subprocess, auto-assigns port, writes MCP config JSON.
+- **`ChatProgressEvent`** — typed progress events (`tool_start`,
+  `thinking`, `typing`) that connectors render as they see fit.
+  Telegram shows periodic "Working..." messages. A web chat could
+  show individual tool names in a spinner.
+
+### System prompt from SOUL.md
+
+The system prompt is built dynamically from extension `SOUL.md` files
+(see `docs/manual/develop/plugins.md`, section "SOUL.md — Agent Instructions").
+Each extension's SOUL.md chapters are injected into the prompt.
+Feature-gated chapters are included only when the feature is enabled.
+
+The `system_prompt` in config is prepended as a base before any
+SOUL.md content. If no SOUL.md files exist, a built-in default
+prompt is used.
+
+### Configuration
+
+In `hort-config.yaml` under the connector's key:
+
+```yaml
+telegram-connector:
+  allowed_users: [username]    # REQUIRED — chat refuses to start without it
+  chat:
+    enabled: true
+    system_prompt: "Optional base prompt prepended before SOUL.md content"
+    model: sonnet              # Claude model
+    progress_interval: 8.0     # seconds between "Working..." updates
+```
+
+### Safety
+
+- Chat backend **requires `allowed_users`** — it will not activate
+  without an explicit user list. This is enforced in code.
+- User activity detection: input tools (click, type, press_key)
+  check for recent mouse/keyboard input and refuse to act if the
+  user is actively interacting.
+- Response sanitization: base64 data is stripped from responses,
+  and text is capped at 8000 chars before sending to connectors.
+- Asyncio subprocess buffer: set to 10 MB (`limit=10*1024*1024`)
+  because Claude's `result` JSON lines can exceed the default 64 KB
+  when MCP tools return screenshots. See
+  Memory Safety (`docs/manual/develop/memory-safety.md`) rule 7.

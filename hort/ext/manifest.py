@@ -82,6 +82,9 @@ class ExtensionManifest(BaseModel):
     # === MCP tools (flag — actual tools defined in code) ===
     mcp: bool = False
 
+    # === Soul (SOUL.md — prompt instructions with feature-gated sections) ===
+    soul: str = ""  # relative path to SOUL.md, e.g. "SOUL.md"
+
     # === Document provision (flag — actual docs defined in code) ===
     documents: bool = False
 

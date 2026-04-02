@@ -330,5 +330,5 @@ def validate_init_data(init_data: str, bot_token: str) -> bool:
 
 ## Related
 
-- [Peer-to-Peer Library](../reference/peer2peer.md) — Full API reference
-- [Peer-to-Peer Extension](../../guide/extensions/peer2peer.md) — User guide
+- [Peer-to-Peer Library](peer2peer-lib.md) — Full API reference
+- [Peer-to-Peer Extension](../guide/extensions/peer2peer.md) — User guide

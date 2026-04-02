@@ -230,6 +230,7 @@ Jobs run in executor threads — **never block the event loop**. Jobs gated by `
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `mcp` | bool | `false` | Plugin provides MCP tools |
+| `soul` | string | `""` | Path to `SOUL.md` (agent instructions with feature-gated sections) |
 | `documents` | bool | `false` | Plugin provides searchable documents |
 
 ### UI Fields
@@ -505,7 +506,87 @@ class MyPlugin(PluginBase, MCPMixin):
         return MCPToolResult(content=[{"type": "text", "text": "Unknown tool"}], is_error=True)
 ```
 
-Set `"mcp": true` in the manifest. Tools are aggregated and exposed at `/mcp`.
+Set `"mcp": true` in the manifest. Tools are aggregated by the MCP bridge (`hort/mcp/`) and served to Claude Code via stdio or SSE.
+
+---
+
+## SOUL.md — Agent Instructions
+
+Each extension can provide a `SOUL.md` file that teaches the chat agent when and how to use its tools. The file is plain Markdown — readable on GitHub, editable by users, no special syntax beyond `Feature:` and `Tool:` metadata lines.
+
+### Structure
+
+```markdown
+# My Extension
+
+Preamble text — always included in the prompt.
+
+
+## Read Emails
+
+Feature: read_mail
+Tool: get_inbox
+Tool: search_email
+
+When the user asks about their inbox, use get_inbox to fetch
+recent messages. Use search_email for specific queries.
+
+Always summarize — don't dump raw email content.
+
+
+## Send Emails
+
+Feature: send_mail
+Tool: send_email
+Tool: reply_email
+
+Only send when the user explicitly asks. Always confirm
+the recipient and subject before sending.
+```
+
+### How it works
+
+- **Chapters** are split on `## ` headings
+- **`Feature:` line** links the chapter to a feature toggle from the manifest
+- **`Tool:` lines** (one per line) link MCP tools to the chapter
+- **Everything else** is the instruction text injected into the system prompt
+
+### Feature gating
+
+When a feature is disabled (via config or admin API), two things happen simultaneously:
+
+1. The chapter is **removed from the system prompt** — the agent doesn't know it exists
+2. The linked tools are added to **`--disallowedTools`** — the agent can't call them
+
+A single toggle controls both. Disabling `send_mail` removes the "Send Emails" chapter AND blocks `send_email` / `reply_email`.
+
+### Manifest
+
+Add `"soul": "SOUL.md"` to `extension.json`:
+
+```json
+{
+  "name": "my-plugin",
+  "mcp": true,
+  "soul": "SOUL.md",
+  "features": {
+    "read_mail": { "description": "Read emails", "default": true },
+    "send_mail": { "description": "Send emails", "default": false }
+  }
+}
+```
+
+### File layout
+
+```
+hort/extensions/core/my_plugin/
+  extension.json
+  provider.py
+  SOUL.md          ← agent instructions
+  __init__.py
+```
+
+The `SOUL.md` is loaded by the MCP bridge server at startup and injected into the chat backend's system prompt. The preamble (text before the first `## `) is always included.
 
 ---
 

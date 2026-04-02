@@ -711,7 +711,7 @@ flowchart LR
   need credentials for other purposes (SSH keys, database passwords)
 
 !!! info "Credential proxy is planned for Phase 4"
-    See [Roadmap](../internals/roadmap.md). The proxy architecture
+    See [Roadmap](../roadmap.md). The proxy architecture
     is the long-term solution for credential isolation. Until then,
     use scoped keys with minimal permissions and rotate regularly.
 
@@ -1109,12 +1109,12 @@ framework is functioning correctly.
 | Topic | Document |
 |-------|----------|
 | Safety rails (hardcoded) | [Safety Rails](safety-rails.md) |
-| Permission system | [Permissions Reference](../reference/permissions.md) |
-| Access source policies | [Source Policies](../reference/source-policies.md) |
-| Budget configuration | [Budget Limits](../reference/budget.md) |
-| Wire protocol and audit format | [Wire Protocol](../reference/wire-protocol.md) |
-| Container and sandbox sessions | [Sandbox Sessions](../reference/sandbox-sessions.md) |
-| MCP server configuration | [MCP Servers](../reference/mcp-servers.md) |
-| Tool system security | [Unified Tool System](../reference/tool-system.md) |
-| System architecture | [Architecture](../internals/architecture.md) |
-| LLM extension isolation | [LLM Extensions](../reference/llm-extensions.md) |
+| Permission system | [Permissions Reference](../permissions.md) |
+| Access source policies | [Source Policies](../source-policies.md) |
+| Budget configuration | [Budget Limits](../budget.md) |
+| Wire protocol and audit format | [Wire Protocol](../protocols/wire-protocol.md) |
+| Container and sandbox sessions | [Sandbox Sessions](../../develop/sandbox-sessions.md) |
+| MCP server configuration | [MCP Servers](../../develop/mcp-servers.md) |
+| Tool system security | [Unified Tool System](../tool-system.md) |
+| System architecture | [Architecture](../architecture.md) |
+| LLM extension isolation | [LLM Extensions](../../develop/llm-extensions.md) |

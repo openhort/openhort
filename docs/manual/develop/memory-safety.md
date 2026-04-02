@@ -263,6 +263,15 @@ that skips frames when the previous send is still in progress.
    tight loop and verify RSS stabilizes. If it grows linearly, there is
    a native memory leak. See the benchmark script in "Root Cause 2" above.
 
+7. **Set `limit=` on asyncio subprocess pipes that carry large payloads.**
+   `asyncio.create_subprocess_exec(stdout=PIPE)` defaults to a 64 KB
+   stream buffer. A single `readline()` call will raise
+   `LimitOverrunError` if a line exceeds this. Claude Code's
+   `--output-format stream-json` emits `result` events as single JSON
+   lines that can be megabytes when MCP tool outputs contain base64
+   screenshots. Use `limit=10 * 1024 * 1024` (10 MB) for any subprocess
+   that may return large tool results.
+
 ## Debug Endpoint
 
 `GET /api/debug/memory` returns:

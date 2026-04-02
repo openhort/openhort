@@ -86,6 +86,7 @@ class MCPBridgeProcess:
         self._proc: subprocess.Popen[bytes] | None = None
         self._actual_port: int = 0
         self._mcp_config_path: str = ""
+        self._skills_path: str = ""
 
     @property
     def url(self) -> str:
@@ -94,6 +95,17 @@ class MCPBridgeProcess:
     @property
     def mcp_config_path(self) -> str:
         return self._mcp_config_path
+
+    @property
+    def skills_path(self) -> str:
+        return self._skills_path
+
+    def load_skills(self) -> list[Any]:
+        """Load skills from the bridge's skills manifest."""
+        if not self._skills_path or not os.path.exists(self._skills_path):
+            return []
+        with open(self._skills_path) as f:
+            return json.load(f)
 
     def start(self) -> None:
         """Start the MCP bridge SSE server."""
@@ -115,6 +127,9 @@ class MCPBridgeProcess:
             logger.info("MCP bridge: %s", text)
             if "SSE server on port" in text:
                 self._actual_port = int(text.rsplit("port ", 1)[1])
+            elif "Skills manifest:" in text:
+                self._skills_path = text.rsplit("Skills manifest: ", 1)[1]
+            if self._actual_port and ("SSE server:" in text or "Container URL:" in text):
                 break
             if self._proc.poll() is not None:
                 logger.error("MCP bridge failed to start")
@@ -132,7 +147,8 @@ class MCPBridgeProcess:
         with os.fdopen(fd, "w") as f:
             json.dump(config, f)
         self._mcp_config_path = path
-        logger.info("MCP bridge started on port %d, config: %s", self._actual_port, path)
+        logger.info("MCP bridge started on port %d, config: %s, skills: %s",
+                     self._actual_port, path, self._skills_path or "(none)")
 
         import threading
 
@@ -236,6 +252,7 @@ class ChatSession:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
+            limit=10 * 1024 * 1024,  # 10 MB — result lines can contain base64 screenshots
         )
         assert proc.stdout is not None
 
@@ -318,23 +335,52 @@ class ChatBackendManager:
 
     Any connector can use this to route non-command messages to Claude Code.
     The MCP bridge provides access to all MCPMixin extension tools.
+    The system prompt is built dynamically from extension skills.
     """
 
     def __init__(
         self,
-        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        system_prompt: str = "",
         model: str | None = None,
         progress_interval: float = 8.0,
     ) -> None:
-        self._system_prompt = system_prompt
+        self._base_prompt = system_prompt
         self._model = model
         self._progress_interval = progress_interval
         self._bridge = MCPBridgeProcess(port=0)
         self._sessions: dict[str, ChatSession] = {}
+        self._system_prompt: str = ""
+        self._disabled_tools: list[str] = []
 
     def start(self) -> None:
-        """Start the MCP bridge."""
+        """Start the MCP bridge and build the system prompt from skills."""
         self._bridge.start()
+        self._build_prompt()
+
+    def _build_prompt(self) -> None:
+        """Build the system prompt from the base prompt + SOUL.md sections."""
+        from hort.ext.skills import SoulSection, build_system_prompt
+
+        raw_data = self._bridge.load_skills()
+
+        # Collect all preambles and sections from all extensions' SOUL.md files
+        all_preambles: list[str] = []
+        all_sections: list[SoulSection] = []
+        for soul in raw_data:
+            if soul.get("preamble"):
+                all_preambles.append(soul["preamble"])
+            for s in soul.get("sections", []):
+                all_sections.append(SoulSection(**s))
+
+        combined_preamble = "\n\n".join(all_preambles)
+        base = self._base_prompt or DEFAULT_SYSTEM_PROMPT
+        self._system_prompt, self._disabled_tools = build_system_prompt(
+            combined_preamble, all_sections, base_prompt=base,
+        )
+        logger.info(
+            "System prompt built: %d sections, %d disabled tools, %d chars",
+            len(all_sections), len(self._disabled_tools), len(self._system_prompt),
+        )
 
     def stop(self) -> None:
         """Stop the MCP bridge and clear sessions."""

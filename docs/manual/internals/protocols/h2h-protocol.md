@@ -13,7 +13,7 @@ agents to a cloud VM, and aggregate audit logs from every node --
 all through a single protocol layer.
 
 - **Built on the existing tunnel protocol.** Reuses the WebSocket +
-  JSON transport from the [access server](../../../coding/access-server.md).
+  JSON transport from the [access server](../../develop/access-server.md).
   No new transport -- just new message types on the same wire.
 - **Tool locality is transparent.** An agent calls
   `washing-machine:get_status` the same way whether the tool is
@@ -207,8 +207,8 @@ sequenceDiagram
 
 **Controller-side checks** (before sending): tool in worker's
 declared exports, method in export's `access.tools`, agent's
-[permission set](permissions.md) allows the tool, agent's
-[source policy](source-policies.md) permits remote calls.
+[permission set](../permissions.md) allows the tool, agent's
+[source policy](../source-policies.md) permits remote calls.
 
 **Worker-side checks** (before executing): requesting `node_id`
 in `accept_from`, tool in local `allowed_exports`, method in
@@ -321,7 +321,7 @@ enforce this -- compromising one is not sufficient.
 ### Option A: Access Server Relay
 
 Both nodes connect outbound to the
-[access server](../../../coding/access-server.md). The relay routes
+[access server](../../develop/access-server.md). The relay routes
 H2H messages by `node_id` without inspecting content.
 
 ```mermaid
@@ -493,7 +493,7 @@ node:
 
 | Protocol | Purpose | H2H relationship |
 |----------|---------|------------------|
-| [Access Server Tunnel](../../../coding/access-server.md) | Remote browser access via cloud relay | H2H reuses the same WebSocket transport and chunking. Adds new message types. |
+| [Access Server Tunnel](../../develop/access-server.md) | Remote browser access via cloud relay | H2H reuses the same WebSocket transport and chunking. Adds new message types. |
 | [Wire Protocol](wire-protocol.md) | Agent-to-controller streaming | H2H extends `agent_start/stop/message` with tool export/import semantics. |
 
 Both protocols can coexist on the same WebSocket if a node serves

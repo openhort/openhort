@@ -122,7 +122,7 @@ flowchart LR
 - Parent generates the child's MCP config at container creation,
   including only exported tools.
 - Proxy intercepts `tools/list` and `tools/call` to enforce access
-  (same mechanism as [MCP Server filtering](mcp-servers.md#tool-filtering)).
+  (same mechanism as [MCP Server filtering](../develop/mcp-servers.md#tool-filtering)).
 - Child cannot discover unexported tools -- calls return JSON-RPC error.
 - Docker networking prevents direct access; all traffic flows through
   the proxy via `host.docker.internal`.
@@ -443,7 +443,7 @@ These are enforced by the framework and cannot be overridden:
 
 - [Permissions](permissions.md) -- tool allow/deny resolution order
 - [Access Source Policies](source-policies.md) -- per-source permission scoping
-- [MCP Servers](mcp-servers.md) -- MCP proxy architecture and tool filtering
-- [Wire Protocol](wire-protocol.md) -- tunnel message format for H2H
-- [Security](../security/threat-model.md) -- threat model and mitigations
-- [Running Across Machines](../../guide/multi-node.md) -- cluster setup and node roles
+- [MCP Servers](../develop/mcp-servers.md) -- MCP proxy architecture and tool filtering
+- [Wire Protocol](protocols/wire-protocol.md) -- tunnel message format for H2H
+- [Security](security/threat-model.md) -- threat model and mitigations
+- [Running Across Machines](../guide/multi-node.md) -- cluster setup and node roles

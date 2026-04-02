@@ -496,10 +496,10 @@ flowchart TD
 | Topic | Reference |
 |-------|-----------|
 | Permission system details | [Permissions Reference](permissions.md) |
-| MCP server configuration | [MCP Servers](mcp-servers.md) |
+| MCP server configuration | [MCP Servers](../develop/mcp-servers.md) |
 | Access source policies | [Access Source Policies](source-policies.md) |
-| LLMing panel architecture | [LLMings](../../../coding/llmings.md) |
-| Plugin development | [Plugin Ecosystem](../../../coding/plugins.md) |
-| Agent configuration | [Configuration Reference](../../guide/configuration.md) |
-| Threat model | [Threat Model](../security/threat-model.md) |
-| Wire protocol | [Wire Protocol](wire-protocol.md) |
+| LLMing panel architecture | [LLMings](../develop/llmings.md) |
+| Plugin development | [Plugin Ecosystem](../develop/plugins.md) |
+| Agent configuration | [Configuration Reference](../guide/configuration.md) |
+| Threat model | [Threat Model](security/threat-model.md) |
+| Wire protocol | [Wire Protocol](protocols/wire-protocol.md) |

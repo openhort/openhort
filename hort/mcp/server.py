@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,7 @@ from typing import Any
 from hort.ext.mcp import MCPMixin
 from hort.ext.plugin import PluginBase, PluginConfig, PluginContext
 from hort.ext.scheduler import PluginScheduler
+from hort.ext.skills import SoulSection, load_soul
 from hort.ext.store import FilePluginStore
 from hort.ext.file_store import LocalFileStore
 from hort.mcp.bridge import MCPBridge, MCPSseServer, run_stdio
@@ -31,15 +34,22 @@ from hort.mcp.bridge import MCPBridge, MCPSseServer, run_stdio
 logger = logging.getLogger(__name__)
 
 
-def _load_mcp_extensions(app_filter: str | None = None) -> list[Any]:
-    """Discover and load all MCPMixin extensions. Returns provider instances."""
+def _load_mcp_extensions(
+    app_filter: str | None = None,
+) -> tuple[list[Any], list[SkillDef]]:
+    """Discover and load all MCPMixin extensions.
+
+    Returns (providers, skills) — provider instances and all skill
+    definitions loaded from extension manifests.
+    """
     from hort.ext.registry import _parse_manifest
 
     extensions_dir = Path(__file__).parent.parent / "extensions"
     providers: list[Any] = []
+    all_skills: list[dict[str, Any]] = []
 
     if not extensions_dir.exists():
-        return providers
+        return providers, all_skills
 
     for manifest_path in extensions_dir.rglob("extension.json"):
         ext_dir = manifest_path.parent
@@ -77,7 +87,6 @@ def _load_mcp_extensions(app_filter: str | None = None) -> list[Any]:
         if app_filter:
             config["app_filter"] = app_filter
 
-        # Inject plugin context if it's a PluginBase
         if isinstance(instance, PluginBase):
             ctx = PluginContext(
                 plugin_id=manifest.name,
@@ -103,7 +112,30 @@ def _load_mcp_extensions(app_filter: str | None = None) -> list[Any]:
                     "Loaded %s (%d tools)", manifest.name, len(tools)
                 )
 
-    return providers
+        # Load SOUL.md if declared
+        if manifest.soul:
+            soul_path = ext_dir / manifest.soul
+            preamble, sections = load_soul(soul_path, plugin_id=manifest.name)
+            if preamble or sections:
+                all_skills.append({
+                    "preamble": preamble,
+                    "sections": [
+                        {
+                            "title": s.title,
+                            "feature": s.feature,
+                            "tools": s.tools,
+                            "content": s.content,
+                            "plugin_id": s.plugin_id,
+                        }
+                        for s in sections
+                    ],
+                })
+                logger.info(
+                    "Loaded SOUL.md from %s (%d sections)",
+                    manifest.name, len(sections),
+                )
+
+    return providers, all_skills
 
 
 def main() -> None:
@@ -129,10 +161,19 @@ def main() -> None:
         stream=sys.stderr,
     )
 
-    providers = _load_mcp_extensions(args.app_filter)
+    providers, skills = _load_mcp_extensions(args.app_filter)
     bridge = MCPBridge(providers)
     total_tools = sum(len(p.get_mcp_tools()) for p in providers)
-    logger.info("Bridge ready: %d providers, %d tools", len(providers), total_tools)
+    logger.info("Bridge ready: %d providers, %d tools, %d skills",
+                len(providers), total_tools, len(skills))
+
+    # Write skills manifest for the chat backend to read
+    if skills:
+        import tempfile
+        fd, skills_path = tempfile.mkstemp(suffix=".json", prefix="hort-skills-")
+        with os.fdopen(fd, "w") as f:
+            json.dump(skills, f)
+        logger.info("Skills manifest: %s", skills_path)
 
     if args.sse:
 

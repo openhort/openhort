@@ -150,7 +150,7 @@ Complexity:
 - pyobjc has no `await` bridge yet (must use threading)
 - `SCScreenshotManager` requires macOS 14+ (Sonoma)
 
-On the roadmap for Phase 4. See `docs/manual/developer/internals/roadmap.md`.
+On the roadmap for Phase 4. See `docs/manual/internals/roadmap.md`.
 
 ## Viewport-Based Streaming
 

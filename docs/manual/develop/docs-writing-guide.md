@@ -197,8 +197,8 @@ This needs clarification[^1].
 ## Links
 
 ```markdown
-[Relative link](../reference/permissions.md)
-[Section link](../reference/permissions.md#tool-permissions)
+[Relative link](../internals/permissions.md)
+[Section link](../internals/permissions.md#tool-permissions)
 ```
 
 ## HTML in Markdown

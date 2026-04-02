@@ -653,6 +653,6 @@ docker run -d \
 
 ## See Also
 
-- [Sandbox Sessions](sandbox-sessions.md) -- session lifecycle, reaper, metadata
-- [Permissions](permissions.md) -- tool, command, file, and network permission model
-- [Threat Model](../security/threat-model.md) -- attack vectors and mitigations
+- [Sandbox Sessions](../../develop/sandbox-sessions.md) -- session lifecycle, reaper, metadata
+- [Permissions](../permissions.md) -- tool, command, file, and network permission model
+- [Threat Model](threat-model.md) -- attack vectors and mitigations
