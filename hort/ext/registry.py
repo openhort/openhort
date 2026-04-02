@@ -290,8 +290,23 @@ class ExtensionRegistry:
                 "running_jobs": ctx.scheduler.running_jobs if ctx else [],
                 "ui_widgets": list(m.ui_widgets),
                 "ui_script": m.ui_script,
+                "auth_status": self._get_auth_status(m.name),
             })
         return results
+
+    def _get_auth_status(self, plugin_name: str) -> dict[str, Any] | None:
+        """Get credential status for a plugin, or None if no auth configured."""
+        inst = self._instances.get(plugin_name)
+        if inst is None:
+            return None
+        # Check if plugin has a CredentialStore (via 'creds' attribute)
+        creds = getattr(inst, "creds", None)
+        if creds is None:
+            return None
+        from hort.ext.credentials import CredentialStore
+        if isinstance(creds, CredentialStore):
+            return creds.status_dict()
+        return None
 
 
 # ----- Helpers -----

@@ -592,3 +592,98 @@ telegram-connector:
   because Claude's `result` JSON lines can exceed the default 64 KB
   when MCP tools return screenshots. See
   Memory Safety (`docs/manual/develop/memory-safety.md`) rule 7.
+
+## Credentials & Authentication
+
+Llmings that need external service access (Office 365, Google, Jira)
+use the `CredentialStore` (`hort/ext/credentials.py`) for token
+management. Three auth methods are supported:
+
+### Auth methods
+
+| Method | When | How |
+|--------|------|-----|
+| **API token** | Always available | User pastes a token from the service's settings page |
+| **Device code** | Remote / mobile / headless | System shows a code, user enters it on the provider's website |
+| **OAuth callback** | **Localhost only** | Browser redirect flow with PKCE |
+
+### Security: OAuth callback restricted to localhost
+
+OAuth callback flow is **only available when accessing openhort on
+localhost**. Remote access (cloud proxy, VPN) must use device code
+flow. This prevents a multi-tenant security vulnerability:
+
+If the access server had a shared `/auth/callback`, any openhort
+host on the same server could intercept another user's OAuth
+authorization code by racing to claim the `state` parameter.
+Device code flow avoids this entirely — no callback URL, no
+interception risk.
+
+The UI enforces this automatically: the "Sign in" button (OAuth)
+only appears on localhost. The "Device code" button appears
+everywhere and is promoted as the primary option on remote access.
+
+### Same app registration for both flows
+
+A single OAuth app registration (e.g. Azure AD) supports both
+authorization code and device code flows with the same `client_id`.
+Enable "Allow public client flows" in the app's Authentication
+settings.
+
+### Credential lifecycle
+
+```
+User connects account
+  → token stored in plugin store (~/.hort/plugins/{id}.data/)
+  → state: "ok", grid shows green check
+
+Token expires
+  → auto-refresh via refresh_token (transparent)
+  → if refresh fails: state → "expired", grid shows warning icon
+
+API rejects token (401/403)
+  → plugin calls creds.mark_expired()
+  → state → "expired", user re-authenticates
+
+User logs out
+  → DELETE /api/plugins/{id}/auth
+  → token removed, state → "not_configured"
+```
+
+### Usage in a Llming
+
+```python
+from hort.ext.credentials import CredentialStore, OAuthConfig
+
+class Office365(PluginBase, MCPMixin):
+    def activate(self, config):
+        self.creds = CredentialStore(self.store, self.log)
+        self.creds.configure(
+            provider="microsoft",
+            oauth=OAuthConfig(
+                auth_url="https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+                token_url="https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                device_code_url="https://login.microsoftonline.com/common/oauth2/v2.0/devicecode",
+                client_id=config.get("client_id", ""),
+                scopes=["https://graph.microsoft.com/Mail.Read"],
+            ),
+        )
+
+    async def execute_mcp_tool(self, name, args):
+        token = await self.creds.get_token()
+        if not token:
+            return MCPToolResult(content=[{"type": "text", "text": "Not authenticated."}], is_error=True)
+        # Use token["access_token"] with the API...
+```
+
+### API endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/plugins/{id}/auth` | GET | Auth status (no secrets) |
+| `/api/plugins/{id}/auth/token` | POST | Store API token manually |
+| `/api/plugins/{id}/auth` | DELETE | Logout / revoke |
+| `/api/plugins/{id}/auth/oauth-start` | GET | Get OAuth URL (localhost only) |
+| `/auth/callback` | GET | OAuth provider redirects here |
+| `/api/plugins/{id}/auth/device-start` | POST | Start device code flow |
+| `/api/plugins/{id}/auth/device-poll` | POST | Poll for device code completion |
