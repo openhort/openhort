@@ -107,90 +107,73 @@ CF memory stayed allocated, invisible to Python's GC.
 | Closing PIL images aggressively | Helped marginally | PIL `.close()` releases PIL buffers but not the CF source data |
 | RGBA→RGB `.convert()` fix (close original) | Saved ~30% | Was leaking the RGBA copy, but CF leak was the main problem |
 
-### The Fix: CGBitmapContext (Zero CF Temporaries)
+### Fix History: CGBitmapContext Was Worse
 
-Replaced `CGDataProviderCopyData` entirely with `CGBitmapContextCreate`,
-which renders the CGImage directly into a **Python-owned `bytearray`**.
-No autoreleased CF objects are created.
+The first fix replaced `CGDataProviderCopyData` with `CGBitmapContextCreate`,
+reasoning that a Python-owned `bytearray` avoids autoreleased CF objects.
+**This was wrong.** `CGContextDrawImage` creates an internal decompression
+cache (~34 MB per frame on 5K displays) that pyobjc cannot release. Even
+with `del ctx`, the cache persists until the process exits.
+
+| Approach | Leak rate (5120x1440) | After 20 frames |
+|----------|----------------------|-----------------|
+| `CGDataProviderCopyData` (no pool) | ~28 MB/frame | 563 MB |
+| `CGBitmapContextCreate` (any pool) | ~34 MB/frame | 680 MB |
+| **`CGDataProviderCopyData` + `autorelease_pool()`** | **<2 MB/frame** | **~40 MB stable** |
+
+### The Actual Fix: CGDataProviderCopyData + autorelease_pool()
+
+The correct solution uses `CGDataProviderCopyData` but wraps every call
+site in `objc.autorelease_pool()` so the autoreleased CFData is drained
+immediately — even on background threads.
 
 ```python
-# BEFORE (leaking — CGDataProviderCopyData creates autoreleased CFData):
-def _cgimage_to_pil(cg_image):
-    data_provider = CGImageGetDataProvider(cg_image)
-    raw_data = CGDataProviderCopyData(data_provider)  # ← AUTORELEASED CFData
-    pixel_bytes = bytes(raw_data)                      # copies 29 MB
-    del raw_data  # Python ref gone, but CF autorelease holds 29 MB forever
-    ...
+# CORRECT (current implementation):
+def capture_window(window_id, max_width, quality):
+    import objc
 
-# AFTER (fixed — no CF temporaries, Python owns the buffer):
-def _cgimage_to_pil(cg_image):
-    buf = bytearray(width * height * 4)               # Python-owned buffer
-    ctx = CGBitmapContextCreate(buf, width, height, 8, width * 4,
-                                colorspace, kCGImageAlphaPremultipliedLast)
-    CGContextDrawImage(ctx, rect, cg_image)            # renders into buf
-    del ctx                                            # flushes + releases context
-    pil_image = Image.frombuffer("RGBA", (w, h), bytes(buf), ...)
-    del buf
-    return pil_image.convert("RGB")
+    with objc.autorelease_pool():                      # ← drains CF objects
+        cg_image = _raw_capture(window_id)             # CGImage (29 MB native)
+        if cg_image is None:
+            return None
+        try:
+            pil_image = _cgimage_to_pil(cg_image)      # CGDataProviderCopyData inside
+        finally:
+            del cg_image                               # release CGImage immediately
+    # autorelease pool drained — CFData from CGDataProviderCopyData freed
+
+    return _encode_pil_to_jpeg(pil_image, max_width, quality)
 ```
 
-### Memory Profile: Before vs After
+The key insight: `objc.autorelease_pool()` **does** work when it wraps the
+entire capture-to-PIL pipeline. The earlier failure was because some call
+sites (stream.py, video_track.py, llming_lens) ran captures **without any
+pool at all**, not because the pool was insufficient.
 
-| Metric | CGDataProviderCopyData | CGBitmapContext |
-|--------|----------------------|-----------------|
-| RSS after 100 frames | 7.5 GB (growing) | 1.08 GB (stable) |
-| RSS after 500 frames | 19 GB (growing) | 1.08 GB (stable) |
-| RSS after 1000 frames | 35+ GB (OOM risk) | 1.08 GB (stable) |
-| Peak per-frame overhead | ~109 MB (4 buffers) | ~51 MB (2 buffers) |
+### Rules
 
-### Per-Frame Buffer Analysis
+!!! danger "Every CG*Create* call MUST be inside `objc.autorelease_pool()`"
+    This applies to `CGWindowListCreateImage`, `CGDisplayCreateImage`,
+    `CGImageCreateWithImageInRect`, `CGDataProviderCopyData`, and all
+    SkyLight `CGSCopy*` calls. Without a pool, autoreleased CF objects
+    leak their native memory on background threads.
 
-With `CGDataProviderCopyData` (old path), four large buffers exist simultaneously:
+!!! danger "Never use `CGBitmapContextCreate` for pixel extraction"
+    `CGContextDrawImage` creates an internal decompression cache (~34 MB
+    per frame) that cannot be released by Python. Use `CGDataProviderCopyData`
+    inside an autorelease pool instead (<2 MB/frame residual).
 
-1. **CFData** from `CGDataProviderCopyData` — 29 MB (autoreleased, never freed)
-2. **Python bytes** from `bytes(raw_data)` — 29 MB
-3. **PIL RGBA image** from `Image.frombytes` — 29 MB
-4. **PIL RGB image** from `.convert("RGB")` — 22 MB
+!!! warning "SkyLight calls need pools too"
+    `CGSCopyManagedDisplaySpaces()` and `CGSCopySpacesForWindows()` return
+    CF objects via ctypes. Wrap them in `objc.autorelease_pool()` to prevent
+    leaks during window list refreshes.
 
-**Peak: 109 MB**, with buffer #1 never freed on background threads.
-
-With `CGBitmapContext` (new path):
-
-1. **Python bytearray** target buffer — 29 MB (freed by `del buf`)
-2. **PIL RGBA image** from `Image.frombuffer` — 29 MB (freed by `.close()`)
-3. **PIL RGB image** from `.convert("RGB")` — 22 MB
-
-**Peak: 51 MB**, all Python-owned, all freed deterministically.
-
-### Rules (additions)
-
-!!! danger "Never use `CGDataProviderCopyData` on background threads"
-    This function creates **autoreleased** CFData objects. Background threads
-    in Python have no autorelease pool, so the native memory is never freed.
-    Use `CGBitmapContextCreate` + `CGContextDrawImage` instead — it renders
-    directly into a Python-owned buffer with zero CF temporaries.
-
-!!! warning "`objc.autorelease_pool()` is not sufficient"
-    Even wrapping captures in `objc.autorelease_pool()` did not fully prevent
-    the leak. Some CF objects created by pyobjc bridge methods escape the
-    pool scope through internal caching. The only reliable fix is to avoid
-    creating autoreleased objects in the first place.
-
-!!! tip "Validate with isolated benchmark"
-    Always test memory in a tight loop before deploying capture changes:
-    ```python
-    import os, psutil, objc
-    from hort.screen import _raw_capture_desktop, _cgimage_to_pil
-    proc = psutil.Process(os.getpid())
-    for i in range(200):
-        with objc.autorelease_pool():
-            cg = _raw_capture_desktop()
-            pil = _cgimage_to_pil(cg)
-            del cg
-        pil.close(); del pil
-        if (i+1) % 50 == 0:
-            print(f"{i+1}: RSS={proc.memory_info().rss / 1e6:.0f}MB")
-    # RSS must stabilize, not grow. Target: <2 GB after 200 frames at 5K.
+!!! tip "Validate with the integration test"
+    `tests/test_screen.py::TestRealQuartzCapture::test_repeated_captures_no_leak`
+    runs 20 real desktop captures and asserts RSS growth stays under 50 MB.
+    Run it after any capture code changes:
+    ```bash
+    poetry run pytest tests/test_screen.py::TestRealQuartzCapture -v
     ```
 
 ## Secondary Issue: WebSocket Backpressure

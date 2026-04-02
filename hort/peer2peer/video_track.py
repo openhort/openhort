@@ -248,6 +248,7 @@ class ScreenCaptureProvider:
             return None
 
         try:
+            import objc  # type: ignore[import-untyped]
             from hort.screen import (
                 DESKTOP_WINDOW_ID,
                 _cgimage_to_pil,
@@ -255,18 +256,19 @@ class ScreenCaptureProvider:
                 _raw_capture_desktop,
             )
 
-            if window_id == DESKTOP_WINDOW_ID:
-                cg_image = _raw_capture_desktop()
-            else:
-                cg_image = _raw_capture(window_id)
+            with objc.autorelease_pool():
+                if window_id == DESKTOP_WINDOW_ID:
+                    cg_image = _raw_capture_desktop()
+                else:
+                    cg_image = _raw_capture(window_id)
 
-            if cg_image is None:
-                return None
+                if cg_image is None:
+                    return None
 
-            try:
-                pil_image = _cgimage_to_pil(cg_image)
-            finally:
-                del cg_image
+                try:
+                    pil_image = _cgimage_to_pil(cg_image)
+                finally:
+                    del cg_image
 
             if pil_image is None:
                 return None

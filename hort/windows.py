@@ -1,26 +1,62 @@
-"""macOS window listing and filtering via Quartz API."""
+"""macOS window listing and filtering via Quartz API.
+
+All Quartz and SkyLight imports are deferred to first use so that
+importing this module does NOT load the frameworks.  This prevents
+macOS from mapping ~400 GB of virtual address space per process during
+test collection — three concurrent pytest processes caused a kernel
+panic by exhausting the virtual address space.
+"""
 
 from __future__ import annotations
 
-import ctypes
-from ctypes import c_int32, c_void_p
+import importlib
+import types
 from typing import Any
-
-import objc  # type: ignore[import-untyped]
-import Quartz  # type: ignore[import-untyped]
-from Foundation import NSArray  # type: ignore[import-untyped]
 
 from hort.models import WindowBounds, WindowInfo
 
-_skylight = ctypes.cdll.LoadLibrary(
-    "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
-)
-_skylight.CGSMainConnectionID.restype = c_int32
-_skylight.CGSCopyManagedDisplaySpaces.argtypes = [c_int32]
-_skylight.CGSCopyManagedDisplaySpaces.restype = c_void_p
-_skylight.CGSCopySpacesForWindows.argtypes = [c_int32, c_int32, c_void_p]
-_skylight.CGSCopySpacesForWindows.restype = c_void_p
-_cgs_conn: int = _skylight.CGSMainConnectionID()
+
+class _LazyModule:
+    """Proxy that defers ``import <name>`` until first attribute access."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self._mod: types.ModuleType | None = None
+
+    def _ensure(self) -> types.ModuleType:
+        if self._mod is None:
+            self._mod = importlib.import_module(self._name)
+        return self._mod
+
+    def __getattr__(self, attr: str) -> Any:
+        return getattr(self._ensure(), attr)
+
+
+Quartz: Any = _LazyModule("Quartz")  # type: ignore[assignment]
+
+# ── Lazy Quartz / SkyLight initialisation ─────────────────────────
+
+_skylight: Any = None
+_cgs_conn: int = 0
+
+
+def _ensure_skylight() -> None:
+    """Load SkyLight and establish a connection on first call."""
+    global _skylight, _cgs_conn
+    if _skylight is not None:
+        return
+    import ctypes
+    from ctypes import c_int32, c_void_p
+
+    _skylight = ctypes.cdll.LoadLibrary(
+        "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
+    )
+    _skylight.CGSMainConnectionID.restype = c_int32
+    _skylight.CGSCopyManagedDisplaySpaces.argtypes = [c_int32]
+    _skylight.CGSCopyManagedDisplaySpaces.restype = c_void_p
+    _skylight.CGSCopySpacesForWindows.argtypes = [c_int32, c_int32, c_void_p]
+    _skylight.CGSCopySpacesForWindows.restype = c_void_p
+    _cgs_conn = _skylight.CGSMainConnectionID()
 
 
 def _raw_window_list() -> list[dict[str, Any]]:  # pragma: no cover
@@ -39,31 +75,42 @@ def _raw_window_list() -> list[dict[str, Any]]:  # pragma: no cover
 
 def _get_space_index_map() -> dict[int, int]:  # pragma: no cover
     """Build a map from Space ID to 1-based index."""
-    ptr = _skylight.CGSCopyManagedDisplaySpaces(_cgs_conn)
-    if not ptr:
-        return {}
-    displays: list[dict[str, Any]] = objc.objc_object(c_void_p=ptr)
-    if not displays:
-        return {}
-    raw_spaces: list[dict[str, int]] = displays[0].get("Spaces", [])
-    return {
-        sp.get("ManagedSpaceID", 0): i + 1
-        for i, sp in enumerate(raw_spaces)
-    }
+    import objc  # type: ignore[import-untyped]
+    from ctypes import c_void_p
+
+    _ensure_skylight()
+    with objc.autorelease_pool():
+        ptr = _skylight.CGSCopyManagedDisplaySpaces(_cgs_conn)
+        if not ptr:
+            return {}
+        displays: list[dict[str, Any]] = objc.objc_object(c_void_p=ptr)
+        if not displays:
+            return {}
+        raw_spaces: list[dict[str, int]] = displays[0].get("Spaces", [])
+        return {
+            sp.get("ManagedSpaceID", 0): i + 1
+            for i, sp in enumerate(raw_spaces)
+        }
 
 
 def _get_window_space(window_id: int, space_map: dict[int, int]) -> int:  # pragma: no cover
     """Get the Space index for a single window ID."""
-    wid_array = NSArray.arrayWithObject_(window_id)
-    ptr = _skylight.CGSCopySpacesForWindows(
-        _cgs_conn, 7, objc.pyobjc_id(wid_array)  # 7 = all spaces mask
-    )
-    if not ptr:
+    import objc  # type: ignore[import-untyped]
+    from ctypes import c_void_p
+    from Foundation import NSArray  # type: ignore[import-untyped]
+
+    _ensure_skylight()
+    with objc.autorelease_pool():
+        wid_array = NSArray.arrayWithObject_(window_id)
+        ptr = _skylight.CGSCopySpacesForWindows(
+            _cgs_conn, 7, objc.pyobjc_id(wid_array)  # 7 = all spaces mask
+        )
+        if not ptr:
+            return 0
+        space_ids: list[int] = list(objc.objc_object(c_void_p=ptr))
+        if space_ids:
+            return space_map.get(space_ids[0], 0)
         return 0
-    space_ids: list[int] = list(objc.objc_object(c_void_p=ptr))
-    if space_ids:
-        return space_map.get(space_ids[0], 0)
-    return 0
 
 
 def _parse_window(raw: dict[str, Any], space_index: int = 0) -> WindowInfo | None:
@@ -126,6 +173,8 @@ def list_windows(app_filter: str | None = None) -> list[WindowInfo]:
 
     # Virtual Desktop entry — full-screen capture
     if not app_filter:
+        import Quartz  # type: ignore[import-untyped]
+
         from hort.screen import DESKTOP_WINDOW_ID
         # Use actual main display dimensions for correct coordinate mapping
         main_display = Quartz.CGMainDisplayID()

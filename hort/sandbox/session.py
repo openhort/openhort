@@ -14,17 +14,23 @@ Architecture::
     │ destroy()    │      │                                  │
     │ image_ready()│      │ start() / stop() / destroy()     │
     │ build_image()│      │ exec() / exec_streaming()        │
-    └──────────────┘      │ write_file()                     │
+    └──────────────┘      │ write_file() / exec_async()      │
                           └──────────────────────────────────┘
 
 State persistence:
     Container filesystem is ephemeral.  All durable state lives in
     the named volume mounted at ``/workspace``.  Stopping a container
     preserves the volume; destroying removes both.
+
+Security:
+    Each container is hardened with 7 independent defence layers (see
+    ``SecurityProfile``).  Layers are applied in ``_build_run_cmd()``
+    and each is independently enforceable.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 import uuid
@@ -40,6 +46,36 @@ BASE_IMAGE = "openhort-sandbox-base:latest"
 BASE_DOCKERFILE_DIR = str(Path(__file__).resolve().parent)
 DEFAULT_IMAGE = BASE_IMAGE
 DEFAULT_STORE = Path.home() / ".openhort" / "sessions"
+SECCOMP_PROFILE = str(Path(__file__).resolve().parent / "seccomp.json")
+
+
+class SecurityProfile(BaseModel):
+    """Container hardening configuration — 7 independent defence layers.
+
+    Each flag controls one layer so operators can relax individual
+    constraints while keeping the rest of the stack intact.
+
+    Layers:
+        1. Non-root user — enforced in the Dockerfile (``USER sandbox``).
+        2. Capability drop — ``cap_drop_all`` + ``cap_add`` minimum set.
+        3. Seccomp — syscall allowlist (``seccomp_profile``).
+        4. AppArmor — ``no_new_privileges`` blocks privilege escalation.
+        5. Network — metadata endpoint blocked via ``/etc/hosts``.
+        6. Resource limits — PIDs, memory, CPU (on ``SessionConfig``).
+        7. Read-only root FS — writable tmpfs only for ``/tmp`` and ``/run``.
+    """
+
+    enabled: bool = True
+    cap_drop_all: bool = True
+    cap_add: list[str] = Field(default_factory=lambda: ["NET_BIND_SERVICE"])
+    seccomp_profile: str = SECCOMP_PROFILE
+    no_new_privileges: bool = True
+    read_only_root: bool = True
+    pids_limit: int = 256
+    tmpfs_mounts: dict[str, str] = Field(default_factory=lambda: {
+        "/tmp": "size=100m,noexec,nosuid",
+        "/run": "size=10m,noexec,nosuid",
+    })
 
 
 class SessionConfig(BaseModel):
@@ -55,6 +91,7 @@ class SessionConfig(BaseModel):
         exclude=True,
     )
     timeout_minutes: int = 60
+    security: SecurityProfile = Field(default_factory=SecurityProfile)
 
 
 class SessionMeta(BaseModel):
@@ -198,6 +235,21 @@ class Session:
         self._touch()
         return proc
 
+    async def exec_async(
+        self, cmd: list[str],
+        limit: int = 10 * 1024 * 1024,
+    ) -> asyncio.subprocess.Process:
+        """Run a command with async stdout for streaming reads."""
+        self._ensure_running()
+        proc = await asyncio.create_subprocess_exec(
+            *self._exec_prefix(), *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            limit=limit,
+        )
+        self._touch()
+        return proc
+
     # ── File I/O ───────────────────────────────────────────────────
 
     def write_file(self, path: str, content: str | bytes) -> None:
@@ -221,20 +273,57 @@ class Session:
 
     def _build_run_cmd(self) -> list[str]:
         cfg = self.meta.config
+        sec = cfg.security
         cmd = [
             "docker", "run", "-d",
             "--name", self.container_name,
             "-v", f"{self.volume_name}:/workspace",
             "--add-host=host.docker.internal:host-gateway",
         ]
+
+        # ── Layer 2: Capabilities ──────────────────────────────────
+        if sec.enabled and sec.cap_drop_all:
+            cmd.append("--cap-drop=ALL")
+            for cap in sec.cap_add:
+                cmd.append(f"--cap-add={cap}")
+
+        # ── Layer 3: Seccomp ───────────────────────────────────────
+        if sec.enabled and sec.seccomp_profile:
+            cmd.extend(["--security-opt", f"seccomp={sec.seccomp_profile}"])
+
+        # ── Layer 4: No new privileges ─────────────────────────────
+        if sec.enabled and sec.no_new_privileges:
+            cmd.append("--security-opt=no-new-privileges")
+
+        # ── Layer 5: Network — block cloud metadata endpoint ───────
+        if sec.enabled:
+            cmd.extend([
+                "--add-host=metadata.google.internal:127.0.0.1",
+                "--add-host=169.254.169.254:127.0.0.1",
+            ])
+
+        # ── Layer 6: Resource limits ───────────────────────────────
+        if sec.enabled and sec.pids_limit:
+            cmd.extend(["--pids-limit", str(sec.pids_limit)])
+
+        # ── Layer 7: Read-only root FS ─────────────────────────────
+        if sec.enabled and sec.read_only_root:
+            cmd.append("--read-only")
+            for mount_path, opts in sec.tmpfs_mounts.items():
+                cmd.extend(["--tmpfs", f"{mount_path}:{opts}"])
+
+        # ── Environment variables ──────────────────────────────────
         for key, val in cfg.env.items():
             cmd.extend(["-e", f"{key}={val}"])
+
+        # ── Resource limits (user-specified) ───────────────────────
         if cfg.memory:
             cmd.extend(["--memory", cfg.memory])
         if cfg.cpus is not None:
             cmd.extend(["--cpus", str(cfg.cpus)])
         if cfg.disk:
             cmd.extend(["--storage-opt", f"size={cfg.disk}"])
+
         cmd.append(cfg.image)
         return cmd
 

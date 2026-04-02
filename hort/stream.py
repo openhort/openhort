@@ -522,22 +522,24 @@ def _capture_pil_sync(provider: PlatformProvider, window_id: int, max_width: int
 
     # macOS: use native Quartz path (avoids JPEG round-trip)
     try:
+        import objc  # type: ignore[import-untyped]
         from hort.screen import (
             DESKTOP_WINDOW_ID, _cgimage_to_pil, _raw_capture, _raw_capture_desktop,
         )
-        cg_image = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
-        if cg_image is not None:
-            try:
-                pil_image = _cgimage_to_pil(cg_image)
-            finally:
-                del cg_image
-            if pil_image is not None:
-                if pil_image.width > max_width:
-                    ratio = max_width / pil_image.width
-                    resized = pil_image.resize((max_width, int(pil_image.height * ratio)), _Img.Resampling.LANCZOS)
-                    pil_image.close()
-                    return resized
-                return pil_image
+        with objc.autorelease_pool():
+            cg_image = _raw_capture_desktop() if window_id == DESKTOP_WINDOW_ID else _raw_capture(window_id)
+            if cg_image is not None:
+                try:
+                    pil_image = _cgimage_to_pil(cg_image)
+                finally:
+                    del cg_image
+                if pil_image is not None:
+                    if pil_image.width > max_width:
+                        ratio = max_width / pil_image.width
+                        resized = pil_image.resize((max_width, int(pil_image.height * ratio)), _Img.Resampling.LANCZOS)
+                        pil_image.close()
+                        return resized
+                    return pil_image
     except ImportError:
         pass
 

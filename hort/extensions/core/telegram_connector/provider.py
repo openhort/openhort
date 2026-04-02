@@ -75,19 +75,30 @@ class TelegramConnector(PluginBase, ConnectorBase):
         if not self._allowed_users:
             self.log.warning("No allowed_users configured — Telegram connector will reject all messages")
 
-        # Chat backend configuration
+        # Chat backend reads the shared agent config from hort-config.yaml.
+        # Connector-level overrides (system_prompt) can be passed in chat.
         chat_config = config.get("chat", {})
         if chat_config.get("enabled", False):
             if not self._allowed_users:
                 self.log.error("Chat backend DISABLED: allowed_users must be set for security")
             else:
+                from hort.agent import AgentConfig, get_agent_config
                 from hort.ext.chat_backend import ChatBackendManager
+
+                agent_cfg = get_agent_config()
+                # Allow connector-level overrides for model and system_prompt
+                if chat_config.get("model"):
+                    agent_cfg = agent_cfg.model_copy(update={"model": chat_config["model"]})
                 self._ai_chat = ChatBackendManager(
+                    agent_cfg=agent_cfg,
                     system_prompt=chat_config.get("system_prompt", ""),
-                    model=chat_config.get("model"),
-                    progress_interval=chat_config.get("progress_interval", 8.0),
                 )
-                self.log.info("Chat backend enabled (model=%s)", chat_config.get("model", "default"))
+                self.log.info(
+                    "Chat backend enabled (model=%s, container=%s, dangerous=%s)",
+                    agent_cfg.model or "default",
+                    agent_cfg.container,
+                    agent_cfg.dangerous_mode,
+                )
         self.log.info("Telegram connector activated (allowed: %s)", self._allowed_users)
 
     def get_status(self) -> dict[str, Any]:

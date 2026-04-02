@@ -1,10 +1,18 @@
-"""Claude Code CLI provider — wraps ``claude -p`` as an LLM provider."""
+"""Claude Code CLI provider — wraps ``claude -p`` as an LLM provider.
+
+Reads security settings from :class:`~hort.agent.AgentConfig`.  By
+default ``--dangerously-skip-permissions`` is **not** used — instead
+``--allowedTools`` pre-approves a whitelist of tools.  Only when
+``AgentConfig.dangerous_mode`` is explicitly ``True`` is the dangerous
+flag added.
+"""
 
 from __future__ import annotations
 
 import subprocess
 from typing import Iterator
 
+from hort.agent import AgentConfig, DEFAULT_ALLOWED_TOOLS
 from hort.llm.base import LLMChunk
 from hort.llm.cli_provider import CLIProvider
 
@@ -30,6 +38,8 @@ class ClaudeCodeProvider(CLIProvider):
         container: bool = False,
         mcp_config_path: str | None = None,
         disallowed_tools: list[str] | None = None,
+        allowed_tools: list[str] | None = None,
+        dangerous_mode: bool = False,
         max_budget: float | None = None,
         **kwargs: object,
     ) -> None:
@@ -39,6 +49,8 @@ class ClaudeCodeProvider(CLIProvider):
         self.container = container
         self.mcp_config_path = mcp_config_path
         self.disallowed_tools = disallowed_tools
+        self.allowed_tools = allowed_tools or list(DEFAULT_ALLOWED_TOOLS)
+        self.dangerous_mode = dangerous_mode
         self.max_budget = max_budget
         self._turn_count = 0
 
@@ -50,8 +62,11 @@ class ClaudeCodeProvider(CLIProvider):
             "--output-format", "stream-json",
             "--verbose",
             "--include-partial-messages",
-            "--dangerously-skip-permissions",
         ]
+        if self.dangerous_mode:
+            args.append("--dangerously-skip-permissions")
+        elif self.allowed_tools:
+            args.extend(["--allowedTools", ",".join(self.allowed_tools)])
         if self.container:
             args.append("--bare")
         if self.model:

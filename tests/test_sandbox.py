@@ -12,7 +12,9 @@ import pytest
 from hort.sandbox import (
     CONTAINER_PREFIX,
     DEFAULT_IMAGE,
+    SECCOMP_PROFILE,
     VOLUME_PREFIX,
+    SecurityProfile,
     Session,
     SessionConfig,
     SessionManager,
@@ -275,6 +277,111 @@ def test_build_run_cmd_minimal(tmp_path: Path) -> None:
     assert "--cpus" not in cmd
     assert "--storage-opt" not in cmd
     assert DEFAULT_IMAGE in cmd
+
+
+# ── Security layers ───────────────────────────────────────────────
+
+
+def test_security_profile_defaults() -> None:
+    sec = SecurityProfile()
+    assert sec.enabled is True
+    assert sec.cap_drop_all is True
+    assert sec.cap_add == ["NET_BIND_SERVICE"]
+    assert sec.seccomp_profile == SECCOMP_PROFILE
+    assert sec.no_new_privileges is True
+    assert sec.read_only_root is True
+    assert sec.pids_limit == 256
+    assert "/tmp" in sec.tmpfs_mounts
+    assert "/run" in sec.tmpfs_mounts
+
+
+def test_build_run_cmd_layer2_capabilities(tmp_path: Path) -> None:
+    """Layer 2: All capabilities dropped, only minimum added back."""
+    s = _make_session(tmp_path, config=SessionConfig())
+    cmd = s._build_run_cmd()
+    assert "--cap-drop=ALL" in cmd
+    assert "--cap-add=NET_BIND_SERVICE" in cmd
+
+
+def test_build_run_cmd_layer3_seccomp(tmp_path: Path) -> None:
+    """Layer 3: Seccomp profile applied."""
+    s = _make_session(tmp_path, config=SessionConfig())
+    cmd = s._build_run_cmd()
+    seccomp_flags = [c for c in cmd if "seccomp=" in c]
+    assert len(seccomp_flags) == 1
+    assert SECCOMP_PROFILE in seccomp_flags[0]
+
+
+def test_build_run_cmd_layer4_no_new_privileges(tmp_path: Path) -> None:
+    """Layer 4: No new privileges flag set."""
+    s = _make_session(tmp_path, config=SessionConfig())
+    cmd = s._build_run_cmd()
+    assert "--security-opt=no-new-privileges" in cmd
+
+
+def test_build_run_cmd_layer5_metadata_blocked(tmp_path: Path) -> None:
+    """Layer 5: Cloud metadata endpoints blocked via /etc/hosts."""
+    s = _make_session(tmp_path, config=SessionConfig())
+    cmd = s._build_run_cmd()
+    host_entries = [c for c in cmd if c.startswith("--add-host=")]
+    hosts_str = " ".join(host_entries)
+    assert "169.254.169.254:127.0.0.1" in hosts_str
+    assert "metadata.google.internal:127.0.0.1" in hosts_str
+
+
+def test_build_run_cmd_layer6_pids_limit(tmp_path: Path) -> None:
+    """Layer 6: PID limit applied."""
+    s = _make_session(tmp_path, config=SessionConfig())
+    cmd = s._build_run_cmd()
+    assert "--pids-limit" in cmd
+    idx = cmd.index("--pids-limit")
+    assert cmd[idx + 1] == "256"
+
+
+def test_build_run_cmd_layer7_readonly_root(tmp_path: Path) -> None:
+    """Layer 7: Read-only root filesystem with writable tmpfs."""
+    s = _make_session(tmp_path, config=SessionConfig())
+    cmd = s._build_run_cmd()
+    assert "--read-only" in cmd
+    tmpfs_args = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--tmpfs"]
+    assert any("/tmp:" in t for t in tmpfs_args)
+    assert any("/run:" in t for t in tmpfs_args)
+    # Verify noexec on tmpfs
+    for t in tmpfs_args:
+        assert "noexec" in t
+
+
+def test_build_run_cmd_security_disabled(tmp_path: Path) -> None:
+    """When security is disabled, no hardening flags are added."""
+    cfg = SessionConfig(security=SecurityProfile(enabled=False))
+    s = _make_session(tmp_path, config=cfg)
+    cmd = s._build_run_cmd()
+    assert "--cap-drop=ALL" not in cmd
+    assert "--read-only" not in cmd
+    assert "--pids-limit" not in cmd
+    assert "--security-opt=no-new-privileges" not in cmd
+    # Only the default --add-host for host.docker.internal should remain
+    host_entries = [c for c in cmd if c.startswith("--add-host=")]
+    assert len(host_entries) == 1  # just host.docker.internal
+
+
+def test_build_run_cmd_custom_security(tmp_path: Path) -> None:
+    """Custom security profile relaxes individual layers."""
+    sec = SecurityProfile(
+        cap_drop_all=True,
+        cap_add=["NET_BIND_SERVICE", "SYS_PTRACE"],
+        read_only_root=False,
+        pids_limit=512,
+    )
+    cfg = SessionConfig(security=sec)
+    s = _make_session(tmp_path, config=cfg)
+    cmd = s._build_run_cmd()
+    assert "--cap-drop=ALL" in cmd
+    assert "--cap-add=NET_BIND_SERVICE" in cmd
+    assert "--cap-add=SYS_PTRACE" in cmd
+    assert "--read-only" not in cmd
+    idx = cmd.index("--pids-limit")
+    assert cmd[idx + 1] == "512"
 
 
 # ── Metadata persistence ──────────────────────────────────────────

@@ -572,38 +572,42 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             else:
                 region = cell_region
 
-        # Capture raw CGImage
-        if window_id == DESKTOP_WINDOW_ID:
-            cg_image = _raw_capture_desktop()
-        else:
-            cg_image = _raw_capture(window_id)
+        # Capture raw CGImage inside autorelease pool to prevent
+        # native memory leaks on background threads.
+        import objc  # type: ignore[import-untyped]
 
-        if cg_image is None:
-            return MCPToolResult(
-                content=[{"type": "text", "text": f"Failed to capture {target}"}],
-                is_error=True,
-            )
-
-        try:
-            import Quartz  # type: ignore[import-untyped]
-            img_w = Quartz.CGImageGetWidth(cg_image)
-            img_h = Quartz.CGImageGetHeight(cg_image)
-
-            # Apply crop region
-            if region:
-                rx, ry = region["x"], region["y"]
-                rw, rh = region["w"], region["h"]
-                cropped = _cgimage_crop(cg_image, rx, ry, rw, rh)
-                del cg_image
-                cg_image = cropped
-                crop_info = {"x": rx, "y": ry, "w": rw, "h": rh}
+        with objc.autorelease_pool():
+            if window_id == DESKTOP_WINDOW_ID:
+                cg_image = _raw_capture_desktop()
             else:
-                crop_info = {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0}
+                cg_image = _raw_capture(window_id)
 
-            # Convert to PIL
-            pil_image = _cgimage_to_pil(cg_image)
-        finally:
-            del cg_image
+            if cg_image is None:
+                return MCPToolResult(
+                    content=[{"type": "text", "text": f"Failed to capture {target}"}],
+                    is_error=True,
+                )
+
+            try:
+                import Quartz  # type: ignore[import-untyped]
+                img_w = Quartz.CGImageGetWidth(cg_image)
+                img_h = Quartz.CGImageGetHeight(cg_image)
+
+                # Apply crop region
+                if region:
+                    rx, ry = region["x"], region["y"]
+                    rw, rh = region["w"], region["h"]
+                    cropped = _cgimage_crop(cg_image, rx, ry, rw, rh)
+                    del cg_image
+                    cg_image = cropped
+                    crop_info = {"x": rx, "y": ry, "w": rw, "h": rh}
+                else:
+                    crop_info = {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0}
+
+                # Convert to PIL
+                pil_image = _cgimage_to_pil(cg_image)
+            finally:
+                del cg_image
 
         if pil_image is None:
             return MCPToolResult(
