@@ -130,6 +130,8 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Peer-to-Peer](docs/manual/develop/peer2peer.md) — P2P hole punching library, STUN, signaling, UDP tunnel, Azure test VM
 - [Telegram & Mini Apps](docs/manual/develop/telegram.md) — Bot API, Mini App WebView, WebRTC signaling, debugging
 - [Docs Writing Guide](docs/manual/develop/docs-writing-guide.md) — mkdocs-material features, mermaid, admonitions, syntax reference
+- [Wiring Model](docs/manual/internals/security/wiring-model.md) — two concepts (llmings + horts), connections, groups, direct wiring, visual editor, complete YAML reference
+- [Llming Data Types](docs/manual/internals/protocols/llming-types.md) — universal Pydantic models (Mail, CalendarEvent, Metric, Record), broadcasts, risk levels, version compat, author verification
 - [Information Flow Control](docs/manual/internals/security/flow-control.md) — taint labels, flow policies, isolation zones, parameter-level classification, nested Hort boundaries
 - [Taint Tracking](docs/manual/internals/security/taint-tracking.md) — data model, label classifier, propagation rules, audit trail
 - [Flow Policies & Zones](docs/manual/internals/security/flow-policies.md) — policy engine, zone isolation, auto-escalation, broadcast channels, simple/advanced config
