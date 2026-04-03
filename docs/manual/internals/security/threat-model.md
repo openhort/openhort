@@ -9,9 +9,12 @@ trace back to this document.
 
 ## Security Boundaries
 
-OpenHORT has five distinct security boundaries. Each boundary
+OpenHORT has six distinct security boundaries. Each boundary
 separates components with different trust levels and enforces
-controls on what crosses it.
+controls on what crosses it. Boundaries 1–5 are covered in this
+document. Boundary 6 (Information Flow Control — taint tracking,
+flow policies, isolation zones) is covered in
+[Flow Control](flow-control.md) and [Flow Policies](flow-policies.md).
 
 ```mermaid
 flowchart TB
