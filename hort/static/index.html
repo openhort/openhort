@@ -202,6 +202,8 @@
     openWindow: null, // set after viewer component mounts
     // Send control WebSocket message
     sendControl: null, // set after control WS connects
+    // Close spirit fullscreen and return to picker
+    closeSpiritFullscreen: null, // set after picker mounts
     // URL helpers
     wsUrl: null,
     apiUrl: null,
@@ -1042,6 +1044,7 @@
     fullscreenSpirit.value = null;
     state.view = 'picker';
   }
+  window.__hort.closeSpiritFullscreen = closeSpiritFullscreen;
   const isFullscreenCapable = computed(() => {
     const name = fullscreenSpirit.value;
     if (!name || typeof HortExtension === 'undefined') return false;
@@ -1565,12 +1568,18 @@
         // Full teardown — disconnectStreamWs clears everything
         disconnectStreamWs();
         isStreamWsConnected = false;
-        state.view = 'picker';
         state.overviewOpen = false;
         state.settingsOpen = false;
         state.activeMode = false;
         localStorage.removeItem('llming-current-window');
         stopThumbRefresh();
+        // Return to spirit fullscreen if we came from one, otherwise picker
+        if (state._returnToSpirit) {
+          state._returnToSpirit = false;
+          state.view = 'spirit-fullscreen';
+        } else {
+          state.view = 'picker';
+        }
         startPickerRefresh();
       }
 
@@ -2211,7 +2220,12 @@
               <!-- Terminals for this target -->
               <div v-for="t in terminalsForTarget(group.targetId)" :key="'term-' + t.terminal_id"
                    class="grid-card terminal-card" @click="openTerminal(t.terminal_id)">
-                <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
+                <div style="position:relative">
+                  <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
+                  <i class="ph ph-x card-close-btn"
+                     style="position:absolute;top:6px;left:6px;font-size:14px;cursor:pointer;color:var(--el-text-dim);z-index:2"
+                     @click.stop="confirmCloseTerminal(t.terminal_id)"></i>
+                </div>
                 <div class="grid-card-info">
                   <div class="card-app">Terminal</div>
                   <div class="card-name">{{ t.title }}</div>
@@ -2245,8 +2259,8 @@
                 <div style="position:relative">
                   <img v-if="pluginThumbs[item.id]" class="grid-card-thumb" :src="pluginThumbs[item.id]" alt="">
                   <div v-else class="card-thumb-icon"><i :class="item.icon"></i></div>
-                  <i class="ph" :class="isFavorite(item.key) ? 'ph-fill ph-star' : 'ph ph-star'"
-                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;opacity:0.6"
+                  <i class="ph fav-star" :class="[isFavorite(item.key) ? 'ph-fill ph-star is-fav' : 'ph-star']"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;z-index:1"
                      :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
                      @click.stop="toggleFavorite(item.key)"></i>
                 </div>
@@ -2260,10 +2274,13 @@
                    @click="touch(item.key); openTerminal(item.id)">
                 <div style="position:relative">
                   <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
-                  <i class="ph" :class="isFavorite(item.key) ? 'ph-fill ph-star' : 'ph ph-star'"
-                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;opacity:0.6"
+                  <i class="ph fav-star" :class="[isFavorite(item.key) ? 'ph-fill ph-star is-fav' : 'ph-star']"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;z-index:1"
                      :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
                      @click.stop="toggleFavorite(item.key)"></i>
+                  <i class="ph ph-x card-close-btn"
+                     style="position:absolute;top:6px;left:6px;font-size:14px;cursor:pointer;color:var(--el-text-dim);z-index:2"
+                     @click.stop="confirmCloseTerminal(item.id)"></i>
                 </div>
                 <div class="grid-card-info">
                   <div class="card-app">{{ item.app }}</div>
@@ -2276,8 +2293,8 @@
                 <div style="position:relative">
                   <img class="grid-card-thumb" :src="getThumbnailSrc(item.id)"
                        loading="lazy" alt="" @error="onThumbError($event)">
-                  <i class="ph" :class="isFavorite(item.key) ? 'ph-fill ph-star' : 'ph ph-star'"
-                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;opacity:0.6"
+                  <i class="ph fav-star" :class="[isFavorite(item.key) ? 'ph-fill ph-star is-fav' : 'ph-star']"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;z-index:1"
                      :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
                      @click.stop="toggleFavorite(item.key)"></i>
                 </div>
@@ -2306,7 +2323,10 @@
               <div style="position:relative">
                 <img v-if="pluginThumbs[sp.name]" class="grid-card-thumb" :src="pluginThumbs[sp.name]" alt="">
                 <div v-else class="card-thumb-icon"><i :class="sp.icon || 'ph ph-ghost'"></i></div>
-                <span style="position:absolute;top:6px;right:6px">
+                <span style="position:absolute;top:6px;right:6px;display:flex;align-items:center;gap:4px">
+                  <i v-if="sp.auth_status && sp.auth_status.state === 'expired'" class="ph ph-warning-circle" style="font-size:14px;color:var(--el-danger)" title="Re-login required"></i>
+                  <i v-else-if="sp.auth_status && sp.auth_status.state === 'error'" class="ph ph-warning-circle" style="font-size:14px;color:#f59e0b" title="Auth error"></i>
+                  <i v-else-if="sp.auth_status && sp.auth_status.state === 'not_configured'" class="ph ph-key" style="font-size:14px;color:var(--el-text-dim)" title="Not connected"></i>
                   <span class="dot" :class="sp.loaded ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
                 </span>
               </div>
@@ -2356,6 +2376,64 @@
                     <input type="checkbox" :checked="ft.enabled" @change="toggleSpiritFeature(selectedSpirit, fname, $event.target.checked)">
                     <span style="font-size:12px;color:var(--el-text)">{{ fname }}</span>
                     <span style="font-size:11px;color:#cbd5e1">{{ ft.description }}</span>
+                  </div>
+                </template>
+                <!-- Auth status -->
+                <template v-if="spiritsList.find(s => s.name === selectedSpirit)?.auth_status">
+                  <div style="font-size:11px;color:var(--el-text-dim);margin:10px 0 4px">Account</div>
+                  <div style="padding:8px;background:var(--el-bg);border-radius:8px">
+                    <!-- Connected state -->
+                    <div v-if="spiritsList.find(s => s.name === selectedSpirit).auth_status.state === 'ok'"
+                         style="display:flex;align-items:center;gap:8px">
+                      <i class="ph-fill ph-check-circle" style="font-size:18px;color:var(--el-success)"></i>
+                      <div style="flex:1;font-size:12px;color:var(--el-text)">
+                        {{ spiritsList.find(s => s.name === selectedSpirit).auth_status.account_name || 'Connected' }}
+                      </div>
+                      <button @click="revokeAuth(selectedSpirit)"
+                              style="padding:4px 10px;font-size:11px;background:transparent;border:1px solid var(--el-danger);color:var(--el-danger);border-radius:6px;cursor:pointer">
+                        Logout
+                      </button>
+                    </div>
+                    <!-- Not connected / expired / error — show connect options -->
+                    <div v-else>
+                      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                        <i v-if="spiritsList.find(s => s.name === selectedSpirit).auth_status.state === 'expired'"
+                           class="ph-fill ph-warning-circle" style="font-size:16px;color:var(--el-danger)"></i>
+                        <i v-else class="ph ph-key" style="font-size:16px;color:var(--el-text-dim)"></i>
+                        <span style="font-size:12px;color:var(--el-text)">
+                          {{ spiritsList.find(s => s.name === selectedSpirit).auth_status.error_message || 'Not connected' }}
+                        </span>
+                      </div>
+                      <!-- Connect buttons based on supported methods -->
+                      <div style="display:flex;gap:6px;flex-wrap:wrap">
+                        <button v-if="spiritsList.find(s => s.name === selectedSpirit).auth_status.supported_methods?.includes('oauth2') && state.isLocal"
+                                @click="startOAuth(selectedSpirit)"
+                                style="flex:1;padding:8px;font-size:12px;background:var(--el-primary);color:#fff;border:none;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px">
+                          <i class="ph ph-sign-in"></i> Sign in
+                        </button>
+                        <button v-if="spiritsList.find(s => s.name === selectedSpirit).auth_status.supported_methods?.includes('device_code')"
+                                @click="startDeviceCode(selectedSpirit)"
+                                :style="{flex:1, padding:'8px', fontSize:'12px', border:'none', borderRadius:'6px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'4px',
+                                  background: state.isLocal ? 'var(--el-surface)' : 'var(--el-primary)',
+                                  color: state.isLocal ? 'var(--el-text)' : '#fff',
+                                  borderWidth: state.isLocal ? '1px' : '0', borderStyle:'solid', borderColor:'var(--el-border)'}">
+                          <i class="ph ph-device-mobile"></i> Device code
+                        </button>
+                        <button @click="showTokenInput = selectedSpirit"
+                                style="flex:1;padding:8px;font-size:12px;background:var(--el-surface);color:var(--el-text);border:1px solid var(--el-border);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px">
+                          <i class="ph ph-key"></i> API token
+                        </button>
+                      </div>
+                      <!-- Token paste input (shown when API token button clicked) -->
+                      <div v-if="showTokenInput === selectedSpirit" style="margin-top:8px;display:flex;gap:6px">
+                        <input v-model="tokenInputValue" type="password" placeholder="Paste token..."
+                               style="flex:1;padding:6px 10px;font-size:12px;background:var(--el-surface);color:var(--el-text);border:1px solid var(--el-border);border-radius:6px;outline:none">
+                        <button @click="submitToken(selectedSpirit, tokenInputValue); showTokenInput = null; tokenInputValue = ''"
+                                style="padding:6px 12px;font-size:12px;background:var(--el-primary);color:#fff;border:none;border-radius:6px;cursor:pointer">
+                          Save
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </template>
                 <!-- Running jobs -->
@@ -2784,6 +2862,56 @@
         });
         await refreshSpirits();
       }
+      const showTokenInput = ref(null);
+      const tokenInputValue = ref('');
+
+      async function revokeAuth(pluginId) {
+        Quasar.Dialog.create({
+          title: 'Logout',
+          message: `Disconnect account for ${pluginId}?`,
+          dark: true,
+          ok: { label: 'Disconnect', color: 'negative' },
+          cancel: { label: 'Cancel', flat: true },
+        }).onOk(async () => {
+          await fetch(apiUrl(`/api/plugins/${pluginId}/auth`), { method: 'DELETE' });
+          await refreshSpirits();
+        });
+      }
+      async function submitToken(pluginId, token) {
+        if (!token) return;
+        await fetch(apiUrl(`/api/plugins/${pluginId}/auth/token`), {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({access_token: token}),
+        });
+        await refreshSpirits();
+      }
+      async function startOAuth(pluginId) {
+        const r = await fetch(apiUrl(`/api/plugins/${pluginId}/auth/oauth-start`));
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data.auth_url) window.open(data.auth_url, '_blank');
+      }
+      async function startDeviceCode(pluginId) {
+        const r = await fetch(apiUrl(`/api/plugins/${pluginId}/auth/device-start`), { method: 'POST' });
+        if (!r.ok) return;
+        const data = await r.json();
+        Quasar.Dialog.create({
+          title: 'Device Code',
+          message: `Go to: ${data.verification_uri}\n\nEnter code: ${data.user_code}`,
+          dark: true,
+          ok: { label: 'Done' },
+          cancel: { label: 'Cancel', flat: true },
+        }).onOk(async () => {
+          // Poll for completion
+          for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, (data.interval || 5) * 1000));
+            const pr = await fetch(apiUrl(`/api/plugins/${pluginId}/auth/device-poll`), { method: 'POST' });
+            if (!pr.ok) break;
+            const poll = await pr.json();
+            if (poll.complete) { await refreshSpirits(); return; }
+          }
+        });
+      }
       setInterval(refreshSpirits, 10000);
       setInterval(refreshSpiritStores, 15000);
       refreshSpirits().then(refreshSpiritStores);
@@ -2968,17 +3096,38 @@
         state.view = 'terminal';
       }
 
+      function confirmCloseTerminal(terminalId) {
+        Quasar.Dialog.create({
+          title: 'Close Terminal',
+          message: 'Are you sure you want to close this terminal session?',
+          dark: true,
+          ok: { label: 'Close', color: 'negative' },
+          cancel: { label: 'Cancel', flat: true },
+        }).onOk(() => {
+          Quasar.Dialog.create({
+            title: 'Confirm Close',
+            message: 'This will permanently end the terminal session. Continue?',
+            dark: true,
+            ok: { label: 'Yes, close it', color: 'negative' },
+            cancel: { label: 'Keep it', flat: true },
+          }).onOk(() => {
+            closeTerminal(terminalId);
+          });
+        });
+      }
+
       return {
         state, groupsList, targetGroups, currentTargetName,
         isInAnyGroup, onAppFilterChange, setNavMode,
         toggleGroup, editGroup, openNewGroup,
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
-        onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal,
+        onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal, confirmCloseTerminal,
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
         onCloudSave,
         viewTab, spiritsList, spiritCount, allPlugins,
         configScreen, generalConfig, toggleGeneral,
         selectedSpirit, selectedPlugin, toggleSpiritFeature,
+        revokeAuth, submitToken, startOAuth, startDeviceCode, showTokenInput, tokenInputValue,
         spiritStoreKeys, spiritUIVisible, toggleSpiritUI, spiritWidgetName,
         unifiedGridItems, touch, lastInteraction, pluginThumbs,
         favorites, toggleFavorite, isFavorite,
@@ -3100,7 +3249,10 @@
         if (termWs) { termWs.close(); termWs = null; }
         currentTermId = terminalId;
 
-        termWs = new WebSocket(wsUrl('/ws/terminal/' + terminalId));
+        // Pass terminal dimensions so server resizes PTY before sending scrollback
+        const cols = xterm ? xterm.cols : 120;
+        const rows = xterm ? xterm.rows : 30;
+        termWs = new WebSocket(wsUrl('/ws/terminal/' + terminalId + '?cols=' + cols + '&rows=' + rows));
         termWs.binaryType = 'arraybuffer';
 
         termWs.onmessage = (e) => {

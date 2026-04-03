@@ -1,12 +1,14 @@
 """Telegram Connector — Telegram bot that routes commands to openhort plugins.
 
 Integrates with the connector framework:
-- Registers system commands (help, link, status, screenshot, windows)
-- Discovers plugin commands via ConnectorMixin
+- Registers system commands (help, link, status, targets)
+- Discovers plugin commands via ConnectorMixin (windows, screenshot, etc.)
 - Routes incoming messages through CommandRegistry
+- Non-command messages route to Claude Code AI chat (if enabled)
 - Sends responses adapted to Telegram capabilities
 
 Requires: TELEGRAM_BOT_TOKEN env var, allowed_users in config.
+AI chat requires: claude CLI installed.
 """
 
 from __future__ import annotations
@@ -38,10 +40,9 @@ SYSTEM_COMMANDS = [
     ConnectorCommand(name="help", description="List all commands", system=True),
     ConnectorCommand(name="link", description="Get a temporary access link", system=True),
     ConnectorCommand(name="status", description="Server status", system=True),
-    ConnectorCommand(name="screenshot", description="Capture a window screenshot", system=True, accept_images=False),
-    ConnectorCommand(name="windows", description="List open windows", system=True),
     ConnectorCommand(name="targets", description="List connected machines", system=True),
     ConnectorCommand(name="spaces", description="List/switch virtual desktops", system=True),
+    ConnectorCommand(name="new", description="Start a new AI chat session", system=True),
 ]
 
 
@@ -52,6 +53,7 @@ class TelegramConnector(PluginBase, ConnectorBase):
     _task: Any = None
     _registry: CommandRegistry | None = None
     _allowed_users: list[str] = []
+    _ai_chat: Any = None  # ChatBackendManager, created if chat config present
 
     @property
     def connector_id(self) -> str:
@@ -69,6 +71,34 @@ class TelegramConnector(PluginBase, ConnectorBase):
 
     def activate(self, config: dict[str, Any]) -> None:
         self._allowed_users = config.get("allowed_users", [])
+        # Safety: never allow connector without allowed_users
+        if not self._allowed_users:
+            self.log.warning("No allowed_users configured — Telegram connector will reject all messages")
+
+        # Chat backend reads the shared agent config from hort-config.yaml.
+        # Connector-level overrides (system_prompt) can be passed in chat.
+        chat_config = config.get("chat", {})
+        if chat_config.get("enabled", False):
+            if not self._allowed_users:
+                self.log.error("Chat backend DISABLED: allowed_users must be set for security")
+            else:
+                from hort.agent import AgentConfig, get_agent_config
+                from hort.ext.chat_backend import ChatBackendManager
+
+                agent_cfg = get_agent_config()
+                # Allow connector-level overrides for model and system_prompt
+                if chat_config.get("model"):
+                    agent_cfg = agent_cfg.model_copy(update={"model": chat_config["model"]})
+                self._ai_chat = ChatBackendManager(
+                    agent_cfg=agent_cfg,
+                    system_prompt=chat_config.get("system_prompt", ""),
+                )
+                self.log.info(
+                    "Chat backend enabled (model=%s, container=%s, dangerous=%s)",
+                    agent_cfg.model or "default",
+                    agent_cfg.container,
+                    agent_cfg.dangerous_mode,
+                )
         self.log.info("Telegram connector activated (allowed: %s)", self._allowed_users)
 
     def get_status(self) -> dict[str, Any]:
@@ -90,7 +120,14 @@ class TelegramConnector(PluginBase, ConnectorBase):
         }
 
     async def start(self) -> None:
-        """Start the Telegram bot polling."""
+        """Start the Telegram bot polling and MCP bridge (if AI chat enabled)."""
+        # Start MCP bridge for AI chat
+        if self._ai_chat:
+            try:
+                self._ai_chat.start()
+            except Exception as exc:
+                self.log.error("Failed to start MCP bridge: %s", exc)
+
         token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
         if not token:
             self.log.warning("TELEGRAM_BOT_TOKEN not set — Telegram connector disabled")
@@ -191,6 +228,8 @@ class TelegramConnector(PluginBase, ConnectorBase):
             self._task.cancel()
         if self._bot:
             await self._bot.session.close()
+        if self._ai_chat:
+            self._ai_chat.stop()
 
     async def send_response(self, chat_id: str, response: ConnectorResponse) -> None:
         """Send response to Telegram chat."""
@@ -259,11 +298,14 @@ class TelegramConnector(PluginBase, ConnectorBase):
         self._registry = registry
 
     async def _handle(self, message: IncomingMessage) -> ConnectorResponse | None:
-        """Handle incoming message — system commands first, then plugins."""
+        """Handle incoming message — system commands, plugins, or AI chat."""
         if message.callback_data:
             return await self._handle_callback(message)
 
         if not message.is_command:
+            # Route non-command messages to chat backend (if configured)
+            if self._ai_chat and message.text:
+                return await self._handle_chat(message)
             return ConnectorResponse.simple("Send /help for available commands.")
 
         cmd = message.command
@@ -277,14 +319,12 @@ class TelegramConnector(PluginBase, ConnectorBase):
             return await self._cmd_link()
         if cmd == "status":
             return await self._cmd_status()
-        if cmd == "screenshot":
-            return await self._cmd_screenshot(message)
-        if cmd == "windows":
-            return await self._cmd_windows(message)
         if cmd == "targets":
             return await self._cmd_targets()
         if cmd == "spaces":
             return await self._cmd_spaces()
+        if cmd == "new":
+            return self._cmd_new(message)
 
         # Plugin commands via registry
         if self._registry:
@@ -300,6 +340,14 @@ class TelegramConnector(PluginBase, ConnectorBase):
         if data.startswith("space:"):
             idx = int(data.split(":")[1])
             return ConnectorResponse.simple(f"Switched to Space {idx}")
+        # Route plugin callbacks: "plugin_id:callback_payload"
+        if self._registry and ":" in data:
+            prefix = data.split(":", 1)[0]
+            plugin = self._registry.get_plugin(prefix)
+            if plugin:
+                return await plugin.handle_connector_command(
+                    "_callback", message, self.capabilities
+                )
         return None
 
     # ===== System Commands =====
@@ -368,18 +416,6 @@ class TelegramConnector(PluginBase, ConnectorBase):
         )
         return ConnectorResponse.simple(text)
 
-    async def _cmd_screenshot(self, message: IncomingMessage) -> ConnectorResponse:
-        """Capture a screenshot. Usage: /screenshot [app_name]"""
-        if not self.config.is_feature_enabled("screenshots"):
-            return ConnectorResponse.simple("Screenshots disabled.")
-
-        # This requires a HortClient-style connection. For now, use the screenshot-capture plugin
-        return ConnectorResponse.simple("Screenshot capture via Telegram — coming soon. Use /link to open in browser.")
-
-    async def _cmd_windows(self, message: IncomingMessage) -> ConnectorResponse:
-        """List open windows."""
-        return ConnectorResponse.simple("Window listing via Telegram — coming soon. Use /link to open in browser.")
-
     async def _cmd_targets(self) -> ConnectorResponse:
         """List connected targets."""
         from hort.targets import TargetRegistry
@@ -397,3 +433,54 @@ class TelegramConnector(PluginBase, ConnectorBase):
     async def _cmd_spaces(self) -> ConnectorResponse:
         """List virtual desktops."""
         return ConnectorResponse.simple("Spaces listing via Telegram — coming soon.")
+
+    def _cmd_new(self, message: IncomingMessage) -> ConnectorResponse:
+        """Reset chat session for this user."""
+        if self._ai_chat:
+            self._ai_chat.reset_session(message.user_id)
+            return ConnectorResponse.simple("New chat session started.")
+        return ConnectorResponse.simple("Chat backend not enabled.")
+
+    async def _handle_chat(self, message: IncomingMessage) -> ConnectorResponse:
+        """Route a non-command message to the chat backend."""
+        assert self._ai_chat is not None
+        if not self._ai_chat.alive:
+            return ConnectorResponse.simple("Chat backend not running.")
+        session = self._ai_chat.get_session(message.user_id)
+
+        # Progress callback: Telegram only shows periodic "thinking" updates,
+        # NOT individual tool events (those are for richer UIs like web chat)
+        from hort.ext.chat_backend import ChatProgressEvent
+
+        async def on_progress(event: ChatProgressEvent) -> None:
+            if event.kind != "thinking":
+                return  # Skip tool_start etc. — too noisy for Telegram
+            try:
+                status = "Thinking..."
+                if event.tools_used:
+                    status = f"Working... (used {len(event.tools_used)} tools)"
+                await self.send_response(message.chat_id, ConnectorResponse.simple(status))
+            except Exception:
+                pass
+
+        try:
+            response_text = await session.send(message.text or "", on_progress=on_progress)
+            # Truncate very long responses (e.g. if Claude includes base64 data)
+            if len(response_text) > 8000:
+                response_text = response_text[:8000] + "\n... (truncated)"
+            # Split into 4000-char chunks for Telegram
+            chunks: list[str] = []
+            while response_text:
+                chunks.append(response_text[:4000])
+                response_text = response_text[4000:]
+            if not chunks:
+                chunks = ["(no response)"]
+            for chunk in chunks[:-1]:
+                try:
+                    await self.send_response(message.chat_id, ConnectorResponse.simple(chunk))
+                except Exception:
+                    pass  # Best effort for intermediate chunks
+            return ConnectorResponse.simple(chunks[-1])
+        except Exception as exc:
+            self.log.error("Chat backend error: %s", exc, exc_info=True)
+            return ConnectorResponse.simple(f"Error processing request. Try /new to reset.")

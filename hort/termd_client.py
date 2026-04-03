@@ -27,6 +27,8 @@ SOCKET_PATH = Path("/tmp/hort-termd.sock")
 
 async def _send_cmd(cmd: dict[str, Any]) -> dict[str, Any]:
     """Send a command to the daemon and return the response."""
+    if sys.platform == "win32":
+        return {"error": "Terminal daemon not supported on Windows"}
     reader, writer = await asyncio.open_unix_connection(str(SOCKET_PATH))
     try:
         writer.write(json.dumps(cmd).encode() + b"\n")
@@ -40,6 +42,9 @@ async def _send_cmd(cmd: dict[str, Any]) -> dict[str, Any]:
 
 def ensure_daemon() -> None:
     """Start the terminal daemon if it's not already running."""
+    if sys.platform == "win32":
+        # Terminal daemon uses Unix sockets — not available on Windows
+        return
     if SOCKET_PATH.exists():
         # Check if the socket is actually alive
         try:
@@ -139,6 +144,23 @@ async def handle_terminal_ws(
         return
 
     await websocket.accept()
+
+    # Resize PTY to client dimensions before sending scrollback so that
+    # the buffered content is reflowed for the actual terminal size.
+    qs_cols = websocket.query_params.get("cols")
+    qs_rows = websocket.query_params.get("rows")
+    if qs_cols and qs_rows:
+        try:
+            resize_cmd = {
+                "cmd": "resize",
+                "terminal_id": terminal_id,
+                "cols": int(qs_cols),
+                "rows": int(qs_rows),
+            }
+            writer.write(json.dumps(resize_cmd).encode() + b"\n")
+            await writer.drain()
+        except (ValueError, OSError):
+            pass
 
     # Send scrollback
     scrollback_b64 = resp.get("scrollback", "")

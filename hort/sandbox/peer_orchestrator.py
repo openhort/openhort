@@ -122,12 +122,14 @@ def _run_turn(
     Pipes the prompt via stdin to avoid argument-parsing issues
     with --mcp-config consuming positional args.
     """
+    from hort.agent import DEFAULT_ALLOWED_TOOLS
+
     parts = [
         "claude", "-p",
         "--output-format", "stream-json",
         "--verbose",
         "--include-partial-messages",
-        "--dangerously-skip-permissions",
+        "--allowedTools", ",".join(DEFAULT_ALLOWED_TOOLS),
         "--bare",
     ]
     if mcp_config_path:

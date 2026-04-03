@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Monitors disk partitions and usage across all mountpoints",
   "provider": "core",
-  "platforms": ["darwin", "linux"],
+  "platforms": ["darwin", "linux", "win32"],
   "capabilities": ["monitor", "mcp"],
   "entry_point": "provider:DiskUsage",
   "icon": "ph ph-hard-drive",

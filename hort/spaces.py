@@ -1,22 +1,35 @@
-"""macOS Spaces (Mission Control desktops) detection and switching."""
+"""macOS Spaces (Mission Control desktops) detection and switching.
+
+SkyLight framework loading is deferred to first use so that importing
+this module does NOT map ~400 GB of virtual address space.
+"""
 
 from __future__ import annotations
 
-import ctypes
 import subprocess
 import time
-from ctypes import c_int32, c_void_p
 from dataclasses import dataclass
+from typing import Any
 
-import objc  # type: ignore[import-untyped]
+_skylight: Any = None
+_cgs_conn: int = 0
 
-_skylight = ctypes.cdll.LoadLibrary(
-    "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
-)
-_skylight.CGSMainConnectionID.restype = c_int32
-_skylight.CGSCopyManagedDisplaySpaces.argtypes = [c_int32]
-_skylight.CGSCopyManagedDisplaySpaces.restype = c_void_p
-_cgs_conn: int = _skylight.CGSMainConnectionID()
+
+def _ensure_skylight() -> None:
+    """Load SkyLight and establish a connection on first call."""
+    global _skylight, _cgs_conn
+    if _skylight is not None:
+        return
+    import ctypes
+    from ctypes import c_int32, c_void_p
+
+    _skylight = ctypes.cdll.LoadLibrary(
+        "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
+    )
+    _skylight.CGSMainConnectionID.restype = c_int32
+    _skylight.CGSCopyManagedDisplaySpaces.argtypes = [c_int32]
+    _skylight.CGSCopyManagedDisplaySpaces.restype = c_void_p
+    _cgs_conn = _skylight.CGSMainConnectionID()
 
 
 @dataclass(frozen=True)
@@ -30,11 +43,16 @@ class SpaceInfo:
 
 def _read_display_spaces() -> list[dict[str, object]]:  # pragma: no cover
     """Read live Space data via CGSCopyManagedDisplaySpaces (private API)."""
-    ptr = _skylight.CGSCopyManagedDisplaySpaces(_cgs_conn)
-    if not ptr:
-        return []
-    result: list[dict[str, object]] = objc.objc_object(c_void_p=ptr)
-    return list(result)
+    import objc  # type: ignore[import-untyped]
+    from ctypes import c_void_p
+
+    _ensure_skylight()
+    with objc.autorelease_pool():
+        ptr = _skylight.CGSCopyManagedDisplaySpaces(_cgs_conn)
+        if not ptr:
+            return []
+        result: list[dict[str, object]] = objc.objc_object(c_void_p=ptr)
+        return list(result)
 
 
 def get_spaces() -> list[SpaceInfo]:

@@ -184,4 +184,4 @@ flowchart TB
 
 ## Technical Details
 
-For developers building P2P extensions or native clients, see the [developer reference](../../developer/reference/peer2peer.md).
+For developers building P2P extensions or native clients, see the [developer reference](../../develop/peer2peer-lib.md).

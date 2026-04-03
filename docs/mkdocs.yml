@@ -83,32 +83,51 @@ nav:
       - Azure:
         - CLI & VM Setup: guide/cloud/azure/setup.md
         - App Service Containers: guide/cloud/azure/containers.md
-  - Developer:
-    - Core Concepts:
-      - Hort Model: developer/reference/hort-model.md
-      - Tool System: developer/reference/tool-system.md
-      - Export / Import: developer/reference/export-import.md
+  - Develop:
+    - Plugins: develop/plugins.md
+    - Extensions: develop/extensions.md
+    - Model Providers: develop/providers.md
+    - LLM Extensions: develop/llm-extensions.md
+    - MCP Servers: develop/mcp-servers.md
+    - Sandbox Sessions: develop/sandbox-sessions.md
+    - Terminal Automation: develop/terminal-automation.md
+    - Containers: develop/containers.md
+    - Inter-Container Communication: develop/inter-container-communication.md
+    - Access Server: develop/access-server.md
+    - Peer-to-Peer: develop/peer2peer.md
+    - Peer-to-Peer Library: develop/peer2peer-lib.md
+    - Telegram: develop/telegram.md
+    - Llmings: develop/llmings.md
+    - Linux Support: develop/linux-support.md
+    - Windows Support: develop/windows-support.md
+    - Cross-Platform Testing: develop/cross-platform-testing.md
+    - Distribution & Installation: develop/distribution.md
+    - Client Apps: develop/client-apps.md
+    - UX Guidelines: develop/ux-guidelines.md
+    - Screen Capture: develop/screen-capture.md
+    - Memory Safety: develop/memory-safety.md
+    - Docs Writing Guide: develop/docs-writing-guide.md
+  - Internals:
+    - Architecture: internals/architecture.md
+    - Hort Model: internals/hort-model.md
+    - Tool System: internals/tool-system.md
+    - Export / Import: internals/export-import.md
+    - Permissions: internals/permissions.md
+    - Access Sources: internals/source-policies.md
+    - Budget Limits: internals/budget.md
     - Protocols:
-      - H2H (Hort-to-Hort): developer/reference/h2h-protocol.md
-      - A2A (Agent-to-Agent): developer/reference/a2a-integration.md
-      - Signals & Triggers: developer/reference/signals.md
-      - Wire Protocol: developer/reference/wire-protocol.md
-    - Reference:
-      - Permissions: developer/reference/permissions.md
-      - Access Sources: developer/reference/source-policies.md
-      - Budget Limits: developer/reference/budget.md
-      - MCP Servers: developer/reference/mcp-servers.md
-      - Model Providers: developer/reference/providers.md
-      - LLM Extensions: developer/reference/llm-extensions.md
-      - Sandbox Sessions: developer/reference/sandbox-sessions.md
-      - Terminal Automation: developer/reference/terminal-automation.md
-      - Peer-to-Peer Library: developer/reference/peer2peer.md
+      - Llming Data Types: internals/protocols/llming-types.md
+      - H2H (Hort-to-Hort): internals/protocols/h2h-protocol.md
+      - A2A (Agent-to-Agent): internals/protocols/a2a-integration.md
+      - Signals & Triggers: internals/protocols/signals.md
+      - Wire Protocol: internals/protocols/wire-protocol.md
     - Security:
-      - Threat Model: developer/security/threat-model.md
-      - Container Security: developer/reference/container-security.md
-      - Safety Rails: developer/security/safety-rails.md
-    - Messengers:
-      - Telegram: developer/messengers/telegram.md
-    - Internals:
-      - Architecture: developer/internals/architecture.md
-      - Roadmap: developer/internals/roadmap.md
+      - Wiring Model: internals/security/wiring-model.md
+      - Threat Model: internals/security/threat-model.md
+      - Container Security: internals/security/container-security.md
+      - Information Flow Control: internals/security/flow-control.md
+      - Taint Tracking: internals/security/taint-tracking.md
+      - Flow Policies & Zones: internals/security/flow-policies.md
+      - Boundary Filters: internals/security/boundary-filters.md
+      - Safety Rails: internals/security/safety-rails.md
+    - Roadmap: internals/roadmap.md

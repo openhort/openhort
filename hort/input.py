@@ -1,23 +1,78 @@
-"""Remote input simulation via macOS Quartz API."""
+"""Remote input simulation via macOS Quartz API.
+
+All framework imports (Quartz, AppKit, ApplicationServices) are
+deferred to first use so that ``import hort.input`` does NOT load
+the frameworks or their ~400 GB virtual address space mappings.
+"""
 
 from __future__ import annotations
 
+import importlib
 import subprocess
-
-from ApplicationServices import (  # type: ignore[import-untyped]
-    AXUIElementCopyAttributeValue,
-    AXUIElementCreateApplication,
-    AXUIElementPerformAction,
-    AXUIElementSetAttributeValue,
-    AXValueGetValue,
-    kAXValueTypeCGPoint,
-    kAXValueTypeCGSize,
-)
-
-import Quartz  # type: ignore[import-untyped]
-from AppKit import NSRunningApplication  # type: ignore[import-untyped]
+import types
+from typing import Any
 
 from hort.models import InputEvent, WindowBounds
+
+
+# ── Lazy framework loading ────────────────────────────────────────
+# Quartz / AppKit / ApplicationServices are loaded on first attribute
+# access, not at module import time.
+
+def _lazy_import(name: str) -> types.ModuleType:
+    """Import a module the first time it's accessed."""
+    return importlib.import_module(name)
+
+
+class _LazyModule:
+    """Proxy that defers ``import <name>`` until first attribute access."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self._mod: types.ModuleType | None = None
+
+    def _ensure(self) -> types.ModuleType:
+        if self._mod is None:
+            self._mod = importlib.import_module(self._name)
+        return self._mod
+
+    def __getattr__(self, attr: str) -> Any:
+        return getattr(self._ensure(), attr)
+
+
+Quartz: Any = _LazyModule("Quartz")  # type: ignore[assignment]
+NSRunningApplication: Any = None  # loaded on first use
+
+
+def _get_NSRunningApplication() -> Any:
+    global NSRunningApplication
+    if NSRunningApplication is None or isinstance(NSRunningApplication, type(None)):
+        from AppKit import NSRunningApplication as _NSR  # type: ignore[import-untyped]
+        NSRunningApplication = _NSR
+    return NSRunningApplication
+
+
+def _get_ax() -> tuple:
+    """Lazy-load ApplicationServices symbols."""
+    from ApplicationServices import (  # type: ignore[import-untyped]
+        AXUIElementCopyAttributeValue,
+        AXUIElementCreateApplication,
+        AXUIElementPerformAction,
+        AXUIElementSetAttributeValue,
+        AXValueGetValue,
+        kAXValueTypeCGPoint,
+        kAXValueTypeCGSize,
+    )
+    return (
+        AXUIElementCopyAttributeValue,
+        AXUIElementCreateApplication,
+        AXUIElementPerformAction,
+        AXUIElementSetAttributeValue,
+        AXValueGetValue,
+        kAXValueTypeCGPoint,
+        kAXValueTypeCGSize,
+    )
+
 
 # Virtual keycodes for special keys (macOS)
 KEYCODE_MAP: dict[str, int] = {
@@ -30,13 +85,20 @@ KEYCODE_MAP: dict[str, int] = {
     "F7": 98, "F8": 100, "F9": 101, "F10": 109, "F11": 103, "F12": 111,
 }
 
-MODIFIER_FLAGS: dict[str, int] = {
-    "shift": Quartz.kCGEventFlagMaskShift,
-    "ctrl": Quartz.kCGEventFlagMaskControl,
-    "alt": Quartz.kCGEventFlagMaskAlternate,
-    "cmd": Quartz.kCGEventFlagMaskCommand,
-    "meta": Quartz.kCGEventFlagMaskCommand,
-}
+MODIFIER_FLAGS: dict[str, int] = {}  # populated lazily on first call
+
+
+def _modifier_flags() -> dict[str, int]:
+    """Return modifier flag map, populating on first call."""
+    if not MODIFIER_FLAGS:
+        MODIFIER_FLAGS.update({
+            "shift": Quartz.kCGEventFlagMaskShift,
+            "ctrl": Quartz.kCGEventFlagMaskControl,
+            "alt": Quartz.kCGEventFlagMaskAlternate,
+            "cmd": Quartz.kCGEventFlagMaskCommand,
+            "meta": Quartz.kCGEventFlagMaskCommand,
+        })
+    return MODIFIER_FLAGS
 
 
 def _to_screen_coords(
@@ -48,9 +110,10 @@ def _to_screen_coords(
 
 def _modifier_mask(modifiers: list[str]) -> int:
     """Combine modifier names into a CGEvent flag mask."""
+    flags = _modifier_flags()
     mask = 0
     for mod in modifiers:
-        mask |= MODIFIER_FLAGS.get(mod.lower(), 0)
+        mask |= flags.get(mod.lower(), 0)
     return mask
 
 
@@ -63,7 +126,7 @@ def _activate_app(pid: int, bounds: WindowBounds | None = None) -> None:  # prag
     2. AX API — raise the specific window by matching bounds.
        Handles multiple windows of the same app.
     """
-    app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+    app = _get_NSRunningApplication().runningApplicationWithProcessIdentifier_(pid)
     if not app:
         return
 
@@ -88,6 +151,10 @@ def _activate_app(pid: int, bounds: WindowBounds | None = None) -> None:  # prag
 
 def _ax_raise_window(pid: int, bounds: WindowBounds | None) -> None:  # pragma: no cover
     """Use Accessibility API to raise and unminimize a specific window."""
+    (AXUIElementCopyAttributeValue, AXUIElementCreateApplication,
+     AXUIElementPerformAction, AXUIElementSetAttributeValue,
+     _AXValueGetValue, _kAXValueTypeCGPoint, _kAXValueTypeCGSize) = _get_ax()
+
     ax_app = AXUIElementCreateApplication(pid)
     err, ax_windows = AXUIElementCopyAttributeValue(ax_app, "AXWindows", None)
     if err != 0 or not ax_windows:
@@ -112,6 +179,10 @@ def _ax_raise_window(pid: int, bounds: WindowBounds | None) -> None:  # pragma: 
 
 def _ax_bounds_match(ax_win: object, bounds: WindowBounds) -> bool:  # pragma: no cover
     """Check if an AX window's position/size matches the given bounds."""
+    (AXUIElementCopyAttributeValue, _AXUIElementCreateApplication,
+     _AXUIElementPerformAction, _AXUIElementSetAttributeValue,
+     AXValueGetValue, kAXValueTypeCGPoint, kAXValueTypeCGSize) = _get_ax()
+
     err_p, pos_val = AXUIElementCopyAttributeValue(ax_win, "AXPosition", None)
     err_s, size_val = AXUIElementCopyAttributeValue(ax_win, "AXSize", None)
     if err_p != 0 or err_s != 0:
@@ -133,10 +204,12 @@ def _post_mouse(
     event_type: int,
     x: float,
     y: float,
-    button: int = Quartz.kCGMouseButtonLeft,
+    button: int | None = None,
     modifiers: int = 0,
 ) -> None:  # pragma: no cover
     """Post a mouse event at the given screen coordinates."""
+    if button is None:
+        button = Quartz.kCGMouseButtonLeft
     point = Quartz.CGPointMake(x, y)
     event = Quartz.CGEventCreateMouseEvent(None, event_type, point, button)
     if modifiers:

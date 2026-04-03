@@ -9,8 +9,12 @@
   "icon": "ph ph-monitor",
   "author": "openhort",
   "plugin_type": "tool",
+  "mcp": true,
+  "soul": "SOUL.md",
   "features": {
-    "desktop_preview": { "description": "Auto-fetch desktop thumbnail for grid card", "default": true }
+    "desktop_preview": { "description": "Auto-fetch desktop thumbnail for grid card", "default": true },
+    "screen_observation": { "description": "AI can observe windows and take screenshots", "default": true },
+    "input_control": { "description": "AI can click, type, and press keys on the desktop", "default": true }
   },
   "jobs": [
     {

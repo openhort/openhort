@@ -127,10 +127,18 @@ def app_client(sample_raw_windows: list[dict[str, Any]], sample_jpeg_bytes: byte
 
     TargetRegistry.reset()
 
+    from unittest.mock import MagicMock
+
+    mock_quartz = MagicMock()
+    mock_quartz.CGMainDisplayID.return_value = 1
+    mock_quartz.CGDisplayPixelsWide.return_value = 1920
+    mock_quartz.CGDisplayPixelsHigh.return_value = 1080
+
     with (
         patch("hort.windows._raw_window_list", return_value=sample_raw_windows),
         patch("hort.windows._get_space_index_map", return_value={1: 1}),
         patch("hort.windows._get_window_space", return_value=1),
+        patch("hort.windows.Quartz", mock_quartz),
         patch("hort.screen._raw_capture", return_value=None),
         patch("hort.app._refresh_docker_targets"),
     ):

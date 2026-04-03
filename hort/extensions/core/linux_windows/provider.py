@@ -22,6 +22,8 @@ from hort.ext.types import (
 )
 from hort.models import InputEvent, WindowBounds, WindowInfo
 
+DESKTOP_WINDOW_ID = -1
+
 # X11 keyname mapping from web KeyboardEvent.key to xdotool names
 _KEY_MAP: dict[str, str] = {
     "Enter": "Return",
@@ -83,12 +85,37 @@ class LinuxWindowsExtension(ExtensionBase, PlatformProvider):
 
     # -- WindowProvider --
 
+    def _get_screen_size(self) -> tuple[int, int]:
+        """Get screen dimensions from xdpyinfo."""
+        rc, stdout, _ = self._exec_sync("xdpyinfo | grep dimensions")
+        if rc == 0 and stdout.strip():
+            for part in stdout.split():
+                if "x" in part and part[0].isdigit():
+                    w, h = part.split("x")
+                    return int(w), int(h)
+        return 1920, 1080
+
     def list_windows(self, app_filter: str | None = None) -> list[WindowInfo]:
         rc, stdout, _ = self._exec_sync("wmctrl -l -p -x -G")
         if rc != 0:
             return []
 
         windows: list[WindowInfo] = []
+
+        # Virtual Desktop entry (full screen capture)
+        if not app_filter:
+            sw, sh = self._get_screen_size()
+            windows.append(WindowInfo(
+                window_id=DESKTOP_WINDOW_ID,
+                owner_name="Desktop",
+                window_name="Full Screen",
+                bounds=WindowBounds(x=0, y=0, width=float(sw), height=float(sh)),
+                layer=-1,
+                owner_pid=0,
+                is_on_screen=True,
+                space_index=0,
+            ))
+
         for line in stdout.strip().splitlines():
             win = _parse_wmctrl_line(line)
             if win is None:
@@ -100,18 +127,22 @@ class LinuxWindowsExtension(ExtensionBase, PlatformProvider):
         windows.sort(key=lambda w: (w.space_index, w.owner_name.lower(), w.window_name.lower()))
         return windows
 
-    def get_app_names(self) -> list[str]:
-        return sorted({w.owner_name for w in self.list_windows()})
+    # get_app_names() — inherited from WindowProvider base class
 
     # -- CaptureProvider --
 
     def capture_window(
         self, window_id: int, max_width: int = 800, quality: int = 70
     ) -> bytes | None:
-        hex_id = f"0x{window_id:08x}"
-        rc, raw = self._exec_binary(
-            f"import -window {hex_id} -quality {quality} jpeg:-"
-        )
+        if window_id == DESKTOP_WINDOW_ID:
+            rc, raw = self._exec_binary(
+                f"import -window root -quality {quality} jpeg:-"
+            )
+        else:
+            hex_id = f"0x{window_id:08x}"
+            rc, raw = self._exec_binary(
+                f"import -window {hex_id} -quality {quality} jpeg:-"
+            )
         if rc != 0 or len(raw) < 10:
             return None
 

@@ -38,7 +38,15 @@ def setup_plugins(app: FastAPI) -> ExtensionRegistry:
 
 def load_plugins_sync(registry: ExtensionRegistry) -> None:  # pragma: no cover
     """Load compatible plugins synchronously (no scheduler start — call start_schedulers separately)."""
-    registry.load_compatible()
+    # Pass per-plugin config from the YAML config store
+    from hort.config import get_store
+    store = get_store()
+    plugin_configs: dict[str, dict] = {}
+    for manifest in registry._manifests:
+        cfg = store.get(manifest.name)
+        if cfg:
+            plugin_configs[manifest.name] = cfg
+    registry.load_compatible(plugin_configs or None)
     loaded = list(registry._instances.keys())
     logger.info("Loaded %d plugins: %s", len(loaded), loaded)
 
@@ -263,3 +271,183 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
         return Response(
             content=json.dumps(items, default=str), media_type="application/json"
         )
+
+    # ── Credential management ────────────────────────────────────
+    # These endpoints let the UI (including remote/mobile via cloud proxy)
+    # manage authentication for Llmings that need external service access.
+
+    @app.get("/api/plugins/{plugin_id}/auth")
+    async def get_auth_status(plugin_id: str) -> Response:
+        """Get auth status for a plugin (no secrets exposed)."""
+        inst = registry.get_instance(plugin_id)
+        if inst is None:
+            return Response(
+                content=json.dumps({"error": "Plugin not found"}),
+                media_type="application/json", status_code=404,
+            )
+        from hort.ext.credentials import CredentialStore
+        creds = getattr(inst, "creds", None)
+        if not isinstance(creds, CredentialStore):
+            return Response(
+                content=json.dumps({"auth_required": False}),
+                media_type="application/json",
+            )
+        return Response(
+            content=json.dumps({"auth_required": True, **creds.status_dict()}),
+            media_type="application/json",
+        )
+
+    @app.post("/api/plugins/{plugin_id}/auth/token")
+    async def store_auth_token(plugin_id: str, request: Request) -> Response:
+        """Store a credential/token for a plugin. Called after OAuth callback or manual entry."""
+        inst = registry.get_instance(plugin_id)
+        if inst is None:
+            return Response(
+                content=json.dumps({"error": "Plugin not found"}),
+                media_type="application/json", status_code=404,
+            )
+        from hort.ext.credentials import CredentialStore
+        creds = getattr(inst, "creds", None)
+        if not isinstance(creds, CredentialStore):
+            return Response(
+                content=json.dumps({"error": "Plugin does not use credentials"}),
+                media_type="application/json", status_code=400,
+            )
+        data = await request.json()
+        await creds.set_token(
+            token=data.get("token", data),
+            account_name=data.get("account_name", ""),
+            expires_at=data.get("expires_at", 0.0),
+        )
+        return Response(
+            content=json.dumps({"ok": True, **creds.status_dict()}),
+            media_type="application/json",
+        )
+
+    @app.delete("/api/plugins/{plugin_id}/auth")
+    async def revoke_auth(plugin_id: str) -> Response:
+        """Clear stored credentials for a plugin (logout)."""
+        inst = registry.get_instance(plugin_id)
+        if inst is None:
+            return Response(
+                content=json.dumps({"error": "Plugin not found"}),
+                media_type="application/json", status_code=404,
+            )
+        from hort.ext.credentials import CredentialStore
+        creds = getattr(inst, "creds", None)
+        if not isinstance(creds, CredentialStore):
+            return Response(
+                content=json.dumps({"error": "Plugin does not use credentials"}),
+                media_type="application/json", status_code=400,
+            )
+        await creds.clear()
+        return Response(
+            content=json.dumps({"ok": True, **creds.status_dict()}),
+            media_type="application/json",
+        )
+
+    # ── OAuth 2.0 browser flow ───────────────────────────────────
+
+    @app.get("/api/plugins/{plugin_id}/auth/oauth-start")
+    async def oauth_start(plugin_id: str, request: Request) -> Response:
+        """Get the OAuth authorization URL (localhost only).
+
+        OAuth callback flow is restricted to localhost for security.
+        Remote access (cloud proxy) must use device code flow instead
+        to prevent multi-tenant callback interception.
+        """
+        inst = registry.get_instance(plugin_id)
+        if inst is None:
+            return Response(content=json.dumps({"error": "Not found"}), media_type="application/json", status_code=404)
+        from hort.ext.credentials import CredentialStore
+        creds = getattr(inst, "creds", None)
+        if not isinstance(creds, CredentialStore):
+            return Response(content=json.dumps({"error": "No credentials"}), media_type="application/json", status_code=400)
+
+        # Security: OAuth callback only allowed on localhost
+        host = request.headers.get("host", "")
+        if not host.startswith("localhost") and not host.startswith("127.0.0.1"):
+            return Response(
+                content=json.dumps({"error": "OAuth callback only available on localhost. Use device code flow for remote access."}),
+                media_type="application/json", status_code=403,
+            )
+
+        base = str(request.base_url).rstrip("/")
+        redirect_uri = f"{base}/auth/callback"
+
+        auth_url = creds.get_auth_url(redirect_uri)
+        if not auth_url:
+            return Response(content=json.dumps({"error": "OAuth not configured"}), media_type="application/json", status_code=400)
+
+        return Response(
+            content=json.dumps({"auth_url": auth_url, "redirect_uri": redirect_uri}),
+            media_type="application/json",
+        )
+
+    @app.get("/auth/callback")
+    async def oauth_callback(request: Request) -> Response:
+        """OAuth callback — provider redirects here with code + state."""
+        from starlette.responses import HTMLResponse
+        code = request.query_params.get("code", "")
+        state = request.query_params.get("state", "")
+        error = request.query_params.get("error", "")
+
+        if error:
+            return HTMLResponse(f"<h2>Auth failed</h2><p>{error}</p>", status_code=400)
+
+        if not code or not state:
+            return HTMLResponse("<h2>Missing code or state</h2>", status_code=400)
+
+        # Find the plugin with the matching pending state
+        from hort.ext.credentials import CredentialStore
+        for name in list(registry._instances.keys()):
+            inst = registry.get_instance(name)
+            creds = getattr(inst, "creds", None) if inst else None
+            if isinstance(creds, CredentialStore) and creds.validate_state(state):
+                base = str(request.base_url).rstrip("/")
+                redirect_uri = f"{base}/auth/callback"
+                ok = await creds.exchange_code(code, redirect_uri)
+                if ok:
+                    return HTMLResponse(
+                        f"<h2>Connected!</h2><p>{name} authenticated successfully.</p>"
+                        "<p>You can close this tab.</p>",
+                    )
+                return HTMLResponse(f"<h2>Auth failed</h2><p>Token exchange failed for {name}.</p>", status_code=500)
+
+        return HTMLResponse("<h2>Invalid state</h2><p>Auth session expired. Try again.</p>", status_code=400)
+
+    # ── Device code flow ─────────────────────────────────────────
+
+    @app.post("/api/plugins/{plugin_id}/auth/device-start")
+    async def device_code_start(plugin_id: str) -> Response:
+        """Start device code flow. Returns user_code and verification_uri."""
+        inst = registry.get_instance(plugin_id)
+        if inst is None:
+            return Response(content=json.dumps({"error": "Not found"}), media_type="application/json", status_code=404)
+        from hort.ext.credentials import CredentialStore
+        creds = getattr(inst, "creds", None)
+        if not isinstance(creds, CredentialStore):
+            return Response(content=json.dumps({"error": "No credentials"}), media_type="application/json", status_code=400)
+
+        result = await creds.start_device_code()
+        if result is None:
+            return Response(content=json.dumps({"error": "Device code not supported"}), media_type="application/json", status_code=400)
+
+        return Response(content=json.dumps(result), media_type="application/json")
+
+    @app.post("/api/plugins/{plugin_id}/auth/device-poll")
+    async def device_code_poll(plugin_id: str) -> Response:
+        """Poll for device code completion. Returns {complete: true/false}."""
+        inst = registry.get_instance(plugin_id)
+        if inst is None:
+            return Response(content=json.dumps({"error": "Not found"}), media_type="application/json", status_code=404)
+        from hort.ext.credentials import CredentialStore
+        creds = getattr(inst, "creds", None)
+        if not isinstance(creds, CredentialStore):
+            return Response(content=json.dumps({"error": "No credentials"}), media_type="application/json", status_code=400)
+
+        complete = await creds.poll_device_code()
+        result = {"complete": complete}
+        if complete:
+            result.update(creds.status_dict())
+        return Response(content=json.dumps(result), media_type="application/json")

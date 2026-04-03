@@ -1,0 +1,531 @@
+"""Chat backend — routes connector messages to a chat provider (e.g. Claude Code).
+
+This is the generic chat routing layer that any connector (Telegram, Discord,
+web chat, etc.) can use to forward non-command messages to a backend.
+The backend could be an LLM (Claude Code), a human operator, or any
+other service that accepts text and returns text.
+
+The backend reads its configuration from the shared ``agent`` section
+in ``hort-config.yaml`` (see :mod:`hort.agent`).  By default, Claude
+Code runs inside a hardened Docker container with ``--allowedTools``
+instead of ``--dangerously-skip-permissions``.
+
+Sessions are per-user and non-persistent (in-memory only).
+``/new`` resets the session for a fresh conversation.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import subprocess
+import tempfile
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Coroutine
+
+from hort.agent import AgentConfig, get_agent_config
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ChatProgressEvent:
+    """Progress event emitted during chat processing.
+
+    Connectors decide how to render each event type:
+    - ``tool_start``: a tool is being invoked (name in ``detail``)
+    - ``thinking``: still processing, no specific tool
+    - ``typing``: text is being generated (partial text in ``detail``)
+
+    A web chat might show a spinner with tool names.
+    A mobile connector (Telegram) might only show a periodic "typing..." indicator
+    and skip individual tool events.
+    """
+
+    kind: str  # "tool_start", "thinking", "typing"
+    detail: str = ""  # tool name, partial text, etc.
+    elapsed_seconds: float = 0.0
+    tools_used: list[str] = field(default_factory=list)
+
+
+# Callback receives a ChatProgressEvent — connector decides what to show
+ProgressCallback = Callable[[ChatProgressEvent], Coroutine[Any, Any, None]]
+
+
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a remote desktop assistant. You are connected to the user's macOS "
+    "desktop through OpenHORT and can see and interact with it using MCP tools. "
+    "Your OWN environment (working directory, installed tools) is IRRELEVANT — "
+    "do NOT inspect it. Instead, use the openhort MCP tools to observe the user's desktop.\n\n"
+    "Available tools (prefixed with openhort__):\n"
+    "- list_windows: list all visible application windows\n"
+    "- screenshot: capture the desktop or a specific window (returns an image you can analyze)\n"
+    "- get_window_info: detailed window metadata (position, size, space)\n"
+    "- get_system_metrics: CPU, memory, disk usage\n"
+    "- get_disk_usage: disk partitions and usage\n"
+    "- get_clipboard_history: recent clipboard entries\n"
+    "- list_processes: running processes\n"
+    "- click: click at a position on screen\n"
+    "- type_text: type text via keyboard\n"
+    "- press_key: press special keys\n\n"
+    "When the user asks about what's on screen, in a window, or in a terminal, "
+    "ALWAYS use the screenshot tool to look at it — you can see the actual screen content. "
+    "Describe what you see in plain text. Keep responses concise for mobile chat."
+)
+
+_APPEND_PROMPT = (
+    "IMPORTANT: This is a mobile messaging chat (like Telegram). "
+    "NEVER use markdown: no **, no `, no #, no bullet points with -. "
+    "Use plain text only. Keep responses short (1-3 sentences). "
+    "When you receive screenshot data from tools, describe what you see "
+    "in words — never include raw base64 data in your response."
+)
+
+
+class MCPBridgeProcess:
+    """Manages the MCP bridge SSE server subprocess."""
+
+    def __init__(self, port: int = 0) -> None:
+        self._port = port
+        self._proc: subprocess.Popen[bytes] | None = None
+        self._actual_port: int = 0
+        self._mcp_config_path: str = ""
+        self._skills_path: str = ""
+
+    @property
+    def port(self) -> int:
+        return self._actual_port
+
+    @property
+    def url(self) -> str:
+        return f"http://localhost:{self._actual_port}/sse"
+
+    def container_url(self) -> str:
+        """URL reachable from inside a Docker container."""
+        return f"http://host.docker.internal:{self._actual_port}/sse"
+
+    @property
+    def mcp_config_path(self) -> str:
+        return self._mcp_config_path
+
+    @property
+    def skills_path(self) -> str:
+        return self._skills_path
+
+    def load_skills(self) -> list[Any]:
+        """Load skills from the bridge's skills manifest."""
+        if not self._skills_path or not os.path.exists(self._skills_path):
+            return []
+        with open(self._skills_path) as f:
+            return json.load(f)
+
+    def start(self) -> None:
+        """Start the MCP bridge SSE server."""
+        if self._proc and self._proc.poll() is None:
+            return
+
+        self._proc = subprocess.Popen(
+            ["python", "-m", "hort.mcp.server", "--sse", "--port", str(self._port)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))
+            ))),
+        )
+
+        assert self._proc.stderr is not None
+        for line in iter(self._proc.stderr.readline, b""):
+            text = line.decode("utf-8", errors="replace").strip()
+            logger.info("MCP bridge: %s", text)
+            if "SSE server on port" in text:
+                self._actual_port = int(text.rsplit("port ", 1)[1])
+            elif "Skills manifest:" in text:
+                self._skills_path = text.rsplit("Skills manifest: ", 1)[1]
+            if self._actual_port and ("SSE server:" in text or "Container URL:" in text):
+                break
+            if self._proc.poll() is not None:
+                logger.error("MCP bridge failed to start")
+                return
+
+        config = {
+            "mcpServers": {
+                "openhort": {
+                    "type": "sse",
+                    "url": self.url,
+                },
+            },
+        }
+        fd, path = tempfile.mkstemp(suffix=".json", prefix="hort-mcp-")
+        with os.fdopen(fd, "w") as f:
+            json.dump(config, f)
+        self._mcp_config_path = path
+        logger.info("MCP bridge started on port %d, config: %s, skills: %s",
+                     self._actual_port, path, self._skills_path or "(none)")
+
+        import threading
+
+        def _drain_stderr() -> None:
+            assert self._proc is not None and self._proc.stderr is not None
+            for line in iter(self._proc.stderr.readline, b""):
+                text = line.decode("utf-8", errors="replace").strip()
+                if text:
+                    logger.debug("MCP bridge: %s", text)
+
+        threading.Thread(target=_drain_stderr, daemon=True).start()
+
+    def stop(self) -> None:
+        """Stop the MCP bridge subprocess."""
+        if self._proc:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+            self._proc = None
+        if self._mcp_config_path:
+            try:
+                os.unlink(self._mcp_config_path)
+            except OSError:
+                pass
+            self._mcp_config_path = ""
+
+    @property
+    def alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+
+def _build_claude_cmd(
+    agent_cfg: AgentConfig,
+    mcp_config_path: str,
+    system_prompt: str,
+    session_id: str | None,
+    message: str,
+) -> list[str]:
+    """Build the ``claude`` CLI command from an AgentConfig.
+
+    When ``dangerous_mode`` is off, uses ``--allowedTools`` to
+    pre-approve specific tools instead of skipping all permission
+    checks.  This is the secure default.
+    """
+    cmd = [
+        "claude", "-p",
+        "--output-format", "stream-json",
+        "--verbose",
+    ]
+
+    if agent_cfg.dangerous_mode:
+        cmd.append("--dangerously-skip-permissions")
+    elif agent_cfg.allowed_tools:
+        cmd.extend(["--allowedTools", ",".join(agent_cfg.allowed_tools)])
+
+    if agent_cfg.container:
+        cmd.append("--bare")
+
+    if agent_cfg.model:
+        cmd.extend(["--model", agent_cfg.model])
+
+    if session_id:
+        cmd.extend(["--resume", session_id])
+    elif system_prompt:
+        cmd.extend(["--system-prompt", system_prompt])
+
+    if mcp_config_path:
+        cmd.extend(["--mcp-config", mcp_config_path])
+
+    if agent_cfg.max_budget_usd is not None:
+        cmd.extend(["--max-budget-usd", str(agent_cfg.max_budget_usd)])
+
+    cmd.extend(["--append-system-prompt", _APPEND_PROMPT])
+    cmd.append(message)
+    return cmd
+
+
+class ChatSession:
+    """Per-user Claude Code conversation session.
+
+    Sends messages to Claude Code CLI and parses the stream-json output.
+    Supports both host-mode (direct subprocess) and container-mode
+    (Docker exec inside a hardened sandbox session).
+    """
+
+    def __init__(
+        self,
+        agent_cfg: AgentConfig,
+        mcp_config_path: str,
+        system_prompt: str,
+        container_session: Any | None = None,
+        progress_interval: float = 8.0,
+    ) -> None:
+        self._agent_cfg = agent_cfg
+        self._mcp_config = mcp_config_path
+        self._system_prompt = system_prompt
+        self._container_session = container_session  # hort.sandbox.Session
+        self._session_id: str | None = None
+        self._lock = asyncio.Lock()
+        self._progress_interval = progress_interval
+
+    async def send(
+        self,
+        message: str,
+        on_progress: ProgressCallback | None = None,
+    ) -> str:
+        """Send a message and return the response text."""
+        async with self._lock:
+            return await self._run(message, on_progress)
+
+    async def _run(
+        self,
+        message: str,
+        on_progress: ProgressCallback | None = None,
+    ) -> str:
+        cmd = _build_claude_cmd(
+            self._agent_cfg,
+            self._mcp_config,
+            self._system_prompt,
+            self._session_id,
+            message,
+        )
+
+        logger.info("Chat backend: starting claude process (container=%s)",
+                     self._container_session is not None)
+
+        if self._container_session is not None:
+            proc = await self._container_session.exec_async(cmd)
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                limit=10 * 1024 * 1024,
+            )
+        assert proc.stdout is not None
+
+        result_text = ""
+        tools_used: list[str] = []
+        start_time = time.monotonic()
+        last_thinking_update = start_time
+
+        while True:
+            try:
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=2.0)
+            except asyncio.TimeoutError:
+                now = time.monotonic()
+                if on_progress and (now - last_thinking_update) >= self._progress_interval:
+                    await on_progress(ChatProgressEvent(
+                        kind="thinking",
+                        elapsed_seconds=now - start_time,
+                        tools_used=list(tools_used),
+                    ))
+                    last_thinking_update = now
+                continue
+
+            if not line:
+                break
+
+            try:
+                event = json.loads(line.decode("utf-8", errors="replace").strip())
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            etype = event.get("type")
+
+            # Session init
+            if etype == "system" and event.get("subtype") == "init":
+                self._session_id = event.get("session_id")
+
+            # Tool use tracking
+            elif etype == "assistant":
+                msg = event.get("message", {})
+                for block in msg.get("content", []):
+                    if block.get("type") == "tool_use":
+                        tool_name = block.get("name", "")
+                        if tool_name:
+                            short = tool_name.split("__")[-1] if "__" in tool_name else tool_name
+                            tools_used.append(short)
+                            logger.info("Chat backend: tool call → %s", short)
+                            if on_progress:
+                                await on_progress(ChatProgressEvent(
+                                    kind="tool_start",
+                                    detail=short,
+                                    elapsed_seconds=time.monotonic() - start_time,
+                                    tools_used=list(tools_used),
+                                ))
+
+            # Final result
+            elif etype == "result":
+                result_text = event.get("result", "")
+                if not self._session_id:
+                    self._session_id = event.get("session_id")
+
+        exit_code = await proc.wait()
+        if exit_code != 0:
+            logger.warning("Claude process exited with code %d", exit_code)
+        text = result_text.strip()
+        # Strip any base64 data blobs that leak into the response text
+        text = re.sub(r'(?:/9j/|iVBOR)[A-Za-z0-9+/=\n]{200,}', '[image data removed]', text)
+        if len(text) > 8000:
+            text = text[:8000]
+        return text or "(no response)"
+
+    def reset(self) -> None:
+        """Reset the session — next message starts a new conversation."""
+        self._session_id = None
+
+
+class ChatBackendManager:
+    """Manages chat sessions for all users of a connector.
+
+    Any connector can use this to route non-command messages to Claude Code.
+    The MCP bridge provides access to all MCPMixin extension tools.
+    The system prompt is built dynamically from extension skills.
+
+    Reads the shared ``agent`` config from ``hort-config.yaml`` so all
+    connectors use the same agent settings.  Override with explicit
+    ``agent_cfg`` to customise per-connector.
+    """
+
+    def __init__(
+        self,
+        agent_cfg: AgentConfig | None = None,
+        system_prompt: str = "",
+    ) -> None:
+        self._agent_cfg = agent_cfg or get_agent_config()
+        self._base_prompt = system_prompt or self._agent_cfg.system_prompt
+        self._bridge = MCPBridgeProcess(port=0)
+        self._sessions: dict[str, ChatSession] = {}
+        self._system_prompt: str = ""
+        self._disabled_tools: list[str] = []
+        # Container sessions keyed by user_id (only when container mode)
+        self._container_sessions: dict[str, Any] = {}
+        self._session_manager: Any = None  # hort.sandbox.SessionManager
+
+    @property
+    def agent_cfg(self) -> AgentConfig:
+        return self._agent_cfg
+
+    def start(self) -> None:
+        """Start the MCP bridge and build the system prompt from skills."""
+        self._bridge.start()
+        self._build_prompt()
+        if self._agent_cfg.container:
+            self._init_container_backend()
+
+    def _init_container_backend(self) -> None:
+        """Ensure the container image is built and session manager ready."""
+        from hort.sandbox import SessionManager
+
+        self._session_manager = SessionManager()
+        self._session_manager.ensure_base_image()
+        image = self._agent_cfg.image
+        if not self._session_manager.image_ready(image):
+            dockerfile_dir = str(
+                Path(__file__).resolve().parent.parent
+                / "extensions" / "llms" / "claude_code"
+            )
+            self._session_manager.build_image(image, dockerfile_dir)
+        logger.info("Container backend ready (image=%s)", image)
+
+    def _build_prompt(self) -> None:
+        """Build the system prompt from the base prompt + SOUL.md sections."""
+        from hort.ext.skills import SoulSection, build_system_prompt
+
+        raw_data = self._bridge.load_skills()
+
+        all_preambles: list[str] = []
+        all_sections: list[Any] = []
+        for soul in raw_data:
+            if soul.get("preamble"):
+                all_preambles.append(soul["preamble"])
+            for s in soul.get("sections", []):
+                all_sections.append(SoulSection(**s))
+
+        combined_preamble = "\n\n".join(all_preambles)
+        base = self._base_prompt or DEFAULT_SYSTEM_PROMPT
+        self._system_prompt, self._disabled_tools = build_system_prompt(
+            combined_preamble, all_sections, base_prompt=base,
+        )
+        logger.info(
+            "System prompt built: %d sections, %d disabled tools, %d chars",
+            len(all_sections), len(self._disabled_tools), len(self._system_prompt),
+        )
+
+    def stop(self) -> None:
+        """Stop the MCP bridge, destroy container sessions, clear state."""
+        self._bridge.stop()
+        for session in self._container_sessions.values():
+            try:
+                session.destroy()
+            except Exception as exc:
+                logger.warning("Failed to destroy container session: %s", exc)
+        self._container_sessions.clear()
+        self._sessions.clear()
+
+    @property
+    def alive(self) -> bool:
+        return self._bridge.alive
+
+    def _get_or_create_container(self, user_id: str) -> Any:
+        """Get or create a sandbox container session for a user."""
+        from hort.sandbox import SessionConfig, SecurityProfile
+
+        if user_id in self._container_sessions:
+            return self._container_sessions[user_id]
+
+        cfg = SessionConfig(
+            image=self._agent_cfg.image,
+            memory=self._agent_cfg.memory,
+            cpus=self._agent_cfg.cpus,
+            secret_env={"ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY", "")},
+            security=SecurityProfile(),
+        )
+        session = self._session_manager.create(cfg)
+        session.start()
+
+        # Write MCP config inside container pointing to host bridge
+        mcp_config = {
+            "mcpServers": {
+                "openhort": {
+                    "type": "sse",
+                    "url": self._bridge.container_url(),
+                },
+            },
+        }
+        session.write_file(
+            "/workspace/.claude-mcp.json",
+            json.dumps(mcp_config),
+        )
+
+        self._container_sessions[user_id] = session
+        logger.info("Created container session for user %s: %s", user_id, session.id)
+        return session
+
+    def get_session(self, user_id: str) -> ChatSession:
+        """Get or create a chat session for a user."""
+        if user_id not in self._sessions:
+            container_session = None
+            mcp_config = self._bridge.mcp_config_path
+
+            if self._agent_cfg.container and self._session_manager:
+                container_session = self._get_or_create_container(user_id)
+                # Container uses the config written inside it
+                mcp_config = "/workspace/.claude-mcp.json"
+
+            self._sessions[user_id] = ChatSession(
+                agent_cfg=self._agent_cfg,
+                mcp_config_path=mcp_config,
+                system_prompt=self._system_prompt,
+                container_session=container_session,
+                progress_interval=self._agent_cfg.progress_interval,
+            )
+        return self._sessions[user_id]
+
+    def reset_session(self, user_id: str) -> None:
+        """Reset a user's session (new conversation)."""
+        session = self._sessions.get(user_id)
+        if session:
+            session.reset()

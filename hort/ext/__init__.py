@@ -11,6 +11,7 @@ for discovering and loading extensions, and the plugin ecosystem:
 - **MCP** — Model Context Protocol tool provision
 - **Documents** — searchable document provision for AI
 - **Intents** — Android-like URI content handlers
+- **Skills** — composable prompt fragments linked to MCP tools and features
 """
 
 from hort.ext.documents import DocumentDef, DocumentMixin
@@ -22,7 +23,9 @@ from hort.ext.manifest import (
     IntentManifest,
     JobManifest,
 )
+from hort.ext.credentials import CredentialStore
 from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
+from hort.ext.skills import SoulSection
 from hort.ext.plugin import PluginBase, PluginConfig, PluginContext
 from hort.ext.registry import ExtensionRegistry
 from hort.ext.scheduler import JobSpec, PluginScheduler, ScheduledMixin
@@ -89,4 +92,6 @@ __all__ = [
     "IntentMixin",
     "IntentHandler",
     "IntentData",
+    # Skills
+    "SoulSection",
 ]

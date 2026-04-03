@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Capture screenshots on demand and browse them remotely. Demonstrates server→client image transfer via plugin file store.",
   "provider": "core",
-  "platforms": ["darwin", "linux"],
+  "platforms": ["darwin", "linux", "win32"],
   "capabilities": ["tool", "mcp"],
   "entry_point": "provider:ScreenshotCapture",
   "icon": "ph ph-camera",

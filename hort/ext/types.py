@@ -67,7 +67,7 @@ class WindowProvider(ABC):
 
     def get_app_names(self) -> list[str]:
         """Get sorted unique application names from visible windows."""
-        return sorted({w.owner_name for w in self.list_windows()})
+        return sorted({w.owner_name for w in self.list_windows() if w.window_id >= 0})
 
 
 class CaptureProvider(ABC):
