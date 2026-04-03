@@ -10,6 +10,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { WorldGrid, InternalGrid, GRID } from './grid.js';
 import { ActionHistory, serializeWorld } from './history.js';
+import { loadManifest, getManifest, getDisplayName, getPorts, getBodyDef, buildComponentMesh, playAnimation } from './models.js';
 
 // ── Colors ──────────────────────────────────────────────────
 
@@ -50,13 +51,8 @@ const DEFS = {
   'program':      { h: 2.0, color: C.program, container: false, metal: 0.50, rough: 0.40, ports: { in: 1, out: 1 }, shape: 'box' },
 };
 
-const DISPLAY_NAMES = {
-  'mac-mini': 'SnackMini', 'macbook': 'SnackBook Pro',
-  'rpi': 'Strawberry Pi', 'cloud-vm': 'Cloud VM',
-  'docker': 'Docker', 'virtual-hort': 'Virtual Hort',
-  'mcp-server': 'MCP Server', 'llming': 'LLMing', 'program': 'Program',
-};
-function displayName(type) { return DISPLAY_NAMES[type] || type.replace(/-/g, ' '); }
+// Display names come from manifest (loaded async), fallback to type
+function displayName(type) { return getDisplayName(type); }
 
 /** Get the visual w/d for a component type (derived from GRID). */
 function vizSize(type) {
@@ -396,24 +392,15 @@ function makeBox(def) {
 // ── Factory: component mesh ─────────────────────────────────
 
 function createComponentMesh(type) {
-  const def = DEFS[type];
   const sz = vizSize(type);
-  // merge size into a combined object for factory functions
-  const p = { ...def, w: sz.w, d: sz.d };
-  let group;
+  const group = buildComponentMesh(type, sz.w, sz.d);
 
-  if (def.container) {
-    group = makeContainer(p);
-    if (def.screen) addScreen(group, p);
-  } else if (def.shape === 'hex') {
-    group = makeHexPrism(p);
-  } else if (def.shape === 'ico') {
-    group = makeIcosphere(p);
-  } else {
-    group = makeBox(p);
-  }
+  // add ports (still uses DEFS for port count, will migrate to manifest)
+  const ports = getPorts(type);
+  const bodyDef = getBodyDef(type);
+  const h = bodyDef.wallHeight || bodyDef.height || 1;
+  addPorts(group, { w: sz.w, d: sz.d, h, ports });
 
-  addPorts(group, p);
   group.userData.compType = type;
   return group;
 }
@@ -485,6 +472,7 @@ export class HortPlannerEngine {
     this.worldGrid = new WorldGrid();
     this.history = new ActionHistory();
     this.worldSize = 50;          // initial world: 50×50 centered on origin
+    this.manifestLoaded = false;
 
     this._init();
   }
@@ -592,7 +580,8 @@ export class HortPlannerEngine {
     this._ro = new ResizeObserver(() => this.resize());
     this._ro.observe(this.container);
 
-    // start render loop
+    // load model manifest then start render
+    loadManifest().then(() => { this.manifestLoaded = true; });
     this._animate();
   }
 
