@@ -290,6 +290,74 @@ flowchart TD
 
 Each "color" (dimension + value) is independently tracked and independently policy-checked. The policy engine evaluates both simple pairs (source × target) and **combinations** (multiple taint labels present simultaneously). See [Combination Policies](flow-policies.md#combination-policies-non-linear-danger).
 
+### Per-Message Taint (Not Per-Zone)
+
+Zone-level taint says "everything in this zone is contaminated." But that's too aggressive for everyday use. Consider:
+
+1. User asks: "What's my SAP balance?" → LLM responds with `$12,345` (tainted)
+2. User asks: "Write a happy birthday email to Bob" → clean request
+
+With zone-level taint, step 2 would be blocked — the zone is contaminated by SAP data, so the email tool refuses. But the birthday email has nothing to do with financial data.
+
+**Per-message taint** solves this. Each message in the conversation carries its own taint labels:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant L as LLM
+    participant SAP as SAP Tool
+    participant EMAIL as Email Tool
+
+    U->>L: "What's my SAP balance?"
+    L->>SAP: get_balance()
+    SAP-->>L: "$12,345"
+    Note over L: Message taint: {source:sap, content:financial}
+    L-->>U: "Your balance is $12,345"
+
+    U->>L: "Write a birthday email to Bob"
+    Note over L: Email tool has block_taint: [source:sap]
+    Note over L: LLM sees redacted history:
+    Note over L: msg[0]: "What's my balance?" ← clean, shown
+    Note over L: msg[1]: "[Hidden: confidential content]" ← REDACTED
+    Note over L: msg[2]: "Write birthday email to Bob" ← clean, shown
+    L->>EMAIL: send_email(to="bob", body="Happy birthday!")
+    EMAIL-->>L: "Email sent"
+    L-->>U: "Done! Birthday email sent to Bob."
+```
+
+The user always sees the full conversation. Only the LLM's view is filtered when calling tools that block certain taint.
+
+```python
+class TaintedMessage(BaseModel):
+    role: str                                    # "user", "assistant"
+    content: str
+    taint_labels: frozenset[str] = frozenset()   # per-message taint
+    tool_name: str = ""                          # tool that produced this
+
+    def redact_for(self, blocked_taint: set[str]) -> TaintedMessage:
+        """Replace content with placeholder if taint overlaps."""
+        if self.taint_labels & blocked_taint:
+            return self.model_copy(update={
+                "content": "[Hidden: confidential content]"
+            })
+        return self
+
+class ConversationTaint(BaseModel):
+    messages: list[TaintedMessage] = []
+
+    def visible_history(self, blocked_taint: set[str]) -> list[TaintedMessage]:
+        """LLM's view — tainted messages redacted."""
+        return [msg.redact_for(blocked_taint) for msg in self.messages]
+```
+
+| What | User sees | LLM sees (when calling email) |
+|------|-----------|------------------------------|
+| "What's my balance?" | What's my balance? | What's my balance? |
+| "Your balance is $12,345" | Your balance is $12,345 | [Hidden: confidential content] |
+| "Write birthday email to Bob" | Write birthday email to Bob | Write birthday email to Bob |
+
+The birthday email goes through clean — no financial data leaks. The same conversation, same chat, no zone switching needed.
+
 ### Why Conservative Propagation?
 
 !!! warning "The LLM is a black box"
