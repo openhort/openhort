@@ -26,14 +26,12 @@ console = Console()
 err_console = Console(stderr=True)
 
 VERSION = "0.1.0"
-LOGO = r"""[bold deep_purple]
-     ╱╲
-    ╱  ╲    [bold white]openhort[/]
-   ╱ ╱╲ ╲   [dim]Remote desktop · AI agents · MCP tools[/]
-  ╱ ╱  ╲ ╲
- ╱ ╱    ╲ ╲  [dim]v{version}[/]
-╱╱      ╲╲
-[/]"""
+LOGO = """[bold deep_purple]     \u2571\u2572
+    \u2571  \u2572    [bold white]openhort[/bold white]
+   \u2571 \u2571\u2572 \u2572   [dim]Remote desktop \u00b7 AI agents \u00b7 MCP tools[/dim]
+  \u2571 \u2571  \u2572 \u2572
+ \u2571 \u2571    \u2572 \u2572  [dim]v{version}[/dim]
+\u2571\u2571      \u2572\u2572[/bold deep_purple]"""
 
 
 def _logo() -> str:
