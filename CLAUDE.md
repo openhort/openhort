@@ -157,11 +157,29 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - Pydantic v2 for all data models
 - OS-level Quartz wrappers isolated behind `_raw_*` functions for testability
 
-## Running
+## CLI
 
 ```bash
-poetry run python run.py
+hort                    # show logo + help hint
+hort start              # start server (production)
+hort start --dev        # start server (dev mode, auto-reload)
+hort stop               # stop running server
+hort status             # server status + system info
+hort llmings            # list all installed llmings
+hort topology           # show hort topology tree
+hort config             # show hort-config.yaml
+hort config agent       # show specific config section
+hort watch list         # list active code sessions
+hort watch start claude # create + attach tmux session (runs claude)
+hort watch start clauded # runs claude --dangerously-skip-permissions
+hort watch start shell  # just a shell
+hort watch read <name>  # read session output
+hort watch send <name> "text" # send text to session
+hort watch stop <name>  # kill session
+hort interactive        # interactive REPL mode
 ```
+
+Install: `pip install -e .` or `pipx install .` puts `hort` on PATH.
 
 Requires Screen Recording permission for the terminal app in System Settings (macOS).
 

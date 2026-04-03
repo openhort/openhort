@@ -16,10 +16,12 @@ dependencies = [
     "pyyaml (>=6.0.3,<7.0.0)",
     "psutil (>=7.2.2,<8.0.0)",
     "aiortc (>=1.14.0,<2.0.0)",
+    "rich (>=14.3.3,<15.0.0)",
+    "click (>=8.3.1,<9.0.0)",
 ]
 
 [project.scripts]
-hort = "hort.app:main"
+hort = "hort.cli:main"
 claude-chat = "hort.extensions.llms.claude_code.__main__:main"
 
 [tool.poetry]
