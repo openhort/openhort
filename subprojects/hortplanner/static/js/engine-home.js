@@ -69,6 +69,7 @@ async function loadHomeManifest(basePath = '/static') {
       '04-loft-apartment', '05-small-house', '06-two-story-house',
       '07-split-level-home', '08-apartment-basement',
       '09-open-plan-penthouse', '10-tiny-house',
+      '11-diagonal-studio', '12-angular-penthouse',
     ];
     _presetCache = await Promise.all(
       presetFiles.map(f => fetch(`${basePath}/presets/home/${f}.json`).then(r => r.json()).catch(() => null))
@@ -242,19 +243,32 @@ export class HomePlannerEngine {
 
   // ── Nearest grid edge from world position ────────────
 
-  _nearestEdge(groundPos) {
+  _nearestEdge(groundPos, halfGrid = false) {
+    const step = halfGrid ? 0.5 : 1.0;
     const x = groundPos.x;
     const z = groundPos.z;
 
-    // Nearest horizontal edge: z rounds to integer, x rounds to cell
-    const hz = Math.round(z);
-    const hx = Math.floor(x);
+    // Nearest horizontal edge
+    const hz = Math.round(z / step) * step;
+    const hx = Math.floor(x / step) * step;
     const hDist = Math.abs(z - hz);
 
-    // Nearest vertical edge: x rounds to integer, z rounds to cell
-    const vx = Math.round(x);
-    const vz = Math.floor(z);
+    // Nearest vertical edge
+    const vx = Math.round(x / step) * step;
+    const vz = Math.floor(z / step) * step;
     const vDist = Math.abs(x - vx);
+
+    // Nearest diagonal edge (45°) — check both diagonal directions
+    const d1x = Math.round(x);  // NE-SW diagonal
+    const d1z = Math.round(z);
+    const d1Dist = (Math.abs(x - d1x) + Math.abs(z - d1z)) / 2;
+
+    if (d1Dist < Math.min(hDist, vDist) * 0.7) {
+      // Diagonal is closer — determine if it's / or \
+      const fx = x - Math.floor(x), fz = z - Math.floor(z);
+      const diagType = (fx + fz > 1) ? 'd+' : 'd-';
+      return { x: Math.floor(x), z: Math.floor(z), o: diagType, dist: d1Dist };
+    }
 
     if (hDist < vDist) {
       return { x: hx, z: hz, o: 'h', dist: hDist };
@@ -263,13 +277,46 @@ export class HomePlannerEngine {
     }
   }
 
-  // ── Snap position to grid cell ───────────────────────
+  // ── Snap position to grid cell (Shift = half grid) ───
 
-  _snapToGrid(pos) {
+  _snapToGrid(pos, halfGrid = false) {
+    const step = halfGrid ? 0.5 : 1.0;
     return {
-      x: Math.round(pos.x),
-      z: Math.round(pos.z),
+      x: Math.round(pos.x / step) * step,
+      z: Math.round(pos.z / step) * step,
     };
+  }
+
+  // ── Collision detection ──────────────────────────────
+
+  /** Check if a rotated rectangle collides with any existing furniture. */
+  _checkFurnitureCollision(x, z, w, d, rotation, excludeId = null) {
+    const floor = this.homeGrid.getActiveFloor();
+    if (!floor) return false;
+    const newBB = this._rotatedBB(x, z, w, d, rotation);
+    for (const [id, furn] of floor.furniture) {
+      if (id === excludeId) continue;
+      const def = FURNITURE_DEFS[furn.type];
+      if (!def) continue;
+      const existBB = this._rotatedBB(furn.x, furn.z, def.w, def.d, furn.rotation || 0);
+      if (this._bbOverlap(newBB, existBB)) return true;
+    }
+    return false;
+  }
+
+  /** Get axis-aligned bounding box of a rotated rectangle. */
+  _rotatedBB(x, z, w, d, rot) {
+    const rad = (rot || 0) * Math.PI / 180;
+    const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+    const rw = w * cos + d * sin;
+    const rd = w * sin + d * cos;
+    const cx = x + w / 2, cz = z + d / 2;
+    return { x1: cx - rw / 2, z1: cz - rd / 2, x2: cx + rw / 2, z2: cz + rd / 2 };
+  }
+
+  /** Check if two AABBs overlap. */
+  _bbOverlap(a, b) {
+    return a.x1 < b.x2 && a.x2 > b.x1 && a.z1 < b.z2 && a.z2 > b.z1;
   }
 
   // ════════════════════════════════════════════════════════
@@ -285,7 +332,7 @@ export class HomePlannerEngine {
 
     // ── Wall tool ──────────────────────────────────────
     if (tool === 'wall') {
-      const edge = this._nearestEdge(pos);
+      const edge = this._nearestEdge(pos, e.shiftKey);
       if (edge.dist > 0.45) return;  // too far from any edge
       const floor = this.homeGrid.getActiveFloor();
       if (!floor) return;
@@ -328,7 +375,9 @@ export class HomePlannerEngine {
       const type = tool.split(':')[1];
       const def = FURNITURE_DEFS[type];
       if (!def) return;
-      const snap = this._snapToGrid(pos);
+      const snap = this._snapToGrid(pos, e.shiftKey);
+      // Collision check before placing
+      if (this._checkFurnitureCollision(snap.x, snap.z, def.w, def.d, 0)) return;
       const id = this.homeGrid.addFurniture(type, snap.x, snap.z, 0);
       await this._rebuildAll();
       this._selectFurniture(id);
@@ -383,13 +432,17 @@ export class HomePlannerEngine {
     if (this._isDragging && this._selectedFurnId !== null) {
       const furn = this._getFurnitureData(this._selectedFurnId);
       if (furn) {
+        const def = FURNITURE_DEFS[furn.type];
         const snap = this._snapToGrid({
           x: pos.x - this._dragOffset.x,
           z: pos.z - this._dragOffset.z,
-        });
-        furn.x = snap.x;
-        furn.z = snap.z;
-        this._updateFurnitureMeshPosition(this._selectedFurnId);
+        }, e.shiftKey);
+        // Only move if no collision
+        if (!def || !this._checkFurnitureCollision(snap.x, snap.z, def.w, def.d, furn.rotation || 0, this._selectedFurnId)) {
+          furn.x = snap.x;
+          furn.z = snap.z;
+          this._updateFurnitureMeshPosition(this._selectedFurnId);
+        }
       }
       return;
     }
@@ -725,19 +778,21 @@ export class HomePlannerEngine {
       depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
 
-    // ── Step 1: Merge consecutive wall segments into runs ──
-    // Group by (orientation, perpendicular coordinate)
-    const hGroups = new Map(); // z -> [{x, type}]
-    const vGroups = new Map(); // x -> [{z, type}]
+    // ── Step 1: Group wall segments by type ──
+    const hGroups = new Map(); // z -> [{pos, type}]
+    const vGroups = new Map(); // x -> [{pos, type}]
+    const diagWalls = []; // diagonal walls handled individually
 
     for (const { x, z, orientation, segment } of allWalls) {
       const type = segment.type || 'wall';
       if (orientation === 'h') {
         if (!hGroups.has(z)) hGroups.set(z, []);
         hGroups.get(z).push({ pos: x, type });
-      } else {
+      } else if (orientation === 'v') {
         if (!vGroups.has(x)) vGroups.set(x, []);
         vGroups.get(x).push({ pos: z, type });
+      } else {
+        diagWalls.push({ x, z, orientation, type });
       }
     }
 
@@ -792,6 +847,13 @@ export class HomePlannerEngine {
 
     // ── Step 3: Corner posts ──
     this._createCornerPosts(corners, floorY, wallMat);
+
+    // ── Step 4: Diagonal walls ──
+    for (const dw of diagWalls) {
+      if (dw.type === 'wall') {
+        this._addDiagonalWall(dw.x, dw.z, dw.orientation, floorY, wallMat);
+      }
+    }
   }
 
   /** Create a single merged wall box spanning `len` segments. */
@@ -935,6 +997,19 @@ export class HomePlannerEngine {
     group.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
     this.scene.add(group);
     this._wallMeshes.push(group);
+  }
+
+  /** Create a diagonal wall segment (45°). d+ goes NE-SW, d- goes NW-SE. */
+  _addDiagonalWall(x, z, orient, floorY, mat) {
+    const diagLen = Math.SQRT2; // diagonal of a 1×1 cell
+    const geo = new THREE.BoxGeometry(diagLen, WALL_H, WALL_THICK);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x + 0.5, floorY + WALL_H / 2, z + 0.5);
+    mesh.rotation.y = orient === 'd+' ? -Math.PI / 4 : Math.PI / 4;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    this.scene.add(mesh);
+    this._wallMeshes.push(mesh);
   }
 
   /** Create corner posts where walls meet. */
@@ -1220,6 +1295,11 @@ export class HomePlannerEngine {
         }
       }
 
+      // ── Diagonal walls ────────────────────────────────
+      for (const dw of (floorData.diagonals || [])) {
+        floor.walls.setWall(dw.x, dw.z, dw.o, { type: 'wall' });
+      }
+
       // ── Furniture ───────────────────────────────────
       for (const f of (floorData.furniture || [])) {
         floor.addFurniture(f.type, f.x, f.z, f.rot || 0);
@@ -1448,7 +1528,7 @@ export class HomePlannerEngine {
     if (this._selectedFurnId === null) return;
     const furn = this._getFurnitureData(this._selectedFurnId);
     if (!furn) return;
-    furn.rotation = ((furn.rotation || 0) + 90) % 360;
+    furn.rotation = ((furn.rotation || 0) + 45) % 360;
     await this._rebuildFurnitureMeshes();
     if (this.callbacks.onSelect) {
       const def = FURNITURE_DEFS[furn.type] || {};

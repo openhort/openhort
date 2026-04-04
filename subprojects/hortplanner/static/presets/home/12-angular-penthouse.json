@@ -1,0 +1,60 @@
+{
+  "name": "Angular Penthouse",
+  "desc": "Luxury penthouse with diagonal feature walls and angled living areas",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 32, 0],
+        [0, 0, 0, 28],
+        [32, 0, 32, 28],
+        [0, 28, 32, 28],
+        [16, 0, 16, 12],
+        [0, 14, 10, 14],
+        [16, 14, 32, 14]
+      ],
+      "diagonals": [
+        {"x": 10, "z": 14, "o": "d-"},
+        {"x": 11, "z": 13, "o": "d-"},
+        {"x": 12, "z": 12, "o": "d-"},
+        {"x": 13, "z": 13, "o": "d+"},
+        {"x": 14, "z": 14, "o": "d+"},
+        {"x": 15, "z": 13, "o": "d-"}
+      ],
+      "doors": [
+        {"x": 16, "z": 6, "o": "v", "type": "door-n"},
+        {"x": 4, "z": 14, "o": "h", "type": "door-n"}
+      ],
+      "windows": [
+        {"x": 3, "z": 0, "o": "h", "type": "window-l"},
+        {"x": 10, "z": 0, "o": "h", "type": "window-l"},
+        {"x": 20, "z": 0, "o": "h", "type": "window-l"},
+        {"x": 27, "z": 0, "o": "h", "type": "window-l"},
+        {"x": 0, "z": 6, "o": "v", "type": "window-l"},
+        {"x": 32, "z": 6, "o": "v", "type": "window-l"},
+        {"x": 0, "z": 20, "o": "v", "type": "window-l"}
+      ],
+      "furniture": [
+        {"type": "sofa", "x": 18, "z": 16, "rot": 45},
+        {"type": "sofa", "x": 24, "z": 16, "rot": 315},
+        {"type": "coffee-table", "x": 22, "z": 20, "rot": 0},
+        {"type": "tv", "x": 20, "z": 25, "rot": 0},
+        {"type": "armchair", "x": 18, "z": 22, "rot": 45},
+        {"type": "floor-lamp", "x": 28, "z": 16, "rot": 0},
+        {"type": "bed-double", "x": 2, "z": 16, "rot": 0},
+        {"type": "nightstand", "x": 10, "z": 16, "rot": 0},
+        {"type": "nightstand", "x": 10, "z": 22, "rot": 0},
+        {"type": "wardrobe", "x": 2, "z": 25, "rot": 0},
+        {"type": "dining-table", "x": 2, "z": 2, "rot": 45},
+        {"type": "chair", "x": 1, "z": 0, "rot": 315},
+        {"type": "chair", "x": 6, "z": 0, "rot": 45},
+        {"type": "chair", "x": 1, "z": 7, "rot": 225},
+        {"type": "chair", "x": 6, "z": 7, "rot": 135},
+        {"type": "counter", "x": 18, "z": 2, "rot": 0},
+        {"type": "stove", "x": 22, "z": 2, "rot": 0},
+        {"type": "fridge", "x": 26, "z": 2, "rot": 0},
+        {"type": "sink", "x": 18, "z": 5, "rot": 0},
+        {"type": "bookshelf", "x": 28, "z": 25, "rot": 90}
+      ]
+    }
+  }
+}

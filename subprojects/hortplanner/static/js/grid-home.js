@@ -24,33 +24,42 @@ function wallSegment(type = 'wall', material = 'default') {
 
 export class WallGrid {
   constructor() {
-    this.hEdges = new Map();  // "x,z" -> WallSegment (horizontal edge between (x,z) and (x,z-1))
-    this.vEdges = new Map();  // "x,z" -> WallSegment (vertical edge between (x,z) and (x-1,z))
+    this.hEdges = new Map();  // "x,z" -> WallSegment (horizontal edge)
+    this.vEdges = new Map();  // "x,z" -> WallSegment (vertical edge)
+    this.dEdges = new Map();  // "x,z,d+|d-" -> WallSegment (diagonal edges: d+ = NE-SW, d- = NW-SE)
   }
 
   /** Get the edge map for the given orientation. */
   _edges(orientation) {
-    return orientation === 'h' ? this.hEdges : this.vEdges;
+    if (orientation === 'h') return this.hEdges;
+    if (orientation === 'v') return this.vEdges;
+    return this.dEdges; // d+ or d-
   }
 
-  /** Place a wall segment on the edge at (x, z) with orientation 'h' or 'v'. */
+  _dkey(x, z, o) { return `${x},${z},${o}`; }
+
+  /** Place a wall segment on the edge at (x, z) with orientation 'h', 'v', 'd+', or 'd-'. */
   setWall(x, z, orientation, segment) {
-    this._edges(orientation).set(key(x, z), segment);
+    const k = (orientation === 'd+' || orientation === 'd-') ? this._dkey(x, z, orientation) : key(x, z);
+    this._edges(orientation).set(k, segment);
   }
 
-  /** Remove the wall segment at (x, z) with orientation 'h' or 'v'. */
+  /** Remove the wall segment at (x, z) with orientation. */
   removeWall(x, z, orientation) {
-    this._edges(orientation).delete(key(x, z));
+    const k = (orientation === 'd+' || orientation === 'd-') ? this._dkey(x, z, orientation) : key(x, z);
+    this._edges(orientation).delete(k);
   }
 
   /** Get the wall segment at (x, z) with orientation, or null. */
   getWall(x, z, orientation) {
-    return this._edges(orientation).get(key(x, z)) || null;
+    const k = (orientation === 'd+' || orientation === 'd-') ? this._dkey(x, z, orientation) : key(x, z);
+    return this._edges(orientation).get(k) || null;
   }
 
   /** Check whether a wall exists at (x, z) with orientation. */
   hasWall(x, z, orientation) {
-    return this._edges(orientation).has(key(x, z));
+    const k = (orientation === 'd+' || orientation === 'd-') ? this._dkey(x, z, orientation) : key(x, z);
+    return this._edges(orientation).has(k);
   }
 
   /** Return all walls as an array of { x, z, orientation, segment }. */
@@ -63,6 +72,11 @@ export class WallGrid {
     for (const [k, segment] of this.vEdges) {
       const [x, z] = k.split(',').map(Number);
       walls.push({ x, z, orientation: 'v', segment });
+    }
+    for (const [k, segment] of this.dEdges) {
+      const parts = k.split(',');
+      const x = Number(parts[0]), z = Number(parts[1]), o = parts[2];
+      walls.push({ x, z, orientation: o, segment });
     }
     return walls;
   }
