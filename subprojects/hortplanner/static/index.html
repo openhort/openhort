@@ -535,6 +535,10 @@
 
         function createEngine(mode) {
           if (engine) { engine.dispose(); engine = null; }
+          // Remove old canvas elements left by the previous engine
+          if (canvasWrap.value) {
+            canvasWrap.value.querySelectorAll('canvas').forEach(c => c.remove());
+          }
           if (labelOverlay.value) labelOverlay.value.innerHTML = '';
           selected.value = null; selectedConn.value = null;
 
