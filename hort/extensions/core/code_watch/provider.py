@@ -20,40 +20,72 @@ from hort.ext.plugin import PluginBase
 # ── Helpers (module-level) ────────────────────────────────────────
 
 
-def _detect_claude_mode(session_name: str, current_command: str) -> str:
-    """Detect what mode a Claude Code session is in.
+def _detect_session_state(session_name: str, current_command: str) -> dict[str, Any]:
+    """Detect full Claude Code state from terminal output.
 
-    Returns one of: "dangerous", "plan", "claude", "busy", "idle".
+    Returns a dict with state, mode, detail, border_color, idle_seconds.
     """
+    from .detect import ClaudeState, detect_state
+
     shells = {"bash", "zsh", "fish", "sh", "-bash", "-zsh", "login"}
 
-    if "clauded" in session_name:
-        return "idle" if current_command in shells else "dangerous"
-
-    if "claude" in session_name or current_command == "claude":
+    # Not a Claude session — simple busy/idle
+    if "claude" not in session_name and current_command not in ("claude", "2.1.91"):
         if current_command in shells:
-            return "idle"
-        try:
-            from hort.tmux import read_output
-            output = read_output(session_name, lines=5)
-            if output and "plan mode" in output.lower():
-                return "plan"
-        except Exception:
-            pass
-        return "claude"
+            return {"state": "idle", "mode": "normal", "detail": "", "border_color": "", "idle_seconds": 0}
+        return {"state": "busy", "mode": "normal", "detail": current_command, "border_color": "#eab308", "idle_seconds": 0}
 
-    return "idle" if current_command in shells else "busy"
+    # Claude session — read VISIBLE pane (not scrollback) for status bar detection
+    try:
+        from hort.tmux import read_visible
+        output = read_visible(session_name)
+        if not output:
+            return {"state": "busy", "mode": "normal", "detail": "", "border_color": "#8b5cf6", "idle_seconds": 0}
+
+        # Get or create previous state for since tracking
+        prev = _session_states.get(session_name)
+        cs = detect_state(output, session_name=session_name, previous_state=prev)
+        _session_states[session_name] = cs
+
+        return {
+            "state": cs.state,
+            "mode": cs.mode,
+            "detail": cs.detail,
+            "border_color": _state_border_color(cs),
+            "idle_seconds": round(cs.idle_seconds, 1),
+            "needs_input": cs.needs_input,
+            "last_output": cs.last_output,
+        }
+    except Exception:
+        return {"state": "busy", "mode": "normal", "detail": "", "border_color": "#8b5cf6", "idle_seconds": 0}
 
 
-def _mode_border_color(mode: str, busy: bool | None) -> str:
-    """Map a session mode to a CSS border color."""
-    return {
-        "dangerous": "#ef4444",
-        "plan": "#3b82f6",
-        "claude": "#8b5cf6",
-        "busy": "#eab308",
-        "idle": "",
-    }.get(mode, "")
+# Track previous state per session for `since` continuity
+_session_states: dict[str, Any] = {}
+
+
+def _state_border_color(cs: Any) -> str:
+    """Map Claude state + mode to a border color."""
+    # Mode takes priority for border color
+    mode_colors = {
+        "dangerous": "#ef4444",     # red
+        "plan": "#3b82f6",          # blue
+        "accept_edits": "#f59e0b",  # amber
+    }
+    if cs.mode in mode_colors:
+        return mode_colors[cs.mode]
+
+    # State-based colors
+    state_colors = {
+        "thinking": "#a78bfa",      # light purple (working)
+        "responding": "#8b5cf6",    # purple (active)
+        "tool_running": "#6366f1",  # indigo (executing)
+        "selecting": "#f59e0b",     # amber (needs input)
+        "permission": "#ef4444",    # red (needs approval)
+        "idle": "",                 # no border
+        "busy": "#eab308",          # yellow
+    }
+    return state_colors.get(cs.state, "")
 
 
 # ── Extension class ───────────────────────────────────────────────
@@ -66,21 +98,17 @@ class CodeWatch(PluginBase, MCPMixin):
         self.log.info("Code-watch activated")
 
     def get_status(self) -> dict[str, Any]:
-        """Return session data for the dashboard with border colors."""
-        from hort.tmux import list_sessions, is_busy
+        """Return session data for the dashboard with full state detection."""
+        from hort.tmux import list_sessions
 
         sessions = []
         for s in list_sessions():
-            busy = is_busy(s.short_name)
-            mode = _detect_claude_mode(s.short_name, s.current_command)
-            border = _mode_border_color(mode, busy)
+            info = _detect_session_state(s.short_name, s.current_command)
             sessions.append({
                 "name": s.short_name,
-                "busy": busy,
                 "command": s.current_command,
                 "attached": s.attached,
-                "mode": mode,
-                "border_color": border,
+                **info,
             })
         return {"sessions": sessions, "count": len(sessions)}
 

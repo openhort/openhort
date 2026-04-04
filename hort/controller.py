@@ -441,8 +441,10 @@ class HortController(BaseController):
             except Exception:
                 pass
 
+            from hort.extensions.core.code_watch.provider import _detect_session_state
+
             for s in list_sessions():
-                busy = is_busy(s.short_name)
+                info = _detect_session_state(s.short_name, s.current_command)
                 terminals.append({
                     "terminal_id": f"tmux:{s.short_name}",
                     "target_id": default_target,
@@ -452,9 +454,15 @@ class HortController(BaseController):
                     "alive": True,
                     "created_at": 0,
                     "tmux": True,
-                    "busy": busy,
+                    "busy": info.get("state") not in ("idle",),
                     "command": s.current_command,
                     "attached": s.attached,
+                    "border_color": info.get("border_color", ""),
+                    "mode": info.get("mode", ""),
+                    "claude_state": info.get("state", ""),
+                    "idle_seconds": info.get("idle_seconds", 0),
+                    "needs_input": info.get("needs_input", False),
+                    "last_output": info.get("last_output", ""),
                 })
         except Exception:
             pass

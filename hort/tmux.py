@@ -219,6 +219,20 @@ def create_session(
     return None
 
 
+def read_visible(name: str) -> str | None:
+    """Capture only the visible pane content (no scrollback).
+
+    This is what the user sees right now — includes the status bar
+    at the bottom.  Used for state detection where the status bar
+    indicators (e.g., 'esc to interrupt') are critical.
+    """
+    full_name = name if name.startswith(PREFIX) else f"{PREFIX}{name}"
+    result = _run(["capture-pane", "-t", full_name, "-p"])
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
 def read_output(
     name: str,
     lines: int = DEFAULT_SCROLLBACK,
