@@ -753,16 +753,52 @@ flowchart TD
     style LAN fill:#2a1a3a
 ```
 
+## Polling Relay (RelayPoller)
+
+The host uses HTTP polling to check for connection requests — **no persistent WebSocket** to the relay. This replaced the old `RelayListener` (persistent WebSocket) in April 2026.
+
+Source: `hort/peer2peer/relay_poller.py`
+
+### How it works
+
+1. Host polls `GET /relay/{room}/pending` every 5 seconds (configurable per tier)
+2. When a paired device wants to connect, it posts to `POST /relay/{room}/connect`
+3. Host validates the device token hash against MongoDB
+4. Host generates a one-time P2P URL and posts to `POST /relay/{room}/respond`
+5. Device polls `GET /relay/{room}/response?h=HASH` every 3 seconds
+6. Device gets the URL, loads the P2P viewer → SDP exchange → direct P2P
+
+### SDP exchange via HTTP
+
+The host does **not** connect to the relay WebSocket for SDP exchange. Instead:
+
+1. Viewer sends SDP offer via relay WebSocket (browser → relay)
+2. Relay buffers it in `sdpInbox` (no WebSocket peer to forward to)
+3. Host polls `GET /relay/{room}/sdp-inbox` every 250ms
+4. Host creates WebRTC answer, posts to `POST /relay/{room}/sdp-send`
+5. Relay forwards the answer to the viewer's WebSocket
+
+This means the host **never** opens a WebSocket to the relay. Only the browser viewer uses WebSocket (briefly, for ~3 seconds during SDP exchange).
+
+### Poll intervals
+
+| Tier | Host polling | App polling | SDP polling |
+|------|-------------|-------------|-------------|
+| Premium (current) | 5s | 3s | 250ms |
+| Free (future) | 30s | 3s | 250ms |
+
+The relay returns `poll_interval_ms` in every response. The host obeys it. If the host polls faster than 80% of the configured interval, the relay returns empty results (throttled).
+
 ## Multiple Concurrent Connections
 
-The `RelayListener` supports multiple simultaneous P2P sessions:
+The `RelayPoller` supports multiple simultaneous P2P sessions:
 
 ```mermaid
 flowchart TD
-    RELAY[Relay WebSocket] --> LISTENER[RelayListener]
-    LISTENER --> S1[Session p2p-a1b2<br/>Phone]
-    LISTENER --> S2[Session p2p-c3d4<br/>Tablet]
-    LISTENER --> S3[Session p2p-e5f6<br/>Desktop]
+    POLL[HTTP Polling] --> POLLER[RelayPoller]
+    POLLER --> S1[Session p2p-a1b2<br/>Phone]
+    POLLER --> S2[Session p2p-c3d4<br/>Tablet]
+    POLLER --> S3[Session p2p-e5f6<br/>Desktop]
     S1 --> P1[WebRTCPeer + Proxy]
     S2 --> P2[WebRTCPeer + Proxy]
     S3 --> P3[WebRTCPeer + Proxy]
@@ -1024,7 +1060,9 @@ Framework-agnostic — no openhort extension dependencies.
 | `proto.py` | Wire protocol: PING/PONG/DATA/ACK/FIN |
 | `webrtc.py` | `WebRTCPeer` + `WebRTCPeerRegistry` — aiortc peers |
 | `dc_proxy.py` | `DataChannelProxy` — HTTP/WS multiplexer over DataChannel |
-| `relay_listener.py` | `RelayListener` + `TokenStore` — relay connection + auth |
+| `relay_listener.py` | `RelayListener` + `TokenStore` — legacy persistent WebSocket (deprecated) |
+| `relay_poller.py` | `RelayPoller` — HTTP polling relay, no persistent WebSocket |
+| `device_tokens.py` | `DeviceTokenStore` — MongoDB-backed device pairing tokens |
 | `video_track.py` | `ScreenCaptureTrack` + `WebMEncoder` — VP8/VP9 video |
 | `webm_stream.py` | `WebMStreamer` — VP8/VP9 WebM over WebSocket (proxy mode) |
 

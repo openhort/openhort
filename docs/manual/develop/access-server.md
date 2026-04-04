@@ -297,7 +297,9 @@ Token-based authentication allows access via QR code without entering a username
 
 ### QR Code Generation
 
-The QR code URL format: `{server}/api/access/token/login?token={token}&host={host_id}`
+The QR code URL format (short): `{server}/t/{host_id}/{token}`
+
+Legacy format (still supported): `{server}/api/access/token/login?token={token}&host={host_id}`
 
 The QR code is generated server-side via the `/api/qr?url=...` endpoint (uses `qrcode` library to create a PNG data URI). The `hort-qr` Vue component (in `hort/static/vendor/hort-ext.js`) wraps this with a clickable URL display.
 
@@ -308,7 +310,7 @@ The QR code is generated server-side via the `/api/qr?url=...` endpoint (uses `q
 3. Access server finds the tunnel for `host_id`
 4. Access server sends `POST /_internal/verify-token` through the tunnel with `{"token": "..."}`
 5. Host's `/_internal/verify-token` endpoint verifies the token against its local `TokenStore`
-6. If valid: access server looks up the host owner, creates a session cookie, redirects to `/proxy/{host_id}/viewer`
+6. If valid: access server looks up the host owner, creates a session cookie, redirects to `/proxy/{host_id}/`
 7. If invalid: returns 401
 
 ### Token Lifecycle
@@ -460,6 +462,128 @@ python -m hort.access.server --port 8400 --store /tmp/test.json
 
 # Connect tunnel
 python -m hort.access.tunnel_client --server=http://localhost:8400 --key="<KEY>" --local=http://localhost:8940
+```
+
+## Cloudflare Hub (hub.openhort.ai)
+
+As of April 2026, the access server runs on **Cloudflare Workers** instead of Azure. The URL is `hub.openhort.ai`. This is a unified Worker that combines the proxy server and the P2P relay into a single deployment.
+
+### Architecture
+
+```
+Phone/Tablet                 Cloudflare Edge              Your Machine
+     │                            │                            │
+     │  HTTPS                     │                            │
+     ├──────────────────────────→ │  Worker (index.js)         │
+     │  token login / session     │  ├─ HostTunnel DO          │
+     │                            │  │  (per-host WebSocket)   │
+     │  /proxy/{host_id}/...      │  │                         │
+     ├──────────────────────────→ │  ├──────────────────────→  │ Tunnel Client
+     │                            │  │  tunnel WS              │ (hort.access.tunnel_client)
+     │  ← proxied response ──────│  │                         │ openhort (port 8940)
+     │                            │  │                         │
+     │  /relay/{room}/connect     │  ├─ SignalRelay DO         │
+     ├──────────────────────────→ │  │  (P2P mailbox)          │
+     │                            │  │                         │
+     │                            │  └─ KV (STORE)             │
+     │                            │     users, hosts, sessions │
+```
+
+### Components
+
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| **Worker** (`index.js`) | Cloudflare Worker | Routing, auth, session management |
+| **HostTunnel** (`tunnel.js`) | Durable Object | Per-host WebSocket tunnel, HTTP/WS proxy |
+| **SignalRelay** (`relay.js`) | Durable Object | P2P signaling, HTTP mailbox, SDP bridge |
+| **STORE** | Workers KV | Users, hosts, sessions (with TTL) |
+
+### Cost
+
+| | Azure (previous) | Cloudflare (current) |
+|---|---|---|
+| Base | ~$15/mo | ~$5/mo |
+| Storage | Azure Files (extra) | KV (included) |
+| Scale to zero | No | Yes |
+| Cold start | 10-30s | <1ms |
+| Persistence | Wiped on deploy | KV survives everything |
+
+### Deployment
+
+```bash
+cd www_openhort_ai/workers/hub
+source ../.env  # CLOUDFLARE_API_TOKEN
+CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN npx wrangler deploy
+```
+
+### Configuration
+
+Source: `www_openhort_ai/workers/hub/wrangler.toml`
+
+The Worker binds two Durable Object classes (`HostTunnel`, `SignalRelay`) and one KV namespace (`STORE`). The custom domain `hub.openhort.ai` is configured via the Cloudflare Workers API.
+
+### Short URLs
+
+Token login URLs use the short format: `https://hub.openhort.ai/t/{host_id}/{token}`
+
+This replaces the long format: `https://.../api/access/token/login?token=...&host=...`
+
+Both formats are supported for backward compatibility.
+
+### Relay Endpoints (P2P)
+
+The relay is available at `/relay/{room_id}/{action}`:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /relay/{room}/connect` | App posts connection wish |
+| `GET /relay/{room}/pending` | Host polls for wishes |
+| `POST /relay/{room}/respond` | Host posts P2P URL |
+| `GET /relay/{room}/response?h=HASH` | App polls for response |
+| `GET /relay/{room}/sdp-inbox` | Host polls for SDP offers |
+| `POST /relay/{room}/sdp-send` | Host posts SDP answer |
+| `WS /relay/{room}` | Viewer WebSocket for SDP exchange |
+
+## Unified Auth Flow
+
+All authentication paths converge on a session cookie stored in Workers KV.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant H as Hub (Cloudflare)
+    participant KV as Workers KV
+    participant T as Tunnel (Host)
+
+    Note over U,T: Path 1: Password Login
+    U->>H: POST /api/access/login {username, password}
+    H->>KV: get user:{username}
+    KV-->>H: {password_hash}
+    H->>H: PBKDF2-SHA256 verify (100K iterations)
+    H->>KV: put session:{token} {username} TTL=24h
+    H-->>U: Set-Cookie: session={token}
+
+    Note over U,T: Path 2: Token Login (QR/link)
+    U->>H: GET /t/{host_id}/{token}
+    H->>H: Rate limit check (10/5min, exponential backoff)
+    H->>T: POST /_internal/verify-token {token}
+    T->>T: SHA-256 hash, hmac.compare_digest
+    T-->>H: {valid: true}
+    H->>KV: put session:{token} {username} TTL=24h
+    H-->>U: 302 → /proxy/{host_id}/ + Set-Cookie
+
+    Note over U,T: Path 3: Device Pairing (P2P)
+    U->>H: Deep link: openhort://pair?token=...&room=...
+    Note over U: App stores device_token permanently
+    U->>H: POST /relay/{room}/connect {device_token_hash}
+    H->>H: Store in SignalRelay DO (60s TTL)
+    T->>H: GET /relay/{room}/pending (every 5s)
+    H-->>T: {requests: [{device_token_hash}]}
+    T->>T: Verify hash against MongoDB
+    T->>H: POST /relay/{room}/respond {hash, url}
+    U->>H: GET /relay/{room}/response?h=HASH
+    H-->>U: {url: "https://openhort.ai/p2p/viewer.html?..."}
+    U->>U: Load P2P viewer → WebRTC DataChannel → direct connection
 ```
 
 ## Known Issues and Historical Bugs

@@ -119,7 +119,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Windows Support](docs/manual/develop/windows-support.md) — native Windows provider, Win32 API (ctypes), Azure VM testing
 - [Cross-Platform Testing](docs/manual/develop/cross-platform-testing.md) — Azure VM provisioning, E2E testing, distribution strategy
 - [Distribution & Installation](docs/manual/develop/distribution.md) — pipx/Docker/deb packaging, `hort setup` wizard, macOS .app bundle for Screen Recording
-- [Client Apps](docs/manual/develop/client-apps.md) — native WebView wrappers (Android/iOS/macOS/Windows), thin shell principles, repo at `openhort-clients`
+- [Client Apps](docs/manual/develop/client-apps.md) — native WebView wrappers, deep linking (`openhort://`), QR scanner, native bridge protocol (`nav.update`), P2P auto-reconnect, theme delegation
 - [Llmings](docs/manual/develop/llmings.md) — panel architecture, shared components, plugin lifecycle
 - [Access Server](docs/manual/develop/access-server.md) — remote proxy, Azure deployment, tunnel protocol
 - [Container Environments](docs/manual/develop/containers.md) — Docker/Azure container management, preview panel
@@ -216,14 +216,23 @@ Rotating log file at `logs/openhort.log` (5 MB, 3 backups). Captures startup, sh
 tail -50 logs/openhort.log
 ```
 
-## Access Server (Cloud Proxy)
+## Hub (Cloud Proxy + P2P Relay)
 
-Remote access via `https://openhort-access.azurewebsites.net`. See [docs/access-server.md](docs/access-server.md) for full details.
+Unified Cloudflare Worker at `https://hub.openhort.ai`. Combines the access proxy and P2P relay into one deployment. See [docs/access-server.md](docs/access-server.md) for full details.
+
+Source: `www_openhort_ai/workers/hub/` (index.js, tunnel.js, relay.js, auth.js)
 
 ### Deploying
 ```bash
+cd www_openhort_ai/workers/hub
+source ../.env
+CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN npx wrangler deploy
+# Verify: curl https://hub.openhort.ai/health
+```
+
+### Legacy Azure Deploying (deprecated)
+```bash
 bash scripts/deploy-access.sh
-# Verify: curl https://openhort-access.azurewebsites.net/cfversion
 ```
 
 ### Critical Azure Findings
