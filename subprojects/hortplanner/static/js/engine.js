@@ -1549,6 +1549,7 @@ export class HortPlannerEngine {
   }
 
   loadPreset(preset) {
+    if (!preset?.components) return; // guard: not a hort preset
     this.clearAll();
     const idMap = new Map();
 

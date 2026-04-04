@@ -610,8 +610,9 @@
         }
         function loadPreset(index) {
           const list = activeMode.value === 'home' ? HOME_PRESETS : PRESETS;
-          if (activeMode.value === 'home') engine?.loadPreset?.(list[index]);
-          else engine?.loadPreset?.(list[index]);
+          const preset = list[index];
+          if (!preset) return;
+          engine?.loadPreset?.(preset);
           presetsDialog.value = false;
           if (engine?.getFloorIndices) floorList.value = engine.getFloorIndices();
         }
