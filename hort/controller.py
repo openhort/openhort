@@ -407,11 +407,12 @@ class HortController(BaseController):
         cmd_list = command.split() if isinstance(command, str) else (command or None)
         resp = await spawn_terminal(target_id, command=cmd_list, cols=cols, rows=rows)
         if resp.get("ok"):
+            title = msg.get("title") or resp.get("title", "shell")
             await self.send({
                 "type": "terminal_spawned",
                 "terminal_id": resp["terminal_id"],
                 "target_id": resp.get("target_id", target_id),
-                "title": resp.get("title", "shell"),
+                "title": title,
             })
         else:
             await self.send({"type": "error", "message": resp.get("error", "Spawn failed")})
@@ -419,8 +420,45 @@ class HortController(BaseController):
     async def _handle_terminal_list(self) -> None:
         from hort.termd_client import ensure_daemon, list_terminals
 
-        ensure_daemon()
-        terminals = await list_terminals()
+        terminals: list[dict] = []
+        try:
+            ensure_daemon()
+            terminals = await list_terminals()
+        except Exception:
+            pass  # termd not available — still show tmux sessions
+
+        # Also include tmux hort_ sessions (shown alongside PTY terminals)
+        try:
+            from hort.tmux import list_sessions, is_busy
+            from hort.targets import TargetRegistry
+            # Use the first registered target so tmux sessions appear
+            # in the same grid as regular terminals
+            default_target = ""
+            try:
+                targets = TargetRegistry.get().list_targets()
+                if targets:
+                    default_target = targets[0].id
+            except Exception:
+                pass
+
+            for s in list_sessions():
+                busy = is_busy(s.short_name)
+                terminals.append({
+                    "terminal_id": f"tmux:{s.short_name}",
+                    "target_id": default_target,
+                    "title": s.short_name,
+                    "cols": 0,
+                    "rows": 0,
+                    "alive": True,
+                    "created_at": 0,
+                    "tmux": True,
+                    "busy": busy,
+                    "command": s.current_command,
+                    "attached": s.attached,
+                })
+        except Exception:
+            pass
+
         await self.send({
             "type": "terminal_list",
             "terminals": terminals,

@@ -29,6 +29,7 @@
 <script src="static/vendor/xterm.min.js"></script>
 <script src="static/vendor/xterm-addon-fit.min.js"></script>
 <script src="static/vendor/xterm-addon-web-links.min.js"></script>
+<script src="static/vendor/xterm-addon-webgl.min.js"></script>
 <script src="static/vendor/vue.global.prod.js"></script>
 <script src="static/vendor/quasar.umd.prod.js"></script>
 <script src="static/vendor/hort-ext.js"></script>
@@ -2269,21 +2270,28 @@
                   <div class="card-name">Spirit</div>
                 </div>
               </div>
-              <!-- Terminal card -->
-              <div v-else-if="item.type === 'terminal'" class="grid-card" :style="{borderColor: isFavorite(item.key) ? 'var(--el-accent)' : ''}"
-                   @click="touch(item.key); openTerminal(item.id)">
+              <!-- Terminal card (PTY + tmux unified) -->
+              <div v-else-if="item.type === 'terminal'" class="grid-card"
+                   :style="{borderColor: item.border_color || (isFavorite(item.key) ? 'var(--el-accent)' : ''),
+                            borderWidth: item.border_color ? '2px' : ''}"
+                   @click="touch(item.key); item.tmux ? openTmuxTerminal(item.id) : openTerminal(item.id)">
                 <div style="position:relative">
-                  <div class="card-thumb-icon"><i class="ph ph-terminal-window"></i></div>
+                  <div class="card-thumb-icon">
+                    <i :class="item.mode === 'claude' || item.mode === 'dangerous' || item.mode === 'plan' ? 'ph ph-robot' : 'ph ph-terminal-window'"></i>
+                    <div v-if="item.mode && item.mode !== 'idle'" style="font-size:10px;margin-top:4px;opacity:0.7">
+                      {{ item.mode === 'dangerous' ? 'DANGEROUS' : item.mode === 'plan' ? 'PLAN MODE' : item.busy ? 'BUSY' : '' }}
+                    </div>
+                  </div>
                   <i class="ph fav-star" :class="[isFavorite(item.key) ? 'ph-fill ph-star is-fav' : 'ph-star']"
                      style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;z-index:1"
                      :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
                      @click.stop="toggleFavorite(item.key)"></i>
                   <i class="ph ph-x card-close-btn"
                      style="position:absolute;top:6px;left:6px;font-size:14px;cursor:pointer;color:var(--el-text-dim);z-index:2"
-                     @click.stop="confirmCloseTerminal(item.id)"></i>
+                     @click.stop="item.tmux ? closeTmuxSession(item.short_name) : confirmCloseTerminal(item.id)"></i>
                 </div>
                 <div class="grid-card-info">
-                  <div class="card-app">{{ item.app }}</div>
+                  <div class="card-app" :style="{color: item.border_color || ''}">{{ item.app }}</div>
                   <div class="card-name">{{ item.name }}</div>
                 </div>
               </div>
@@ -3011,11 +3019,20 @@
           });
         }
 
-        // Terminals
+        // Terminals (PTY + tmux unified)
         for (const t of terminalsForTarget(target)) {
+          const isTmux = !!(t.tmux);
+          // Hide termd bridge terminals (back a tmux session) and _web grouped sessions
+          if (!isTmux && t.target_id === 'tmux') continue;
+          if (isTmux && t.title && t.title.endsWith('_web')) continue;
+          const mode = isTmux ? (t.command === 'claude' || t.command === '2.1.91' ? 'claude' : (t.busy ? 'busy' : 'idle')) : 'idle';
+          const borderColor = t.border_color || (mode === 'claude' ? '#8b5cf6' : (t.busy ? '#eab308' : ''));
           items.push({
             type: 'terminal', key: 'term:' + t.terminal_id, id: t.terminal_id,
-            icon: 'ph ph-terminal-window', app: 'Terminal', name: t.title,
+            icon: isTmux ? 'ph ph-terminal-window' : 'ph ph-terminal-window',
+            app: isTmux ? t.title : 'Terminal', name: isTmux ? (t.command || 'shell') : t.title,
+            tmux: isTmux, short_name: isTmux ? t.title : '',
+            busy: t.busy, mode: mode, border_color: borderColor,
           });
         }
 
@@ -3096,6 +3113,52 @@
         state.view = 'terminal';
       }
 
+      function openTmuxTerminal(terminalId) {
+        // tmux terminals have id "tmux:<name>"
+        const name = terminalId.replace('tmux:', '');
+        const webSession = 'hort_' + name + '_web';
+
+        // Check if a termd bridge already exists for ANY tmux session.
+        // Match by target_id='tmux' since termd ignores our title and
+        // uses the command as title instead.
+        const existing = (state.terminals || []).find(
+          t => !t.tmux && t.target_id === 'tmux' && t.alive !== false
+        );
+        if (existing) {
+          openTerminal(existing.terminal_id);
+          return;
+        }
+
+        // Create a grouped tmux session with its own independent window size.
+        sendControl({ type: 'terminal_spawn', target_id: 'tmux', title: webSession,
+                 command: ['bash', '-c',
+                   'tmux kill-session -t ' + webSession + ' 2>/dev/null; ' +
+                   'exec tmux new-session -t hort_' + name + ' -s ' + webSession] });
+        // Wait for the spawned terminal, then open it
+        setTimeout(() => {
+          sendControl({ type: 'terminal_list' });
+          setTimeout(() => {
+            const found = (state.terminals || []).find(
+              t => !t.tmux && t.title === ('hort_' + name)
+            );
+            if (found) openTerminal(found.terminal_id);
+          }, 500);
+        }, 300);
+      }
+
+      function closeTmuxSession(name) {
+        Quasar.Dialog.create({
+          title: 'Close Session',
+          message: 'Kill tmux session "' + name + '"? Any running process will be terminated.',
+          dark: true,
+          ok: { label: 'Kill', color: 'negative' },
+          cancel: { label: 'Cancel', flat: true },
+        }).onOk(() => {
+          fetch(apiUrl('ext/code-watch/kill/' + name), { method: 'POST' })
+            .then(() => sendControl({ type: 'terminal_list' }));
+        });
+      }
+
       function confirmCloseTerminal(terminalId) {
         Quasar.Dialog.create({
           title: 'Close Terminal',
@@ -3121,7 +3184,7 @@
         isInAnyGroup, onAppFilterChange, setNavMode,
         toggleGroup, editGroup, openNewGroup,
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
-        onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal, confirmCloseTerminal,
+        onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal, openTmuxTerminal, closeTmuxSession, confirmCloseTerminal,
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
         onCloudSave,
         viewTab, spiritsList, spiritCount, allPlugins,
@@ -3174,7 +3237,7 @@
       <div v-if="state.view === 'terminal' && activeTerminal" class="llming-view terminal-llming" style="display:flex">
         <div class="llming-toolbar">
           <button class="llming-back" @click="goBack"><i class="ph ph-arrow-left"></i></button>
-          <span class="llming-title">{{ activeTerminal.title }} ({{ activeTerminal.target_id }})</span>
+          <span class="llming-title">{{ terminalDisplayTitle }}</span>
           <button class="llming-close" @click="confirmClose"><i class="ph ph-x"></i> Close</button>
         </div>
         <div class="llming-content" ref="termContainer"></div>
@@ -3222,6 +3285,17 @@
 
       const activeTerminal = computed(() => {
         return state.terminals.find(t => t.terminal_id === state.activeTerminalId) || null;
+      });
+      const terminalDisplayTitle = computed(() => {
+        const t = activeTerminal.value;
+        if (!t) return '';
+        if (t.target_id === 'tmux') {
+          // Extract clean session name from title or command
+          const match = (t.title || '').match(/hort_(\w+?)(_web)?$/);
+          if (match) return 'hort_' + match[1] + ' (tmux)';
+          return t.title + ' (tmux)';
+        }
+        return t.title;
       });
 
       // Scan last N chars of terminal buffer for plugin patterns
@@ -3314,7 +3388,10 @@
         xterm = new Terminal({
           cursorBlink: true,
           fontSize: 14,
-          fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
+          fontFamily: "'SFMono-Regular', 'Menlo', 'Monaco', ui-monospace, monospace",
+          letterSpacing: 0,
+          lineHeight: 1,
+          drawBoldTextInBrightColors: false,
           theme: {
             background: '#0a0e1a',
             foreground: '#f0f4ff',
@@ -3328,6 +3405,14 @@
         fitAddon = new FitAddon.FitAddon();
         xterm.loadAddon(fitAddon);
         xterm.loadAddon(new WebLinksAddon.WebLinksAddon());
+        if (typeof WebglAddon !== 'undefined') {
+          try {
+            const webgl = new WebglAddon.WebglAddon();
+            webgl.onContextLoss(() => { webgl.dispose(); });
+            xterm.loadAddon(webgl);
+            xterm.options.rescaleOverlappingGlyphs = true;
+          } catch (e) { /* canvas fallback */ }
+        }
 
         xterm.open(termContainer.value);
         fitAddon.fit();
@@ -3408,7 +3493,7 @@
       });
 
       return {
-        state, termContainer, floatingKeysEl, activeTerminal, detectedActions, KEYS,
+        state, termContainer, floatingKeysEl, activeTerminal, terminalDisplayTitle, detectedActions, KEYS,
         softKeysVisible, goBack, confirmClose, sendKey, sendAction,
       };
     },

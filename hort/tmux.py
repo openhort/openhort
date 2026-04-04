@@ -55,7 +55,7 @@ def _run(args: list[str], timeout: float = 5.0) -> subprocess.CompletedProcess[s
 class TmuxSession:
     """Info about a discovered tmux session."""
 
-    name: str               # full session name (e.g., "hort:claude-api")
+    name: str               # full session name (e.g., "hort_claude-api")
     short_name: str          # without prefix (e.g., "claude-api")
     attached: bool           # client currently attached
     windows: int             # number of windows
@@ -64,10 +64,27 @@ class TmuxSession:
     pid: int                 # server PID
     current_command: str     # command running in active pane
     pane_pid: int            # PID of process in active pane
+    allowed_plugins: tuple[str, ...] = ()  # plugins allowed to read content
+
+
+# ── Preset definitions ────────────────────────────────────────────
+# Maps session name → (command, allowed_plugins)
+# Plugins in allowed_plugins can call read_output/send_text.
+# The base system ("code-watch") always has list access but NOT
+# content access unless listed here.
+
+PRESETS: dict[str, tuple[str | None, tuple[str, ...]]] = {
+    "claude": ("claude", ("code-watch", "claude-watch")),
+    "clauded": ("claude --dangerously-skip-permissions", ("code-watch", "claude-watch")),
+    "shell": (None, ("code-watch",)),
+}
+
+# Fallback for unknown names: shell, only base access
+DEFAULT_ALLOWED = ("code-watch",)
 
 
 def list_sessions() -> list[TmuxSession]:
-    """List all hort: prefixed tmux sessions."""
+    """List all hort_ prefixed tmux sessions with permission metadata."""
     if not _tmux_available():
         return []
 
@@ -79,7 +96,6 @@ def list_sessions() -> list[TmuxSession]:
     ])
 
     if result.returncode != 0:
-        # No tmux server running or no sessions
         return []
 
     sessions: list[TmuxSession] = []
@@ -90,9 +106,14 @@ def list_sessions() -> list[TmuxSession]:
         name = parts[0]
         if not name.startswith(PREFIX):
             continue
+        # Hide _web grouped sessions (browser bridges, not user sessions)
+        if name.endswith("_web"):
+            continue
+        short = name[len(PREFIX):]
+        allowed = _get_session_allowed(name)
         sessions.append(TmuxSession(
             name=name,
-            short_name=name[len(PREFIX):],
+            short_name=short,
             attached=parts[1] == "1",
             windows=int(parts[2] or "1"),
             created=parts[3],
@@ -100,8 +121,24 @@ def list_sessions() -> list[TmuxSession]:
             pid=int(parts[5] or "0"),
             current_command=parts[6],
             pane_pid=int(parts[7] or "0"),
+            allowed_plugins=allowed,
         ))
     return sessions
+
+
+def _get_session_allowed(full_name: str) -> tuple[str, ...]:
+    """Read HORT_ALLOW from the tmux session environment."""
+    result = _run(["show-environment", "-t", full_name, "HORT_ALLOW"])
+    if result.returncode != 0 or "=" not in result.stdout:
+        # No env set — use preset defaults based on session name
+        short = full_name[len(PREFIX):]
+        preset = PRESETS.get(short)
+        if preset:
+            return preset[1]
+        return DEFAULT_ALLOWED
+    # Parse: "HORT_ALLOW=code-watch,claude-watch"
+    val = result.stdout.strip().split("=", 1)[1]
+    return tuple(p.strip() for p in val.split(",") if p.strip())
 
 
 def session_exists(name: str) -> bool:
@@ -117,18 +154,25 @@ def create_session(
     cwd: str | None = None,
     cols: int = 200,
     rows: int = 50,
+    allowed_plugins: tuple[str, ...] | None = None,
 ) -> TmuxSession | None:
-    """Create a new hort: tmux session.
+    """Create a new hort_ tmux session with permission metadata.
+
+    If ``name`` matches a preset (claude, clauded, shell), the preset's
+    command and permissions are used.  Otherwise a shell is started
+    with base-level permissions only.
+
+    The ``HORT_ALLOW`` tmux environment variable records which llmings
+    can read this session's content.  The dashboard shows all sessions,
+    but ``read_output`` / ``send_text`` check this before returning data.
 
     Args:
-        name: Session name (without prefix). Will be created as ``hort:<name>``.
-        command: Optional command to run (default: user's shell).
+        name: Session name (without prefix).
+        command: Override command (default: from preset or shell).
         cwd: Working directory.
         cols: Terminal width.
         rows: Terminal height.
-
-    Returns:
-        The created TmuxSession, or None if creation failed.
+        allowed_plugins: Override allowed plugins (default: from preset).
     """
     if not _tmux_available():
         return None
@@ -136,17 +180,23 @@ def create_session(
     full_name = f"{PREFIX}{name}"
     if session_exists(name):
         logger.info("Session %s already exists", full_name)
-        # Return existing session info
         for s in list_sessions():
             if s.name == full_name:
                 return s
         return None
 
+    # Resolve preset
+    preset = PRESETS.get(name)
+    if command is None and preset:
+        command = preset[0]
+    if allowed_plugins is None:
+        allowed_plugins = preset[1] if preset else DEFAULT_ALLOWED
+
     args = [
-        "new-session", "-d",           # detached
-        "-s", full_name,               # session name
-        "-x", str(cols),               # width
-        "-y", str(rows),               # height
+        "new-session", "-d",
+        "-s", full_name,
+        "-x", str(cols),
+        "-y", str(rows),
     ]
     if cwd:
         args.extend(["-c", cwd])
@@ -158,8 +208,11 @@ def create_session(
         logger.error("Failed to create session %s: %s", full_name, result.stderr.strip())
         return None
 
-    logger.info("Created tmux session: %s", full_name)
-    # Fetch the session info
+    # Set HORT_ALLOW in the tmux session environment
+    allow_str = ",".join(allowed_plugins)
+    _run(["set-environment", "-t", full_name, "HORT_ALLOW", allow_str])
+
+    logger.info("Created tmux session: %s (allow: %s)", full_name, allow_str)
     for s in list_sessions():
         if s.name == full_name:
             return s
@@ -169,21 +222,32 @@ def create_session(
 def read_output(
     name: str,
     lines: int = DEFAULT_SCROLLBACK,
+    caller_plugin: str | None = None,
 ) -> str | None:
     """Capture the current screen + scrollback of a session.
+
+    If ``caller_plugin`` is set, checks ``HORT_ALLOW`` on the session.
+    Only listed plugins can read content.  Pass ``None`` for system-level
+    access (always permitted).
 
     Args:
         name: Session name (with or without prefix).
         lines: Number of scrollback lines to capture.
+        caller_plugin: Llming ID requesting access (None = system).
 
     Returns:
-        The captured text, or None if the session doesn't exist.
+        The captured text, or None if not found / access denied.
     """
     full_name = name if name.startswith(PREFIX) else f"{PREFIX}{name}"
+
+    if caller_plugin and not _is_plugin_allowed(full_name, caller_plugin):
+        logger.warning("Plugin '%s' denied read access to '%s'", caller_plugin, name)
+        return None
+
     result = _run([
         "capture-pane", "-t", full_name,
-        "-p",                          # print to stdout
-        "-S", f"-{lines}",             # scrollback lines
+        "-p",
+        "-S", f"-{lines}",
     ])
     if result.returncode != 0:
         return None
@@ -194,23 +258,38 @@ def send_text(
     name: str,
     text: str,
     enter: bool = True,
+    caller_plugin: str | None = None,
 ) -> bool:
     """Send text to a tmux session.
+
+    If ``caller_plugin`` is set, checks ``HORT_ALLOW`` on the session.
 
     Args:
         name: Session name (with or without prefix).
         text: Text to send.
         enter: Whether to append Enter key.
+        caller_plugin: Llming ID requesting access (None = system).
 
     Returns:
-        True if successful.
+        True if successful, False if denied or failed.
     """
     full_name = name if name.startswith(PREFIX) else f"{PREFIX}{name}"
+
+    if caller_plugin and not _is_plugin_allowed(full_name, caller_plugin):
+        logger.warning("Plugin '%s' denied send access to '%s'", caller_plugin, name)
+        return False
+
     args = ["send-keys", "-t", full_name, text]
     if enter:
         args.append("Enter")
     result = _run(args)
     return result.returncode == 0
+
+
+def _is_plugin_allowed(full_name: str, plugin_id: str) -> bool:
+    """Check if a plugin is in the session's HORT_ALLOW list."""
+    allowed = _get_session_allowed(full_name)
+    return plugin_id in allowed
 
 
 def is_busy(name: str) -> bool | None:

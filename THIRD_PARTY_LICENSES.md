@@ -104,7 +104,7 @@ Material Icons are copyright Google Inc. and licensed under Apache License 2.0.
 
 ## xterm.js
 
-- **Version:** 4.19.0
+- **Version:** 5.5.0
 - **Source:** https://github.com/xtermjs/xterm.js
 - **License:** MIT
 - **Bundled at:** `hort/static/vendor/xterm.min.js`, `hort/static/vendor/xterm.css`
@@ -135,19 +135,26 @@ SOFTWARE.
 
 ## xterm-addon-fit
 
-- **Version:** 0.5.0
+- **Version:** 0.10.0
 - **Source:** https://github.com/xtermjs/xterm.js/tree/master/addons/xterm-addon-fit
 - **License:** MIT
 - **Bundled at:** `hort/static/vendor/xterm-addon-fit.min.js`
 
 ## xterm-addon-web-links
 
-- **Version:** 0.6.0
+- **Version:** 0.11.0
 - **Source:** https://github.com/xtermjs/xterm.js/tree/master/addons/xterm-addon-web-links
 - **License:** MIT
 - **Bundled at:** `hort/static/vendor/xterm-addon-web-links.min.js`
 
-Both addons share the same MIT license as xterm.js above.
+## xterm-addon-webgl
+
+- **Version:** 0.18.0
+- **Source:** https://github.com/xtermjs/xterm.js/tree/master/addons/xterm-addon-webgl
+- **License:** MIT
+- **Bundled at:** `hort/static/vendor/xterm-addon-webgl.min.js`
+
+These addons share the same MIT license as xterm.js above.
 
 ## Plotly.js
 

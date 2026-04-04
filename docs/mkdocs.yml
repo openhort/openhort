@@ -111,6 +111,7 @@ nav:
     - Architecture: internals/architecture.md
     - Hort Model: internals/hort-model.md
     - Tool System: internals/tool-system.md
+    - Terminal Rendering: internals/terminal-rendering.md
     - Export / Import: internals/export-import.md
     - Permissions: internals/permissions.md
     - Access Sources: internals/source-policies.md

@@ -26,12 +26,13 @@ console = Console()
 err_console = Console(stderr=True)
 
 VERSION = "0.1.0"
-LOGO = """[bold deep_purple]     \u2571\u2572
-    \u2571  \u2572    [bold white]openhort[/bold white]
-   \u2571 \u2571\u2572 \u2572   [dim]Remote desktop \u00b7 AI agents \u00b7 MCP tools[/dim]
-  \u2571 \u2571  \u2572 \u2572
- \u2571 \u2571    \u2572 \u2572  [dim]v{version}[/dim]
-\u2571\u2571      \u2572\u2572[/bold deep_purple]"""
+LOGO = """\
+[bold deep_purple]      \u2571\u2572
+     \u2571  \u2572     [bold white]openhort[/bold white]
+    \u2571 \u2571\u2572 \u2572    [dim]Remote desktop \u00b7 AI agents \u00b7 MCP tools[/dim]
+   \u2571 \u2571  \u2572 \u2572
+  \u2571 \u2571    \u2572 \u2572   [dim]v{version}[/dim]
+ \u2571\u2571      \u2572\u2572[/bold deep_purple]"""
 
 
 def _logo() -> str:
@@ -50,8 +51,11 @@ def cli(ctx: click.Context, version: bool) -> None:
         console.print(f"openhort {VERSION}")
         return
     if ctx.invoked_subcommand is None:
+        console.print()
         console.print(_logo())
-        console.print("  Run [bold]hort --help[/] for commands.\n")
+        console.print()
+        console.print("  Run [bold]hort --help[/] for commands.")
+        console.print()
 
 
 # ── Server commands ───────────────────────────────────────────────
@@ -108,7 +112,11 @@ def stop() -> None:
 @cli.command()
 def status() -> None:
     """Show server status and system info."""
+    import platform
+
     import psutil
+    from rich.bar import Bar
+    from rich.columns import Columns
 
     # Check if server is running
     result = subprocess.run(
@@ -118,30 +126,112 @@ def status() -> None:
     pids = result.stdout.strip().splitlines()
     running = len(pids) > 0
 
-    console.print(_logo())
+    console.print()
 
-    # Server status
+    # Server status panel
     if running:
-        console.print(f"  [bold green]Server running[/] (PIDs: {', '.join(pids)})")
+        from hort.network import get_lan_ip
+        lan_ip = get_lan_ip()
+        server_lines = [
+            "[bold green]\u25cf  Running[/]",
+            "",
+            f"  HTTP   [link]http://{lan_ip}:8940[/link]",
+            f"  HTTPS  [link]https://{lan_ip}:8950[/link]",
+            f"  PIDs   [dim]{', '.join(pids)}[/]",
+        ]
     else:
-        console.print("  [bold red]Server not running[/]")
+        server_lines = [
+            "[bold red]\u25cf  Stopped[/]",
+            "",
+            "  [dim]Run[/] [bold]hort start[/] [dim]to launch the server.[/]",
+        ]
 
-    # System info
+    console.print(Panel(
+        "\n".join(server_lines),
+        title="[bold]openhort[/]",
+        subtitle=f"[dim]v{VERSION}[/]",
+        border_style="purple",
+        padding=(1, 3),
+    ))
+
+    # System metrics
     cpu = psutil.cpu_percent(interval=0.3)
     mem = psutil.virtual_memory()
+    mem_used_gb = (mem.total - mem.available) / (1024**3)
+    mem_total_gb = mem.total / (1024**3)
+    mem_pct = (mem.total - mem.available) / mem.total * 100
     disk = psutil.disk_usage("/")
+    disk_used_gb = disk.used / (1024**3)
+    disk_total_gb = disk.total / (1024**3)
+    uptime_secs = psutil.boot_time()
+    import time
+    uptime_h = int((time.time() - uptime_secs) / 3600)
 
-    table = Table(title="System", show_header=False, box=None, padding=(0, 2))
-    table.add_column(style="dim", width=12)
-    table.add_column()
-    table.add_row("CPU", f"{cpu}% ({psutil.cpu_count()} cores)")
-    table.add_row("Memory", f"{mem.percent}% ({mem.used // (1024**3)}/{mem.total // (1024**3)} GB)")
-    table.add_row("Disk", f"{disk.percent}% ({disk.used // (1024**3)}/{disk.total // (1024**3)} GB)")
-    table.add_row("Platform", sys.platform)
-    table.add_row("Python", sys.version.split()[0])
+    def _bar(pct: float) -> str:
+        """Render a percentage as a colored bar."""
+        filled = int(pct / 5)
+        empty = 20 - filled
+        if pct > 80:
+            color = "red"
+        elif pct > 60:
+            color = "yellow"
+        else:
+            color = "green"
+        return f"[{color}]{'━' * filled}[/][dim]{'━' * empty}[/] {pct:.0f}%"
+
+    sys_table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
+    sys_table.add_column(style="bold", width=8)
+    sys_table.add_column(width=35)
+    sys_table.add_column(style="dim")
+
+    sys_table.add_row("CPU", _bar(cpu), f"{psutil.cpu_count()} cores")
+    sys_table.add_row("Memory", _bar(mem_pct), f"{mem_used_gb:.1f} / {mem_total_gb:.0f} GB")
+    sys_table.add_row("Disk", _bar(disk.percent), f"{disk_used_gb:.0f} / {disk_total_gb:.0f} GB")
+
+    console.print(Panel(
+        sys_table,
+        title="[bold]System[/]",
+        border_style="dim",
+        padding=(1, 1),
+    ))
+
+    # Platform info
+    info_table = Table(show_header=False, box=None, padding=(0, 2))
+    info_table.add_column(style="dim", width=10)
+    info_table.add_column()
+    info_table.add_row("Host", platform.node())
+    info_table.add_row("Platform", f"{platform.system()} {platform.machine()}")
+    info_table.add_row("Python", sys.version.split()[0])
+    info_table.add_row("Uptime", f"{uptime_h}h")
+
+    console.print(Panel(
+        info_table,
+        title="[bold]Platform[/]",
+        border_style="dim",
+        padding=(0, 1),
+    ))
     console.print()
-    console.print(table)
-    console.print()
+
+
+@cli.command()
+def open() -> None:
+    """Open openhort in the default browser."""
+    import webbrowser
+
+    from hort.network import get_lan_ip
+    lan_ip = get_lan_ip()
+    url = f"http://{lan_ip}:8940"
+
+    result = subprocess.run(
+        ["pgrep", "-f", "uvicorn hort.app"],
+        capture_output=True, text=True,
+    )
+    if not result.stdout.strip():
+        err_console.print("[yellow]Server not running.[/] Start it with [bold]hort start[/]")
+        return
+
+    console.print(f"Opening [link]{url}[/link]")
+    webbrowser.open(url)
 
 
 # ── Extension commands ────────────────────────────────────────────
@@ -215,21 +305,49 @@ def list_llmings() -> None:
 # ── Terminal / Watch commands ─────────────────────────────────────
 
 
-@cli.group()
-def watch() -> None:
-    """Manage tmux code sessions."""
-    pass
+@cli.command(name="watch", context_settings={"ignore_unknown_options": True})
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def watch(args: tuple[str, ...]) -> None:
+    """Manage tmux code sessions.
+
+    \b
+    hort watch                      list sessions
+    hort watch claude               create/attach (runs claude)
+    hort watch clauded              create/attach (dangerous mode)
+    hort watch shell [cwd]          create/attach shell
+    hort watch <name> [cwd]         create/attach (shell)
+    hort watch read <name>          read output
+    hort watch send <name> "text"   send text
+    hort watch stop <name>          kill session
+    """
+    if not args:
+        _watch_list()
+        return
+
+    sub = args[0]
+
+    if sub in ("list", "ls"):
+        _watch_list()
+    elif sub == "read" and len(args) >= 2:
+        _watch_read(args[1], int(args[2]) if len(args) > 2 else 30)
+    elif sub == "send" and len(args) >= 3:
+        _watch_send(args[1], args[2], enter="--no-enter" not in args)
+    elif sub == "stop" and len(args) >= 2:
+        _watch_stop(args[1])
+    else:
+        # Default: create/attach to session
+        name = sub
+        cwd = args[1] if len(args) > 1 else None
+        _watch_start(name, cwd)
 
 
-@watch.command(name="list")
-def watch_list() -> None:
-    """List active code sessions."""
+def _watch_list() -> None:
     from hort.tmux import list_sessions, is_busy
 
     sessions = list_sessions()
     if not sessions:
         console.print("[yellow]No active code sessions.[/]")
-        console.print("[dim]Create one: hort watch start <name>[/]")
+        console.print("[dim]Create one: hort watch <name>[/]")
         return
 
     table = Table(title="Code Sessions", border_style="dim")
@@ -248,40 +366,25 @@ def watch_list() -> None:
     console.print()
 
 
-@watch.command(name="start")
-@click.argument("name")
-@click.argument("cwd", required=False, default=None)
-def watch_start(name: str, cwd: str | None) -> None:
-    """Create and attach to a code session.
-
-    \b
-    Presets:
-      claude    → runs claude
-      clauded   → runs claude --dangerously-skip-permissions
-      shell     → just a shell
-      <other>   → shell
-    """
-    from hort.extensions.core.code_watch.cli import PRESETS
-    from hort.tmux import PREFIX, session_exists, create_session
+def _watch_start(name: str, cwd: str | None) -> None:
+    from hort.tmux import PREFIX, PRESETS, session_exists, create_session
 
     if session_exists(name):
         console.print(f"Attaching to [bold]{PREFIX}{name}[/]")
     else:
-        command = PRESETS.get(name)
-        session = create_session(name, command=command, cwd=cwd or os.getcwd())
+        # create_session resolves presets (command + permissions) internally
+        session = create_session(name, cwd=cwd or os.getcwd())
         if session is None:
             err_console.print(f"[red]Failed to create session {PREFIX}{name}[/]")
             sys.exit(1)
-        what = command or "shell"
+        preset = PRESETS.get(name)
+        what = (preset[0] if preset else None) or "shell"
         console.print(f"Created [bold]{PREFIX}{name}[/] ({what})")
 
     os.execvp("tmux", ["tmux", "attach", "-t", f"{PREFIX}{name}"])
 
 
-@watch.command(name="stop")
-@click.argument("name")
-def watch_stop(name: str) -> None:
-    """Kill a code session."""
+def _watch_stop(name: str) -> None:
     from hort.tmux import kill_session, session_exists
 
     if not session_exists(name):
@@ -292,11 +395,7 @@ def watch_stop(name: str) -> None:
     console.print(f"[green]Session '{name}' terminated.[/]")
 
 
-@watch.command(name="read")
-@click.argument("name")
-@click.option("--lines", "-n", default=30, help="Lines to capture.")
-def watch_read(name: str, lines: int) -> None:
-    """Read output from a code session."""
+def _watch_read(name: str, lines: int = 30) -> None:
     from hort.tmux import read_output, session_exists
 
     if not session_exists(name):
@@ -314,19 +413,14 @@ def watch_read(name: str, lines: int) -> None:
         console.print(panel)
 
 
-@watch.command(name="send")
-@click.argument("name")
-@click.argument("text")
-@click.option("--no-enter", is_flag=True, help="Don't press Enter after text.")
-def watch_send(name: str, text: str, no_enter: bool) -> None:
-    """Send text to a code session."""
+def _watch_send(name: str, text: str, enter: bool = True) -> None:
     from hort.tmux import send_text, session_exists
 
     if not session_exists(name):
         err_console.print(f"[yellow]Session '{name}' not found.[/]")
         return
 
-    ok = send_text(name, text, enter=not no_enter)
+    ok = send_text(name, text, enter=enter)
     if ok:
         console.print(f"[green]Sent to '{name}'[/]")
     else:
@@ -451,19 +545,21 @@ def interactive() -> None:
         "help": "Show available commands",
         "status": "Server status and system info",
         "llmings": "List installed llmings",
-        "watch list": "List code sessions",
-        "watch start <name>": "Create/attach to a session",
+        "watch": "List code sessions",
+        "watch <name>": "Create/attach to a session",
         "watch read <name>": "Read session output",
+        "watch send <name> text": "Send text to session",
+        "watch stop <name>": "Kill session",
         "topology": "Show hort topology",
-        "config": "Show configuration",
-        "start": "Start server",
+        "config [key]": "Show configuration",
+        "open": "Open browser",
         "stop": "Stop server",
         "quit": "Exit interactive mode",
     }
 
     while True:
         try:
-            raw = console.input("[bold deep_purple]hort>[/] ").strip()
+            raw = console.input("[bold purple]hort>[/] ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[dim]Bye![/]")
             break
@@ -485,7 +581,6 @@ def interactive() -> None:
             console.print()
             continue
 
-        # Map input to click commands
         parts = raw.split()
         try:
             if parts[0] == "status":
@@ -499,22 +594,21 @@ def interactive() -> None:
                 ctx = click.Context(config)
                 ctx.params["key"] = key_arg
                 config.invoke(ctx)
-            elif parts[0] == "watch" and len(parts) >= 2:
-                if parts[1] == "list":
-                    watch_list.invoke(click.Context(watch_list))
+            elif parts[0] == "watch":
+                if len(parts) == 1:
+                    _watch_list()
+                elif parts[1] == "list":
+                    _watch_list()
                 elif parts[1] == "read" and len(parts) >= 3:
-                    ctx = click.Context(watch_read)
-                    ctx.params["name"] = parts[2]
-                    ctx.params["lines"] = 30
-                    watch_read.invoke(ctx)
-                elif parts[1] == "start" and len(parts) >= 3:
-                    console.print(f"[dim]Use: hort watch start {parts[2]}[/]")
+                    _watch_read(parts[2])
+                elif parts[1] == "send" and len(parts) >= 4:
+                    _watch_send(parts[2], " ".join(parts[3:]))
                 elif parts[1] == "stop" and len(parts) >= 3:
-                    ctx = click.Context(watch_stop)
-                    ctx.params["name"] = parts[2]
-                    watch_stop.invoke(ctx)
+                    _watch_stop(parts[2])
                 else:
-                    console.print(f"[yellow]Unknown watch command: {raw}[/]")
+                    console.print(f"[dim]Use: hort watch {parts[1]} (exits interactive mode)[/]")
+            elif parts[0] == "open":
+                open.invoke(click.Context(open))
             elif parts[0] == "stop":
                 stop.invoke(click.Context(stop))
             elif parts[0] == "start":

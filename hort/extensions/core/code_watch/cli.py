@@ -19,15 +19,11 @@ from __future__ import annotations
 import os
 import sys
 
-# ── Named presets ─────────────────────────────────────────────────
-# Name → command to run inside the tmux session.
-# None means default shell (no command).
-
-PRESETS: dict[str, str | None] = {
-    "claude": "claude",
-    "clauded": "claude --dangerously-skip-permissions",
-    "shell": None,
-}
+def _get_preset_command(name: str) -> str | None:
+    """Get the command for a preset name, or None for shell."""
+    from hort.tmux import PRESETS
+    preset = PRESETS.get(name)
+    return preset[0] if preset else None
 
 
 def main(args: list[str] | None = None) -> None:
@@ -81,12 +77,13 @@ def _watch(name: str, cwd: str | None = None) -> None:
     if session_exists(name):
         print(f"Attaching to existing session: {PREFIX}{name}")
     else:
-        command = PRESETS.get(name)  # None for shell, string for preset
-        session = create_session(name, command=command, cwd=cwd or os.getcwd())
+        # create_session resolves presets (command + permissions) internally
+        session = create_session(name, cwd=cwd or os.getcwd())
         if session is None:
             print(f"Failed to create session {PREFIX}{name}", file=sys.stderr)
             sys.exit(1)
-        what = command or "shell"
+        from hort.tmux import PRESETS as _P
+        what = (_P.get(name) or (None,))[0] or "shell"
         print(f"Created session: {PREFIX}{name} ({what})")
 
     # Attach interactively (replaces this process)
