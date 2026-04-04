@@ -61,14 +61,7 @@
                 Set <code style="background:var(--el-surface);padding:2px 5px;border-radius:4px">TELEGRAM_BOT_TOKEN</code> env var and restart the server.
               </div>
 
-              <!-- Commands summary when active -->
-              <div v-if="tg.polling" style="margin-top:16px;padding:12px;border-radius:8px;background:var(--el-bg);font-size:12px;color:var(--el-text-dim);line-height:1.8">
-                <div style="font-weight:600;color:var(--el-text);margin-bottom:4px">System Commands</div>
-                /help — List all commands<br>
-                /status — Server status<br>
-                /link — Temporary access link<br>
-                /screenshot — Capture screen
-              </div>
+              <!-- Commands: use /help in Telegram -->
             </div>
           </div>
         `,

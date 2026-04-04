@@ -276,19 +276,20 @@ def _register_routes(app: FastAPI, store: Store) -> None:
 
     # ===== Token login (host-verified) =====
 
+    @app.get("/t/{host_id}/{token}")
+    async def token_login_short(request: Request, host_id: str, token: str) -> Response:
+        """Short URL for token login: /t/{host}/{token}"""
+        return await _do_token_login(request, token, host_id)
+
     @app.get("/api/access/token/login")
     async def token_login(request: Request) -> Response:
-        """Login via a token generated on the host.
-
-        Flow:
-        1. User scans QR code containing this URL + token + host_id
-        2. Access server applies rate limiting + artificial delay
-        3. Access server forwards token to the host via tunnel
-        4. Host verifies the token against its local TokenStore
-        5. If valid, access server creates a session
-        """
+        """Login via a token generated on the host (long URL, kept for compat)."""
         token = request.query_params.get("token", "")
         host_id = request.query_params.get("host", "")
+        return await _do_token_login(request, token, host_id)
+
+    async def _do_token_login(request: Request, token: str, host_id: str) -> Response:
+        """Shared token login logic for both /t/{host}/{token} and /api/access/token/login."""
         ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
             request.client.host if request.client else "unknown"
         )
@@ -327,9 +328,6 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             raise HTTPException(502, "Host not responding")
 
         # Token valid — find the host owner and create session
-        for h_record in store.get_hosts_for_user(""):
-            pass  # need to find owner from host_id
-        # Look up host record to find owner
         owner_username = ""
         for u in store.list_users():
             for h in store.get_hosts_for_user(u.username):
@@ -343,8 +341,8 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             raise HTTPException(401, "Host owner not found")
 
         request.session["username"] = owner_username
-        # Redirect to the host's proxy viewer
-        return RedirectResponse(f"/proxy/{host_id}/viewer", status_code=302)
+        # Redirect to the host's home screen
+        return RedirectResponse(f"/proxy/{host_id}/", status_code=302)
 
     # ===== Host management =====
 

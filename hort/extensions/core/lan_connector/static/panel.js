@@ -26,6 +26,12 @@
             </div>
             <div class="connector-panel-body" style="text-align: center">
               <div><span class="dot on" style="display:inline-block;width:10px;height:10px;border-radius:50%"></span> Active</div>
+              <div v-if="lanUrl" style="display:flex;align-items:center;gap:8px;margin:12px 0;justify-content:center">
+                <input :value="lanUrl" readonly style="flex:1;max-width:280px;background:#16213e;border:1px solid #333;color:#e0e0e0;padding:6px 10px;border-radius:6px;font-size:12px;font-family:monospace" @click="$event.target.select()">
+                <button style="background:#7B1FA2;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer" @click="navigator.clipboard.writeText(lanUrl)">
+                  <i class="ph ph-copy"></i>
+                </button>
+              </div>
               <hort-qr :url="lanUrl" label="Scan to connect from your phone" />
             </div>
           </div>

@@ -135,4 +135,5 @@ nav:
       - Flow Policies & Zones: internals/security/flow-policies.md
       - Boundary Filters: internals/security/boundary-filters.md
       - Safety Rails: internals/security/safety-rails.md
+      - Device Tokens: internals/security/device-tokens.md
     - Roadmap: internals/roadmap.md

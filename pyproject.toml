@@ -19,6 +19,8 @@ dependencies = [
     "rich (>=14.3.3,<15.0.0)",
     "click (>=8.3.1,<9.0.0)",
 ]
+# pymongo installed separately (not in lock file to avoid Docker build issues)
+# pip install pymongo
 
 [project.scripts]
 hort = "hort.cli:main"

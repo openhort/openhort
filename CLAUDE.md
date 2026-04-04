@@ -125,7 +125,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Container Environments](docs/manual/develop/containers.md) — Docker/Azure container management, preview panel
 - [Agent Framework](docs/manual/index.md) — AI agent sandboxing, permissions, budget, multi-node orchestration
 - [Screen Capture](docs/manual/develop/screen-capture.md) — per-window + desktop capture, viewport-based streaming, output resolution rules (no DPR!), resize strategy, VP8 considerations, zoom behavior
-- [Memory Safety](docs/manual/develop/memory-safety.md) — CGImage native leaks, CGDataProviderCopyData autorelease trap, CGBitmapContext fix, WebSocket backpressure, asyncio buffer limits
+- [Memory Safety](docs/manual/develop/memory-safety.md) — CGImage native leaks, CGDataProviderCopyData autorelease trap, CGBitmapContext fix, WebSocket backpressure, asyncio buffer limits, aiortc zombie session cleanup
 - [MCP Bridge & Chat Backend](docs/manual/develop/mcp-servers.md#in-process-mcp-bridge) — extension MCP tools, tool namespacing, chat routing, SOUL.md prompt system
 - [Peer-to-Peer](docs/manual/develop/peer2peer.md) — P2P hole punching library, STUN, signaling, UDP tunnel, Azure test VM
 - [Telegram & Mini Apps](docs/manual/develop/telegram.md) — Bot API, Mini App WebView, WebRTC signaling, debugging

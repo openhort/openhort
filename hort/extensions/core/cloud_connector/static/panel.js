@@ -39,7 +39,7 @@
             const srv = serverUrl.value;
             const hid = hostId.value;
             if (!token || !hid || !srv) return '';
-            return srv + '/api/access/token/login?token=' + encodeURIComponent(token) + '&host=' + encodeURIComponent(hid);
+            return srv + '/t/' + encodeURIComponent(hid) + '/' + encodeURIComponent(token);
           }
 
           const tempQrUrl = computed(() => buildLoginUrl(tokens.value.temporary));
@@ -133,6 +133,10 @@
 
               <!-- Tab: Temporary token (default) -->
               <div v-if="cloud.active && tab === 'temp'" style="text-align:center">
+                <div v-if="tempQrUrl" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;justify-content:center">
+                  <input :value="tempQrUrl" readonly style="flex:1;max-width:260px;background:var(--el-bg);border:1px solid var(--el-border);color:var(--el-text);padding:6px 8px;border-radius:6px;font-size:11px;font-family:monospace" @click="$event.target.select()">
+                  <button @click="navigator.clipboard.writeText(tempQrUrl)" style="background:var(--el-primary);color:#fff;border:none;border-radius:6px;padding:6px 8px;cursor:pointer" title="Copy"><i class="ph ph-copy"></i></button>
+                </div>
                 <hort-qr :url="tempQrUrl" label="Scan to connect — expires on server restart" />
                 <button @click="refreshTempToken()" :disabled="loading"
                         style="margin-top:8px;padding:8px 16px;border:none;border-radius:6px;font-size:12px;cursor:pointer;background:var(--el-surface);color:var(--el-text);border:1px solid var(--el-border)">
@@ -142,6 +146,10 @@
 
               <!-- Tab: Permanent token -->
               <div v-if="cloud.active && tab === 'perm'" style="text-align:center">
+                <div v-if="permQrUrl" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;justify-content:center">
+                  <input :value="permQrUrl" readonly style="flex:1;max-width:260px;background:var(--el-bg);border:1px solid var(--el-border);color:var(--el-text);padding:6px 8px;border-radius:6px;font-size:11px;font-family:monospace" @click="$event.target.select()">
+                  <button @click="navigator.clipboard.writeText(permQrUrl)" style="background:var(--el-primary);color:#fff;border:none;border-radius:6px;padding:6px 8px;cursor:pointer" title="Copy"><i class="ph ph-copy"></i></button>
+                </div>
                 <hort-qr v-if="permQrUrl" :url="permQrUrl" label="Bookmark this — never expires" />
                 <div v-else-if="tokens.has_permanent && !permToken" style="color:var(--el-text-dim);font-size:12px;margin:12px 0">
                   <i class="ph ph-key"></i> Permanent key is active.<br>

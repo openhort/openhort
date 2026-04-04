@@ -215,7 +215,54 @@ await websocket.send_bytes(frame)
 forwarded through the H2H tunnel. Fix: a lock-based drop mechanism
 that skips frames when the previous send is still in progress.
 
-## Rules
+## aiortc RTCPeerConnection Resource Leak (April 2026)
+
+`aiortc` `RTCPeerConnection` objects hold significant internal resources:
+
+- **UDP sockets** — 4-6 ports per peer (STUN, ICE candidates, DTLS)
+- **asyncio tasks** — ICE timers, DTLS handshake, SCTP state machine
+- **Internal state** — candidate pairs, transport buffers
+
+Unlike browser WebRTC, `aiortc` does **not** garbage-collect these when the Python
+object is dereferenced. `.close()` must be called explicitly.
+
+### The Problem
+
+When a mobile app is swipe-killed, the WebRTC DataChannel closes abruptly on the
+client side. The server-side `aiortc` peer never receives a clean close notification.
+The `on_state_change` callback may not fire (state stays "connecting" forever).
+
+After 5-6 zombie sessions accumulate, the asyncio event loop becomes congested with
+dead peer housekeeping tasks. New ICE negotiations time out because the event loop
+can't process their callbacks in time.
+
+### The Fix
+
+```python
+# Force-kill sessions not in "connected" state after 30 seconds
+async def _cleanup_dead_sessions(self) -> None:
+    for sid, session in list(self._sessions.items()):
+        state = session.peer.connection_state
+        age = time.monotonic() - session.created_at
+        if state in ("failed", "closed", "disconnected"):
+            await self._close_session(session)
+        elif age > 30 and state != "connected":
+            # App was swipe-killed, network dropped, or ICE failed silently
+            await self._close_session(session)
+```
+
+**Critical**: `_close_session` must call both `proxy.stop()` and `peer.close()`.
+Without `peer.close()`, the UDP sockets and asyncio tasks leak indefinitely.
+
+### aiortc Rules
+
+- **Always call `peer.close()`** — never let a `RTCPeerConnection` exist without a cleanup path
+- **Cleanup interval: 15 seconds** — fast enough to catch zombies before they accumulate
+- **Force-kill threshold: 30 seconds** — any session not "connected" after 30s is dead
+- **Log state changes** — `on_state_change` should log every state to diagnose silent failures
+- **Monitor session count** — if `active_sessions` grows without matching "ended" logs, sessions are leaking
+
+## Quartz Rules
 
 1. **Never use `CGDataProviderCopyData()` on background threads.**
    It creates autoreleased CFData that never drains. Use

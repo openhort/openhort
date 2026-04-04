@@ -68,9 +68,11 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     _vm_status: Any = None
     _vm_manager: Any = None
     _stun_client: StunClient | None = None
-    _relay_listener: Any = None
+    _relay_poller: Any = None
+    _device_store: Any = None
     _room_id: str = ""
     _relay_url: str = "wss://relay.openhort.ai"
+    _relay_http_url: str = "https://relay.openhort.ai"
     _VMStatus: Any = None  # lazy-loaded class ref
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -88,6 +90,12 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             self._room_id = hashlib.sha256(os.urandom(32)).hexdigest()
 
         self._relay_url = config.get("relay_url", "wss://relay.openhort.ai")
+        self._relay_http_url = config.get("relay_http_url", "https://relay.openhort.ai")
+
+        # Device token store (MongoDB)
+        from hort.peer2peer.device_tokens import DeviceTokenStore
+        mongo_uri = config.get("mongodb_uri", "mongodb://localhost:27017")
+        self._device_store = DeviceTokenStore(uri=mongo_uri)
 
         # Parse STUN servers from config
         stun_servers_raw = config.get("stun_servers", ["stun.l.google.com:19302"])
@@ -100,8 +108,8 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                 stun_servers.append((s, 3478))
         self._stun_client = StunClient(stun_servers=stun_servers)
 
-        # Start relay listener (connects to relay, waits for SDP offers)
-        self._start_relay_listener()
+        # Start relay poller (HTTP polling, no persistent WebSocket)
+        self._start_relay_poller()
 
         # Azure VM manager
         self._vm_manager = AzureVMManager(
@@ -112,52 +120,51 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         )
         self.log.info("peer2peer plugin activated")
 
-    def _start_relay_listener(self) -> None:
-        """Start the relay listener in the background."""
-        from hort.peer2peer.relay_listener import RelayListener
+    def _start_relay_poller(self) -> None:
+        """Start the relay poller in the background."""
+        from hort.peer2peer.relay_poller import RelayPoller
 
         async def on_peer_connected(session_id: str, peer: Any) -> None:
             self.log.info("P2P peer connected via relay: %s", session_id)
 
-        self._relay_listener = RelayListener(
+        self._relay_poller = RelayPoller(
             relay_url=self._relay_url,
+            relay_http_url=self._relay_http_url,
             room_id=self._room_id,
+            device_store=self._device_store,
             on_peer_connected=on_peer_connected,
-            video_enabled=True,
         )
 
         try:
             loop = asyncio.get_event_loop()
-            loop.create_task(self._relay_listener.start())
-            self.log.info("relay listener starting on room %s", self._room_id)
+            loop.create_task(self._relay_poller.start())
+            self.log.info("relay poller starting on room %s", self._room_id)
         except RuntimeError:
-            self.log.warning("no event loop — relay listener not started")
+            self.log.warning("no event loop — relay poller not started")
 
     def deactivate(self) -> None:
-        if self._relay_listener:
+        if self._relay_poller:
             try:
                 loop = asyncio.get_event_loop()
-                loop.create_task(self._relay_listener.stop())
+                loop.create_task(self._relay_poller.stop())
             except RuntimeError:
                 pass
         self.log.info("peer2peer plugin deactivated")
 
     def get_status(self) -> dict[str, Any]:
         """Return status for thumbnail/dashboard rendering."""
+        paired_count = len(self._device_store.list_devices()) if self._device_store else 0
         return {
             "stun": {
                 "public_ip": self._stun_result.public_ip if self._stun_result else None,
                 "public_port": self._stun_result.public_port if self._stun_result else None,
                 "nat_type": self._stun_result.nat_type.value if self._stun_result else None,
             },
-            "punch": {
-                "success": self._punch_result.success if self._punch_result else None,
-                "remote_addr": (
-                    f"{self._punch_result.remote_addr[0]}:{self._punch_result.remote_addr[1]}"
-                    if self._punch_result and self._punch_result.success
-                    else None
-                ),
-                "rtt_ms": self._punch_result.rtt_ms if self._punch_result else None,
+            "relay": {
+                "mode": "polling",
+                "running": self._relay_poller.is_running if self._relay_poller else False,
+                "active_sessions": self._relay_poller.active_sessions if self._relay_poller else 0,
+                "paired_devices": paired_count,
             },
             "vm": {
                 "exists": self._vm_status.exists,
@@ -322,6 +329,18 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     def get_connector_commands(self) -> list[ConnectorCommand]:
         return [
             ConnectorCommand(
+                name="pair",
+                description="Pair a mobile device (one-time setup)",
+                plugin_id="peer2peer",
+                usage="/pair [device name]",
+            ),
+            ConnectorCommand(
+                name="devices",
+                description="List or revoke paired devices",
+                plugin_id="peer2peer",
+                usage="/devices [revoke <hash_prefix>]",
+            ),
+            ConnectorCommand(
                 name="connect",
                 description="Connect via Telegram",
                 plugin_id="peer2peer",
@@ -350,6 +369,10 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         message: IncomingMessage,
         capabilities: ConnectorCapabilities,
     ) -> ConnectorResponse | None:
+        if command == "pair":
+            return await self._cmd_pair(message)
+        if command == "devices":
+            return await self._cmd_devices(message.command_args)
         if command == "connect":
             return await self._cmd_connect(message)
         if command == "p2p":
@@ -360,13 +383,98 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             return await self._cmd_vm(message.command_args)
         return None
 
+    async def _cmd_pair(self, message: IncomingMessage) -> ConnectorResponse:
+        """Pair a mobile device — generates a deep link with a permanent device token."""
+        if not self._device_store:
+            return ConnectorResponse.simple("Device store not available")
+
+        label = message.command_args.strip() if message.command_args else (
+            f"{message.username}'s device" if message.username else "Device"
+        )
+
+        # Generate permanent device token (256-bit, shown once)
+        from urllib.parse import quote
+        token = self._device_store.create(label=label)
+        deep_link = (
+            f"openhort://pair?token={quote(token, safe='')}"
+            f"&room={quote(self._room_id, safe='')}"
+            f"&relay={quote(self._relay_url, safe='')}"
+        )
+
+        self.log.info("generated pairing token for %s", label)
+
+        # Start fast polling to detect when the device first connects
+        if self._relay_poller:
+            self._relay_poller.start_pairing_poll()
+
+        # Generate QR code
+        try:
+            from hort.network import generate_qr_data_uri
+            qr = generate_qr_data_uri(deep_link)
+            qr_html = f'<img src="{qr}" width="200" />'
+        except Exception:
+            qr_html = ""
+
+        return ConnectorResponse(
+            text=(
+                f"Pair your device:\n{deep_link}\n\n"
+                f"Open this link on your phone, or scan the QR code.\n"
+                f"Device: {label}"
+            ),
+            html=(
+                f"{qr_html}\n"
+                f'<a href="{deep_link}">Tap to pair: {label}</a>\n'
+                f"<i>Open in the OpenHort app on your phone.</i>"
+            ),
+        )
+
+    async def _cmd_devices(self, args: str) -> ConnectorResponse:
+        """List or revoke paired devices."""
+        if not self._device_store:
+            return ConnectorResponse.simple("Device store not available")
+
+        subcmd = args.strip().lower() if args else ""
+
+        if subcmd.startswith("revoke "):
+            hash_prefix = subcmd[7:].strip()
+            if not hash_prefix:
+                return ConnectorResponse.simple("Usage: /devices revoke <hash_prefix>")
+            devices = self._device_store.list_devices()
+            for d in devices:
+                if d["token_hash"].startswith(hash_prefix):
+                    self._device_store.revoke(d["token_hash"])
+                    return ConnectorResponse.simple(f"Revoked: {d['label']} ({d['token_hash'][:12]}...)")
+            return ConnectorResponse.simple(f"No device found matching: {hash_prefix}")
+
+        if subcmd == "revoke-all":
+            count = self._device_store.revoke_all()
+            return ConnectorResponse.simple(f"Revoked {count} device(s)")
+
+        # List devices
+        devices = self._device_store.list_devices()
+        if not devices:
+            return ConnectorResponse.simple("No paired devices. Use /pair to add one.")
+
+        lines = [f"<b>Paired devices ({len(devices)}):</b>"]
+        for d in devices:
+            seen = d.get("last_seen") or "never"
+            lines.append(
+                f"  {d['label']} — <code>{d['token_hash'][:12]}...</code> — last seen: {seen}"
+            )
+        lines.append("\nUse /devices revoke <hash_prefix> to remove a device.")
+
+        return ConnectorResponse(
+            text="\n".join(lines).replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", ""),
+            html="\n".join(lines),
+        )
+
     async def _cmd_connect(self, message: IncomingMessage) -> ConnectorResponse:
         """Generate a one-time P2P connection link with auth token."""
-        if not self._relay_listener:
-            return ConnectorResponse.simple("P2P relay not connected")
+        if not self._relay_poller:
+            return ConnectorResponse.simple("P2P relay not running")
 
-        token = self._relay_listener.tokens.generate()
-        viewer_base = "https://openhort.ai/p2p/viewer.html"  # TODO: make configurable
+        token = self._relay_poller.tokens.generate()
+        viewer_base = "https://openhort.ai/p2p/viewer.html"
         url = f"{viewer_base}?signal=ws&room={self._room_id}&token={token}"
 
         self.log.info("generated connection token for user %s", message.username or message.user_id)
@@ -378,10 +486,10 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
 
     async def _cmd_p2p(self, message: IncomingMessage) -> ConnectorResponse:
         """Generate a plain URL for opening in any browser."""
-        if not self._relay_listener:
-            return ConnectorResponse.simple("P2P relay not connected")
+        if not self._relay_poller:
+            return ConnectorResponse.simple("P2P relay not running")
 
-        token = self._relay_listener.tokens.generate()
+        token = self._relay_poller.tokens.generate()
         viewer_base = "https://openhort.ai/p2p/viewer.html"
         url = f"{viewer_base}?signal=ws&room={self._room_id}&token={token}"
 

@@ -392,7 +392,7 @@ class TelegramConnector(PluginBase, ConnectorBase):
         store = TokenStore()
         token = store.create_temporary("Telegram /link", duration_seconds=86400)
 
-        url = f"{server}/api/access/token/login?token={token}&host={host_id}"
+        url = f"{server}/t/{host_id}/{token}"
         return ConnectorResponse(
             text=f"Temporary access link (24h):\n{url}",
             html=f"🔗 <b>Temporary access link</b> (24h):\n{url}",

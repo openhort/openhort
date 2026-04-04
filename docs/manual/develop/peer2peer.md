@@ -779,9 +779,33 @@ Each session has its own:
 ### Cleanup
 
 Dead sessions are cleaned up via:
-1. **`on_state_change` callback** — WebRTC fires when connection state becomes `failed`/`closed`. Session is removed immediately.
-2. **Periodic cleanup loop** — Every 30 seconds, scans all sessions and removes any with dead WebRTC connections.
+
+1. **`on_state_change` callback** — WebRTC fires when connection state becomes `failed`/`closed`/`disconnected`. Session is removed and `peer.close()` is called immediately.
+2. **Periodic cleanup loop** — Every 15 seconds, scans all sessions:
+    - Removes sessions in `failed`/`closed`/`disconnected` state.
+    - **Force-kills stale sessions** — any session not in `connected` state after 30 seconds is terminated. This catches app swipe-kills where the client vanishes without closing the DataChannel cleanly.
 3. **Shutdown** — `stop()` closes all active sessions.
+
+!!! warning "aiortc Zombie Sessions"
+    `aiortc` `RTCPeerConnection` objects that never receive `.close()` continue running background ICE timers, DTLS tasks, and SCTP state machines on the asyncio event loop. After 5-6 zombie sessions accumulate, the event loop becomes congested and new ICE negotiations time out.
+
+    **Never** let a `RTCPeerConnection` exist without a cleanup path. The 30-second force-kill ensures this even when clients disconnect abruptly (app swipe-kill, network drop, browser tab close).
+
+### SDP Exchange Timing
+
+The SDP answer must be sent to the viewer **before** the DataChannel proxy starts. If the proxy starts first, it adds latency that can cause ICE candidate expiry.
+
+```python
+# CORRECT: return answer first, start proxy in background
+answer_sdp = await peer.accept_offer(offer_sdp)
+asyncio.create_task(_finish_session())  # proxy.start() runs after answer is sent
+return answer_sdp
+
+# WRONG: proxy starts before answer reaches the viewer
+answer_sdp = await peer.accept_offer(offer_sdp)
+await proxy.start()  # blocks — ICE candidates may expire during this time
+return answer_sdp
+```
 
 ## Deployment
 

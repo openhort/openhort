@@ -194,8 +194,14 @@
       cloud: { active: false, server_url: '' },
       messaging: {},  // {telegram: {active, token_set, allowed_users, polling, plugin_id}, ...}
     },
-    connectorPanelOpen: null,  // null | 'lan' | 'cloud' | 'telegram'
+    connectorPanelOpen: null,  // null | 'lan' | 'cloud' | 'telegram' | 'p2p'
+    _p2pLink: '',
+    _p2pQr: '',
+    _p2pTab: 'once',
+    _p2pPairLink: '',
+    _p2pDevices: [],
     sidebarOpen: false,
+    nativeApp: false,  // true when running inside Android/iOS native shell
 
     // Windows
     allWindows: [],
@@ -2161,7 +2167,7 @@
     template: `
       <div v-show="state.view === 'picker'">
         <!-- Logo bar -->
-        <div class="logo-bar">
+        <div class="logo-bar" v-if="!state.nativeApp">
           <svg class="logo-svg" viewBox="0 0 220 32" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <filter id="el-glow"><feGaussianBlur stdDeviation="1.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -2249,7 +2255,7 @@
           </div>
 
           <!-- Connectors -->
-          <div v-if="state.isLocal" style="display:flex;gap:4px">
+          <div v-if="state.isLocal && !state.nativeApp" style="display:flex;gap:4px">
             <div class="header-btn" @click="state.connectorPanelOpen = 'lan'">
               <span class="dot on" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
               <i class="ph ph-wifi-high"></i> <span class="hide-mobile">LAN</span>
@@ -2261,6 +2267,10 @@
             <div v-if="state.connectors.messaging.telegram" class="header-btn" @click="state.connectorPanelOpen = 'telegram'">
               <span class="dot" :class="state.connectors.messaging.telegram.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
               <i class="ph ph-telegram-logo"></i> <span class="hide-mobile">Telegram</span>
+            </div>
+            <div class="header-btn" @click="state.connectorPanelOpen = 'p2p'">
+              <span class="dot on" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+              <i class="ph ph-arrows-left-right"></i> <span class="hide-mobile">P2P</span>
             </div>
           </div>
         </div>
@@ -2275,6 +2285,103 @@
             @save="onCloudSave" />
           <telegram-connector-panel v-if="state.connectorPanelOpen === 'telegram'"
             :connectors="state.connectors" @close="state.connectorPanelOpen = null" />
+          <div v-if="state.connectorPanelOpen === 'p2p'" class="connector-panel" @click.stop>
+            <div class="connector-panel-header">
+              <h3><i class="ph ph-arrows-left-right"></i> P2P Connection</h3>
+              <button class="connector-panel-close" @click="state.connectorPanelOpen = null"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="connector-panel-body">
+              <!-- Tabs -->
+              <div style="display:flex;gap:0;margin-bottom:16px;border-radius:6px;overflow:hidden;border:1px solid var(--el-border)">
+                <button v-for="t in [{id:'once',label:'One-time Link',icon:'ph ph-link'},{id:'pair',label:'Pairing Link',icon:'ph ph-link-simple-horizontal'},{id:'devices',label:'Devices',icon:'ph ph-devices'}]"
+                        :key="t.id" @click="state._p2pTab = t.id"
+                        style="flex:1;padding:8px 4px;border:none;font-size:11px;cursor:pointer;transition:background .15s"
+                        :style="{ background: (state._p2pTab || 'once') === t.id ? 'var(--el-primary)' : 'var(--el-surface)', color: (state._p2pTab || 'once') === t.id ? '#fff' : 'var(--el-text-dim)' }">
+                  <i :class="t.icon" style="margin-right:2px"></i> {{ t.label }}
+                </button>
+              </div>
+
+              <!-- Tab: One-time Link -->
+              <div v-if="(state._p2pTab || 'once') === 'once'">
+                <div v-if="!state._p2pLink" style="text-align:center;padding:16px 0">
+                  <button style="background:var(--el-primary);color:#fff;padding:12px 28px;border:none;border-radius:8px;cursor:pointer;font-size:14px"
+                    @click="generateP2pLink">
+                    <i class="ph ph-link" style="margin-right:6px"></i> Generate Link
+                  </button>
+                  <div style="margin-top:12px;font-size:12px;color:var(--el-text-dim)">Browser link — expires in 60s, no pairing</div>
+                </div>
+                <div v-else>
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                    <input :value="state._p2pLink" readonly style="flex:1;background:var(--el-bg);border:1px solid var(--el-border);color:var(--el-text);padding:8px 12px;border-radius:6px;font-size:11px;font-family:monospace" @click="$event.target.select()">
+                    <button style="background:var(--el-primary);color:#fff;border:none;border-radius:6px;padding:8px 12px;cursor:pointer" @click="copyToClipboard(state._p2pLink)">
+                      <i class="ph ph-copy"></i>
+                    </button>
+                  </div>
+                  <div style="text-align:center">
+                    <hort-qr :url="state._p2pLink" />
+                  </div>
+                  <div style="text-align:center;margin-top:12px">
+                    <button style="background:transparent;color:var(--el-primary);border:1px solid var(--el-primary);border-radius:6px;padding:6px 16px;cursor:pointer;font-size:13px" @click="generateP2pLink">
+                      <i class="ph ph-arrows-clockwise"></i> New Link
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab: Pairing Link -->
+              <div v-if="state._p2pTab === 'pair'">
+                <div v-if="!state._p2pPairLink" style="text-align:center;padding:16px 0">
+                  <button style="background:var(--el-primary);color:#fff;padding:12px 28px;border:none;border-radius:8px;cursor:pointer;font-size:14px"
+                    @click="generatePairingLink">
+                    <i class="ph ph-link-simple-horizontal" style="margin-right:6px"></i> Create Pairing Link
+                  </button>
+                  <div style="margin-top:12px;font-size:12px;color:var(--el-text-dim)">Permanent device token — opens in the OpenHort app</div>
+                </div>
+                <div v-else>
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                    <input :value="state._p2pPairLink" readonly style="flex:1;background:var(--el-bg);border:1px solid var(--el-border);color:var(--el-text);padding:8px 12px;border-radius:6px;font-size:11px;font-family:monospace" @click="$event.target.select()">
+                    <button style="background:var(--el-primary);color:#fff;border:none;border-radius:6px;padding:8px 12px;cursor:pointer" @click="copyToClipboard(state._p2pPairLink)">
+                      <i class="ph ph-copy"></i>
+                    </button>
+                  </div>
+                  <div style="text-align:center">
+                    <hort-qr :url="state._p2pPairLink" />
+                  </div>
+                  <div style="text-align:center;margin-top:12px">
+                    <button style="background:transparent;color:var(--el-primary);border:1px solid var(--el-primary);border-radius:6px;padding:6px 16px;cursor:pointer;font-size:13px" @click="generatePairingLink">
+                      <i class="ph ph-arrows-clockwise"></i> New Pairing Link
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab: Devices -->
+              <div v-if="state._p2pTab === 'devices'">
+                <div v-if="!state._p2pDevices || state._p2pDevices.length === 0" style="text-align:center;padding:16px 0;color:var(--el-text-dim);font-size:13px">
+                  No paired devices. Use the Pairing Link tab to add one.
+                </div>
+                <div v-else>
+                  <div v-for="dev in state._p2pDevices" :key="dev.token_hash" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--el-border)">
+                    <i class="ph ph-device-mobile" style="font-size:20px;color:var(--el-text-dim)"></i>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:13px;color:var(--el-text)">{{ dev.label }}</div>
+                      <div style="font-size:11px;color:var(--el-text-dim);font-family:monospace">{{ dev.token_hash.substring(0, 12) }}...</div>
+                      <div v-if="dev.last_seen" style="font-size:10px;color:var(--el-text-dim)">Last seen: {{ dev.last_seen }}</div>
+                    </div>
+                    <button style="background:transparent;border:1px solid var(--el-error);color:var(--el-error);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px"
+                      @click="revokeDevice(dev.token_hash)">
+                      Revoke
+                    </button>
+                  </div>
+                </div>
+                <div style="text-align:center;margin-top:12px">
+                  <button style="background:transparent;color:var(--el-text-dim);border:1px solid var(--el-border);border-radius:6px;padding:6px 16px;cursor:pointer;font-size:12px" @click="loadDevices">
+                    <i class="ph ph-arrows-clockwise"></i> Refresh
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Target bar removed — replaced by dropdown in header -->
@@ -2831,6 +2938,70 @@
       }
 
       // Cloud connector save handler (panel is rendered by extension)
+      async function generateP2pLink() {
+        try {
+          const resp = await fetch(apiUrl('/api/p2p/connect'), { method: 'POST' });
+          const data = await resp.json();
+          state._p2pLink = data.url || '';
+          if (state._p2pLink) {
+            // Auto-copy to clipboard
+            copyToClipboard(state._p2pLink);
+            // Generate QR
+            const qrResp = await fetch(apiUrl('/api/qr?url=' + encodeURIComponent(state._p2pLink)));
+            const qrData = await qrResp.json();
+            state._p2pQr = qrData.qr || '';
+          }
+        } catch (e) {
+          console.error('P2P link generation failed:', e);
+        }
+      }
+
+      async function generatePairingLink() {
+        try {
+          const resp = await fetch(apiUrl('/api/p2p/pair'), { method: 'POST' });
+          const data = await resp.json();
+          state._p2pPairLink = data.deep_link || '';
+          if (state._p2pPairLink) {
+            copyToClipboard(state._p2pPairLink);
+          }
+        } catch (e) {
+          console.error('Pairing link generation failed:', e);
+        }
+      }
+
+      async function loadDevices() {
+        try {
+          const resp = await fetch(apiUrl('/api/p2p/devices'));
+          const data = await resp.json();
+          state._p2pDevices = data.devices || [];
+        } catch (e) {
+          console.error('Failed to load devices:', e);
+        }
+      }
+
+      async function revokeDevice(tokenHash) {
+        try {
+          await fetch(apiUrl('/api/p2p/devices'), {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token_hash: tokenHash }),
+          });
+          await loadDevices();
+        } catch (e) {
+          console.error('Failed to revoke device:', e);
+        }
+      }
+
+      function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(() => {
+          Quasar.Notify.create({ message: 'Copied to clipboard', position: 'bottom', timeout: 1500 });
+        }).catch(() => {
+          // Fallback: select the text
+          const el = document.querySelector('input[readonly]');
+          if (el) { el.select(); document.execCommand('copy'); }
+        });
+      }
+
       function onCloudSave(enabled) {
         if (enabled) {
           state.connectors.cloud.active = true;
@@ -3317,7 +3488,7 @@
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
         onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal, openTmuxTerminal, closeTmuxSession, confirmCloseTerminal,
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
-        onCloudSave,
+        onCloudSave, generateP2pLink, generatePairingLink, loadDevices, revokeDevice, copyToClipboard,
         viewTab, spiritsList, spiritCount, allPlugins,
         configScreen, generalConfig, toggleGeneral,
         selectedSpirit, selectedPlugin, toggleSpiritFeature,
@@ -3643,7 +3814,7 @@
 
       <!-- Sidebar drawer (root-level, above everything) -->
       <teleport to="body">
-        <div v-if="state.sidebarOpen" class="sidebar-overlay" @click.self="state.sidebarOpen = false">
+        <div v-if="state.sidebarOpen && !state.nativeApp" class="sidebar-overlay" @click.self="state.sidebarOpen = false">
           <nav class="sidebar">
             <div class="sidebar-header">
               <svg viewBox="0 0 24 24" style="width:24px;height:24px" fill="none" stroke="#d4a017" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -3779,6 +3950,135 @@
         }
       }
 
+      // ===== Native Bridge Protocol =====
+      // Detect if running inside Android/iOS native shell
+      if (window.openhort && typeof window.openhort.send === 'function') {
+        state.nativeApp = true;
+      }
+
+      function sendToNative(msg) {
+        if (!state.nativeApp) return;
+        window.openhort.send(JSON.stringify(msg));
+      }
+
+      function buildTopbar() {
+        const win = state.navWindows[state.navIndex];
+        if (state.view === 'viewer' && win) {
+          return {
+            title: win.owner_name || win.window_name || 'Viewer',
+            subtitle: win.window_name || '',
+            color: '',
+            showBack: true,
+            actions: [],
+          };
+        }
+        if (state.view === 'terminal') {
+          return {
+            title: 'Terminal',
+            subtitle: '',
+            color: '',
+            showBack: true,
+            actions: [],
+          };
+        }
+        // picker / default
+        return {
+          title: 'OpenHort',
+          subtitle: state.connected ? '' : 'Connecting...',
+          color: '',
+          showBack: false,
+          actions: [],
+        };
+      }
+
+      function buildDrawer() {
+        const items = [
+          { id: 'home', type: 'item', title: 'Home', icon: 'house', command: 'view:picker' },
+          { id: 'hortmap', type: 'item', title: 'Hort Map', icon: 'tree_structure', command: 'open:hortmap' },
+          { type: 'divider' },
+          { id: 'docs', type: 'item', title: 'Documentation', icon: 'book_open', command: 'open:docs' },
+          { type: 'divider' },
+          { type: 'header', title: 'Connectors' },
+        ];
+        if (state.isLocal) {
+          items.push({ id: 'conn-lan', type: 'item', title: 'LAN', icon: 'wifi_high',
+            badge: 'on', badgeColor: '#4CAF50', command: 'panel:lan' });
+          items.push({ id: 'conn-cloud', type: 'item', title: 'Cloud', icon: 'cloud',
+            badge: state.connectors.cloud.active ? 'on' : 'off',
+            badgeColor: state.connectors.cloud.active ? '#4CAF50' : '#999', command: 'panel:cloud' });
+          if (state.connectors.messaging.telegram) {
+            items.push({ id: 'conn-telegram', type: 'item', title: 'Telegram', icon: 'telegram_logo',
+              badge: state.connectors.messaging.telegram.active ? 'on' : 'off',
+              badgeColor: state.connectors.messaging.telegram.active ? '#4CAF50' : '#999',
+              command: 'panel:telegram' });
+          }
+          items.push({ id: 'conn-p2p', type: 'item', title: 'P2P', icon: 'arrows_left_right',
+            badge: 'on', badgeColor: '#4CAF50', command: 'panel:p2p' });
+        }
+        // Logout is handled natively — not sent from SPA
+        return {
+          header: { title: 'openhort', subtitle: 'v0.1.0' },
+          items,
+        };
+      }
+
+      let _themePushed = false;
+      function buildTheme() {
+        const cs = getComputedStyle(document.documentElement);
+        const logoEl = document.querySelector('.logo-svg');
+        return {
+          mode: 'dark',
+          bg: cs.getPropertyValue('--el-bg').trim(),
+          surface: cs.getPropertyValue('--el-surface').trim(),
+          border: cs.getPropertyValue('--el-border').trim(),
+          primary: cs.getPropertyValue('--el-primary').trim(),
+          accent: cs.getPropertyValue('--el-accent').trim(),
+          text: cs.getPropertyValue('--el-text').trim(),
+          textDim: cs.getPropertyValue('--el-text-dim').trim(),
+          danger: cs.getPropertyValue('--el-danger').trim(),
+          success: cs.getPropertyValue('--el-success').trim(),
+          logoSvg: logoEl ? logoEl.outerHTML : '',
+        };
+      }
+
+      function pushNavState() {
+        const msg = {
+          type: 'nav.update',
+          topbar: buildTopbar(),
+          drawer: buildDrawer(),
+        };
+        // Include theme on first push only
+        if (!_themePushed) {
+          msg.theme = buildTheme();
+          _themePushed = true;
+        }
+        sendToNative(msg);
+      }
+
+      // Push nav state on view changes
+      watch(() => state.view, () => pushNavState());
+      watch(() => state.connected, () => pushNavState());
+      watch(() => state.navIndex, () => { if (state.view === 'viewer') pushNavState(); });
+
+      // Handle commands from native
+      window.openhortReceive = function(json) {
+        try {
+          const msg = typeof json === 'string' ? JSON.parse(json) : json;
+          if (msg.type === 'nav.action') {
+            const cmd = msg.command || '';
+            if (cmd === 'back') {
+              if (viewer.value && state.view === 'viewer') viewer.value.goBack();
+              else state.view = 'picker';
+            }
+            else if (cmd === 'view:picker') state.view = 'picker';
+            else if (cmd === 'open:hortmap') location.href = _basePath + '/hortmap';
+            else if (cmd === 'open:docs') window.open(_basePath + '/guide/', '_blank');
+            else if (cmd.startsWith('panel:')) state.connectorPanelOpen = cmd.split(':')[1];
+            // logout is handled natively
+          }
+        } catch (e) { console.error('native message error:', e); }
+      };
+
       onMounted(async () => {
         // Init session and control WS
         await initSession();
@@ -3803,26 +4103,8 @@
           return;
         }
 
-        // Try to restore last viewed window
-        const saved = localStorage.getItem('llming-current-window');
-        if (saved) {
-          try {
-            const { window_id } = JSON.parse(saved);
-            // Request windows and wait for response
-            requestWindows();
-            requestSpaces();
-            await new Promise(resolve => setTimeout(resolve, 500));
-            computeNavWindows();
-            const idx = state.navWindows.findIndex(w => w.window_id === window_id);
-            if (idx >= 0) {
-              if (viewer.value) viewer.value.doSwitchWindow(idx);
-              return;
-            }
-            localStorage.removeItem('llming-current-window');
-          } catch {
-            localStorage.removeItem('llming-current-window');
-          }
-        }
+        // Push initial nav state to native shell
+        pushNavState();
 
         // Start picker refresh
         startPickerRefresh();

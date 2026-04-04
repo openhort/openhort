@@ -710,16 +710,68 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/api/p2p/connect")
     async def p2p_connect() -> dict[str, Any]:
-        """Generate a one-time P2P connection URL (local access only)."""
+        """Generate a one-time P2P connection URL."""
         if not hasattr(app.state, "plugin_registry"):
             return {"error": "plugins not loaded"}
         plugin = app.state.plugin_registry.get_instance("peer2peer")
-        if not plugin or not hasattr(plugin, "_relay_listener") or not plugin._relay_listener:
-            return {"error": "P2P relay not connected"}
-        token = plugin._relay_listener.tokens.generate()
+        if not plugin or not hasattr(plugin, "_relay_poller") or not plugin._relay_poller:
+            return {"error": "P2P relay not running"}
+        poller = plugin._relay_poller
+        token = poller.tokens.generate()
         room = plugin._room_id
         url = f"https://openhort.ai/p2p/viewer.html?signal=ws&room={room}&token={token}"
+
+        # Listen on relay WebSocket temporarily so the viewer's SDP offer gets answered
+        asyncio.create_task(poller.listen_for_sdp_once(timeout=60.0))
+
         return {"url": url, "token": token, "room": room, "expires_in": 60}
+
+    @app.post("/api/p2p/pair")
+    async def p2p_pair(request: Request) -> dict[str, Any]:
+        """Generate a permanent device pairing link (deep link for mobile apps)."""
+        if not hasattr(app.state, "plugin_registry"):
+            return {"error": "plugins not loaded"}
+        plugin = app.state.plugin_registry.get_instance("peer2peer")
+        if not plugin or not hasattr(plugin, "_device_store") or not plugin._device_store:
+            return {"error": "Device store not available"}
+        if not hasattr(plugin, "_relay_poller") or not plugin._relay_poller:
+            return {"error": "P2P relay not running"}
+
+        body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+        label = body.get("label", "Device")
+
+        token = plugin._device_store.create(label=label)
+        room = plugin._room_id
+        relay = plugin._relay_url
+
+        from urllib.parse import quote
+        deep_link = f"openhort://pair?token={quote(token, safe='')}&room={quote(room, safe='')}&relay={quote(relay, safe='')}"
+        return {"deep_link": deep_link, "token": token, "room": room, "relay": relay}
+
+    @app.get("/api/p2p/devices")
+    async def p2p_devices_list() -> dict[str, Any]:
+        """List all paired devices."""
+        if not hasattr(app.state, "plugin_registry"):
+            return {"devices": []}
+        plugin = app.state.plugin_registry.get_instance("peer2peer")
+        if not plugin or not hasattr(plugin, "_device_store") or not plugin._device_store:
+            return {"devices": []}
+        return {"devices": plugin._device_store.list_devices()}
+
+    @app.delete("/api/p2p/devices")
+    async def p2p_device_revoke(request: Request) -> dict[str, Any]:
+        """Revoke a paired device by token_hash."""
+        if not hasattr(app.state, "plugin_registry"):
+            return {"error": "plugins not loaded"}
+        plugin = app.state.plugin_registry.get_instance("peer2peer")
+        if not plugin or not hasattr(plugin, "_device_store") or not plugin._device_store:
+            return {"error": "Device store not available"}
+        body = await request.json()
+        token_hash = body.get("token_hash", "")
+        if not token_hash:
+            return {"error": "token_hash required"}
+        ok = plugin._device_store.revoke(token_hash)
+        return {"ok": ok}
 
     @app.websocket("/ws/control/{session_id}")
     async def control_ws(websocket: WebSocket, session_id: str) -> None:
