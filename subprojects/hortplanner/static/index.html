@@ -48,8 +48,21 @@
           <q-btn flat dense round icon="menu" @click="leftOpen = !leftOpen"></q-btn>
           <q-icon name="apartment" size="22px" color="primary" class="q-mx-sm"></q-icon>
           <q-toolbar-title class="text-weight-bold" style="font-size:16px">
-            HortPlanner
+            {{ activeMode === 'hort' ? 'HortPlanner' : 'HomePlanner' }}
           </q-toolbar-title>
+
+          <!-- Mode switcher -->
+          <q-btn-toggle v-model="activeMode" flat no-caps size="sm" dense
+            :options="[
+              { value: 'hort', icon: 'apartment', label: 'Infra' },
+              { value: 'home', icon: 'home', label: 'Home' },
+            ]"
+            toggle-color="primary" color="grey-6" class="q-mr-sm"
+            @update:model-value="switchMode"
+            style="font-size:11px">
+          </q-btn-toggle>
+
+          <q-separator vertical dark class="q-mx-xs"></q-separator>
 
           <!-- Breadcrumb: shows selection ancestry (with sibling dropdowns) or nav stack -->
           <template v-if="selected && selected.ancestry && selected.ancestry.length">
@@ -114,6 +127,21 @@
 
           <q-separator vertical dark class="q-mx-xs"></q-separator>
 
+          <!-- Floor selector (home mode only) -->
+          <template v-if="activeMode === 'home'">
+            <q-btn-group flat class="q-mx-sm">
+              <q-btn v-for="f in floorList" :key="f" flat dense no-caps size="sm"
+                :color="activeFloor === f ? 'primary' : 'grey-6'"
+                :label="'F' + f" @click="setFloor(f)"
+                style="min-width:32px; font-size:11px">
+              </q-btn>
+              <q-btn flat dense size="sm" icon="add" color="grey-6" @click="addFloor">
+                <q-tooltip>Add floor</q-tooltip>
+              </q-btn>
+            </q-btn-group>
+            <q-separator vertical dark class="q-mx-xs"></q-separator>
+          </template>
+
           <!-- Undo / Redo -->
           <q-btn flat dense round icon="undo" @click="doUndo">
             <q-tooltip>Undo (Ctrl+Z)</q-tooltip>
@@ -150,8 +178,10 @@
                 default-opened header-class="text-grey-3 text-caption"
                 expand-icon-class="text-grey-6">
                 <q-item v-for="item in cat.items" :key="item.type" dense clickable
-                  class="palette-item"
-                  draggable="true" @dragstart="onDragStart($event, item.type)">
+                  class="palette-item" :class="{ 'active-tool': activeTool === item.type }"
+                  :draggable="activeMode === 'hort' || !['wall','door-s','door-n','window-s','window-l'].includes(item.type)"
+                  @dragstart="onDragStart($event, item.type)"
+                  @click="['wall','door-s','door-n','window-s','window-l','stairs-straight'].includes(item.type) ? setTool(item.type) : null">
                   <q-item-section avatar>
                     <div class="palette-icon" :style="{background: item.color + '22', color: item.color}">
                       <q-icon :name="item.icon"></q-icon>
@@ -325,10 +355,20 @@
 
       <!-- Status bar -->
       <q-footer class="status-bar">
-        <span><q-icon name="grid_on" size="14px" class="q-mr-xs"></q-icon>
-          {{ componentCount }} components</span>
-        <span><q-icon name="link" size="14px" class="q-mr-xs"></q-icon>
-          {{ connectionCount }} wires</span>
+        <template v-if="activeMode === 'hort'">
+          <span><q-icon name="grid_on" size="14px" class="q-mr-xs"></q-icon>
+            {{ componentCount }} components</span>
+          <span><q-icon name="link" size="14px" class="q-mr-xs"></q-icon>
+            {{ connectionCount }} wires</span>
+        </template>
+        <template v-else>
+          <span><q-icon name="border_all" size="14px" class="q-mr-xs"></q-icon>
+            {{ componentCount }} walls</span>
+          <span><q-icon name="chair" size="14px" class="q-mr-xs"></q-icon>
+            {{ connectionCount }} items</span>
+          <span><q-icon name="layers" size="14px" class="q-mr-xs"></q-icon>
+            Floor {{ activeFloor }}</span>
+        </template>
         <q-space></q-space>
         <span>{{ viewMode === 'isometric' ? '3D Isometric' : '2D Flat' }}</span>
       </q-footer>
@@ -355,8 +395,13 @@
                     </div>
                     <div class="text-caption text-grey-6" style="font-size:11px">{{ p.desc }}</div>
                     <div class="text-caption text-grey-7 q-mt-xs" style="font-size:10px">
-                      <q-icon name="widgets" size="12px"></q-icon> {{ p.components.length }} components
-                      &nbsp;<q-icon name="link" size="12px"></q-icon> {{ p.connections.length }} connections
+                      <template v-if="p.components">
+                        <q-icon name="widgets" size="12px"></q-icon> {{ p.components.length }} components
+                        &nbsp;<q-icon name="link" size="12px"></q-icon> {{ p.connections.length }} connections
+                      </template>
+                      <template v-else-if="p.floors">
+                        <q-icon name="layers" size="12px"></q-icon> {{ Object.keys(p.floors).length }} floors
+                      </template>
                     </div>
                   </q-card-section>
                 </q-card>
@@ -370,51 +415,38 @@
   </div>
 
   <script type="module">
-    // Presets are local — safe to import statically
     import { PRESETS } from './static/js/presets.js';
+    import { HOME_PRESETS } from './static/js/presets-home.js';
 
-    // Engine depends on Three.js CDN — import dynamically so UI renders even if CDN is slow
-    let HortPlannerEngine = null;
-    const engineReady = import('./static/js/engine.js').then(m => {
-      HortPlannerEngine = m.HortPlannerEngine;
-    }).catch(err => {
-      console.error('Failed to load Three.js engine:', err);
-    });
+    // Load both engines dynamically
+    let HortPlannerEngine = null, HomePlannerEngine = null;
+    const engineReady = Promise.all([
+      import('./static/js/engine.js').then(m => { HortPlannerEngine = m.HortPlannerEngine; }),
+      import('./static/js/engine-home.js').then(m => { HomePlannerEngine = m.HomePlannerEngine; }),
+    ]).catch(err => console.error('Engine load failed:', err));
 
-    const { createApp, ref, onMounted, onBeforeUnmount } = Vue;
+    const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
 
-    const CATALOG = [
-      {
-        label: 'Machine Horts', icon: 'dns',
-        items: [
-          { type: 'mac-mini', label: 'SnackMini', icon: 'computer', color: '#94a3b8', desc: 'Compact desktop server' },
-          { type: 'macbook', label: 'SnackBook Pro', icon: 'laptop_mac', color: '#71717a', desc: 'Portable workstation' },
-          { type: 'rpi', label: 'Strawberry Pi', icon: 'developer_board', color: '#22c55e', desc: 'Single-board computer' },
-          { type: 'cloud-vm', label: 'Cloud VM', icon: 'cloud', color: '#60a5fa', desc: 'Cloud virtual machine' },
-        ],
-      },
-      {
-        label: 'Sub-Horts', icon: 'inventory_2',
-        items: [
-          { type: 'docker', label: 'Docker', icon: 'view_in_ar', color: '#38bdf8', desc: 'Docker container sandbox' },
-          { type: 'virtual-hort', label: 'Virtual Hort', icon: 'bubble_chart', color: '#a855f7', desc: 'Logical boundary' },
-        ],
-      },
-      {
-        label: 'Llmings', icon: 'build',
-        items: [
-          { type: 'mcp-server', label: 'MCP Server', icon: 'hub', color: '#f59e0b', desc: 'MCP protocol server' },
-          { type: 'llming', label: 'LLMing', icon: 'psychology', color: '#8b5cf6', desc: 'AI tool provider' },
-          { type: 'program', label: 'Program', icon: 'terminal', color: '#10b981', desc: 'Script / pipeline step' },
-        ],
-      },
-      {
-        label: 'Security', icon: 'security',
-        items: [
-          { type: 'agent', label: 'Agent', icon: 'smart_toy', color: '#06b6d4', desc: 'AI controller (central hub)' },
-          { type: 'fence', label: 'Fence', icon: 'fence', color: '#f97316', desc: 'Virtual security boundary' },
-        ],
-      },
+    const HORT_CATALOG = [
+      { label: 'Machine Horts', icon: 'dns', items: [
+        { type: 'mac-mini', label: 'SnackMini', icon: 'computer', color: '#94a3b8', desc: 'Compact desktop server' },
+        { type: 'macbook', label: 'SnackBook Pro', icon: 'laptop_mac', color: '#71717a', desc: 'Portable workstation' },
+        { type: 'rpi', label: 'Strawberry Pi', icon: 'developer_board', color: '#22c55e', desc: 'Single-board computer' },
+        { type: 'cloud-vm', label: 'Cloud VM', icon: 'cloud', color: '#60a5fa', desc: 'Cloud virtual machine' },
+      ]},
+      { label: 'Sub-Horts', icon: 'inventory_2', items: [
+        { type: 'docker', label: 'Docker', icon: 'view_in_ar', color: '#38bdf8', desc: 'Docker container sandbox' },
+        { type: 'virtual-hort', label: 'Virtual Hort', icon: 'bubble_chart', color: '#a855f7', desc: 'Logical boundary' },
+      ]},
+      { label: 'Llmings', icon: 'build', items: [
+        { type: 'mcp-server', label: 'MCP Server', icon: 'hub', color: '#f59e0b', desc: 'MCP protocol server' },
+        { type: 'llming', label: 'LLMing', icon: 'psychology', color: '#8b5cf6', desc: 'AI tool provider' },
+        { type: 'program', label: 'Program', icon: 'terminal', color: '#10b981', desc: 'Script / pipeline step' },
+      ]},
+      { label: 'Security', icon: 'security', items: [
+        { type: 'agent', label: 'Agent', icon: 'smart_toy', color: '#06b6d4', desc: 'AI controller (central hub)' },
+        { type: 'fence', label: 'Fence', icon: 'fence', color: '#f97316', desc: 'Virtual security boundary' },
+      ]},
     ];
 
     const TYPE_COLORS = {
@@ -422,6 +454,8 @@
       'cloud-vm': 'blue', 'docker': 'cyan', 'virtual-hort': 'purple',
       'mcp-server': 'amber', 'llming': 'deep-purple', 'program': 'teal',
       'agent': 'cyan', 'fence': 'orange',
+      'wall': 'blue-grey', 'door-s': 'brown', 'door-n': 'brown',
+      'window-s': 'light-blue', 'window-l': 'light-blue',
     };
 
     const SECURITY_LEVELS = [
@@ -453,8 +487,19 @@
         const componentCount = ref(0);
         const connectionCount = ref(0);
         const presetsDialog = ref(false);
-        const presetList = PRESETS;
+        const activeMode = ref('hort');   // 'hort' or 'home'
+        const activeFloor = ref(0);
+        const floorList = ref([0]);
         let engine = null;
+
+        // Dynamic catalog and presets based on active mode
+        const catalog = computed(() => {
+          if (activeMode.value === 'home' && engine?.getCatalog) return engine.getCatalog();
+          return HORT_CATALOG;
+        });
+        const presetList = computed(() => {
+          return activeMode.value === 'home' ? HOME_PRESETS : PRESETS;
+        });
 
         const callbacks = {
           onSelect(data) { selected.value = { ...data }; selectedConn.value = null; rightOpen.value = true; },
@@ -463,17 +508,50 @@
           onDeselectConnection() { selectedConn.value = null; },
           onLevelChange(stack) { levelStack.value = stack.map(s => ({ ...s })); },
           onCountChange(comps, conns) { componentCount.value = comps; connectionCount.value = conns; },
+          onFloorChange(idx) { activeFloor.value = idx; },
         };
 
         onMounted(async () => {
           await engineReady;
-          if (HortPlannerEngine && canvasWrap.value) {
-            engine = new HortPlannerEngine(canvasWrap.value, callbacks, labelOverlay.value);
-          } else {
-            console.error('HortPlanner engine failed to load');
-          }
+          // Check URL params for mode
+          const params = new URLSearchParams(window.location.search);
+          const urlMode = params.get('mode') || 'hort';
+          activeMode.value = urlMode;
+          createEngine(urlMode);
+
+          // Auto-load preset from URL
+          const presetIdx = params.get('preset');
+          if (presetIdx !== null) loadPreset(parseInt(presetIdx));
+
           document.addEventListener('keydown', onKey);
+
+          // Expose for Playwright
+          window.__hortplanner = {
+            get engine() { return engine; },
+            switchMode: (m) => switchMode(m),
+            loadPreset: (i) => loadPreset(i),
+          };
         });
+
+        function createEngine(mode) {
+          if (engine) { engine.dispose(); engine = null; }
+          if (labelOverlay.value) labelOverlay.value.innerHTML = '';
+          selected.value = null; selectedConn.value = null;
+
+          if (mode === 'home' && HomePlannerEngine && canvasWrap.value) {
+            engine = new HomePlannerEngine(canvasWrap.value, callbacks, labelOverlay.value);
+            if (engine.getFloorIndices) floorList.value = engine.getFloorIndices();
+          } else if (HortPlannerEngine && canvasWrap.value) {
+            engine = new HortPlannerEngine(canvasWrap.value, callbacks, labelOverlay.value);
+          }
+        }
+
+        function switchMode(mode) {
+          if (mode === activeMode.value) return;
+          activeMode.value = mode;
+          activeTool.value = null;
+          createEngine(mode);
+        }
 
         onBeforeUnmount(() => {
           engine?.dispose();
@@ -481,79 +559,74 @@
         });
 
         function onKey(e) {
-          if (e.key === 'Escape') { activeTool.value = null; engine?.setActiveTool(null); }
+          if (e.key === 'Escape') { activeTool.value = null; engine?.setActiveTool?.(null); }
           if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
           if (e.key === 'h' || e.key === 'H') goHome();
-          if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); engine?.undo(); }
+          if (e.key === 'r' || e.key === 'R') { if (activeMode.value === 'home') engine?.rotateSelected?.(); }
+          if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); engine?.undo?.(); }
           if ((e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) ||
-              (e.key === 'y' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); engine?.redo(); }
+              (e.key === 'y' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); engine?.redo?.(); }
         }
 
         function setTool(type) {
           activeTool.value = activeTool.value === type ? null : type;
-          engine?.setActiveTool(activeTool.value);
+          engine?.setActiveTool?.(activeTool.value);
         }
 
         function onDragStart(event, type) {
           event.dataTransfer.setData('text/plain', type);
           event.dataTransfer.effectAllowed = 'copy';
-          // stash type for dragover preview (getData restricted in dragover)
           document.body.dataset.hortDragType = type;
         }
         function onDragOver(event) { event.dataTransfer.dropEffect = 'copy'; }
         function onDrop(event) {
           const type = event.dataTransfer.getData('text/plain');
-          if (type) engine?.handleDrop(type, event.clientX, event.clientY);
+          if (type) engine?.handleDrop?.(type, event.clientX, event.clientY);
         }
 
-        function onViewChange(mode) { engine?.setViewMode(mode); }
+        function onViewChange(mode) { engine?.setViewMode?.(mode); }
         function typeColor(t) { return TYPE_COLORS[t] || 'grey'; }
 
         function deleteSelected() {
           if (!selected.value) return;
-          engine?.removeComponent(selected.value.id);
+          if (activeMode.value === 'home') { engine?.removeSelected?.(); }
+          else { engine?.removeComponent?.(selected.value.id); }
           selected.value = null;
           rightOpen.value = false;
         }
 
         function enterSelected() {
-          if (selected.value?.isContainer) engine?.enterComponent(selected.value.id);
+          if (selected.value?.isContainer) engine?.enterComponent?.(selected.value.id);
         }
 
-        function doUndo() { engine?.undo(); }
-        function doRedo() { engine?.redo(); }
-        function resizeComp(dw, dd) {
-          if (!selected.value) return;
-          engine?.resizeContainer(selected.value.id, dw, dd);
-          // refresh properties
-          const data = engine?._compData(selected.value.id);
-          if (data) selected.value = data;
-        }
+        function doUndo() { engine?.undo?.(); }
+        function doRedo() { engine?.redo?.(); }
 
-        function navigateToRoot() { engine?.navigateToRoot(); }
-        function goHome() { engine?.goHome(); }
-        function navigateToLevel(id) { engine?.navigateToLevel(id); }
+        function navigateToRoot() { engine?.navigateToRoot?.(); }
+        function goHome() { engine?.goHome?.(); }
+        function navigateToLevel(id) { engine?.navigateToLevel?.(id); }
         function updateProp(key, val) {
-          if (selected.value) engine?.updateProperty(selected.value.id, key, val);
+          if (selected.value) engine?.updateProperty?.(selected.value.id, key, val);
         }
         function loadPreset(index) {
-          engine?.loadPreset(PRESETS[index]);
+          const list = activeMode.value === 'home' ? HOME_PRESETS : PRESETS;
+          if (activeMode.value === 'home') engine?.loadPreset?.(list[index]);
+          else engine?.loadPreset?.(list[index]);
           presetsDialog.value = false;
+          if (engine?.getFloorIndices) floorList.value = engine.getFloorIndices();
         }
 
-        function selectById(id) {
-          engine?.selectComponent(id);
-        }
+        function selectById(id) { engine?.selectComponent?.(id); }
 
         function setConnSecurity(level) {
           if (!selectedConn.value) return;
-          engine?.setConnectionSecurity(selectedConn.value.id, level);
+          engine?.setConnectionSecurity?.(selectedConn.value.id, level);
           selectedConn.value = { ...selectedConn.value, security: level };
         }
 
         function setTrust(trust) {
           if (!selected.value) return;
-          engine?.setTrust(selected.value.id, trust);
+          engine?.setTrust?.(selected.value.id, trust);
           selected.value = { ...selected.value, trust };
         }
 
@@ -567,14 +640,28 @@
           return SECURITY_LEVELS.find(s => s.value === level)?.color || '#eab308';
         }
 
+        function setFloor(idx) {
+          engine?.setActiveFloor?.(idx);
+          activeFloor.value = idx;
+        }
+
+        function addFloor() {
+          const indices = engine?.getFloorIndices?.() || [0];
+          const next = Math.max(...indices) + 1;
+          engine?.addFloor?.(next);
+          floorList.value = engine?.getFloorIndices?.() || [0];
+          setFloor(next);
+        }
+
         return {
           canvasWrap, labelOverlay, leftOpen, rightOpen, viewMode, selected, selectedConn, activeTool,
           levelStack, componentCount, connectionCount,
-          presetsDialog, presetList,
-          catalog: CATALOG, setTool, onDragStart, onDragOver, onDrop,
+          presetsDialog, presetList, catalog,
+          activeMode, switchMode, activeFloor, floorList, setFloor, addFloor,
+          setTool, onDragStart, onDragOver, onDrop,
           onViewChange, typeColor,
           deleteSelected, enterSelected, navigateToRoot, navigateToLevel, updateProp, loadPreset, goHome, selectById,
-          doUndo, doRedo, resizeComp,
+          doUndo, doRedo,
           setConnSecurity, setTrust, deleteConnection, securityColor,
           SECURITY_LEVELS, TRUST_LEVELS,
         };
