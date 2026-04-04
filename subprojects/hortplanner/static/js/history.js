@@ -125,7 +125,7 @@ export function serializeWorld(engine) {
  * Deserialize a world state back into the engine.
  * This is equivalent to loading a preset but from saved state.
  */
-export function deserializeWorld(engine, state) {
+export async function deserializeWorld(engine, state) {
   engine.clearAll();
   engine.worldSize = state.worldSize || 50;
 
@@ -144,5 +144,5 @@ export function deserializeWorld(engine, state) {
     ]),
   };
 
-  engine.loadPreset(preset);
+  await engine.loadPreset(preset);
 }

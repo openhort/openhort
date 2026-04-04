@@ -416,7 +416,6 @@
 
   <script type="module">
     import { PRESETS } from './static/js/presets.js';
-    import { HOME_PRESETS } from './static/js/presets-home.js';
 
     // Load both engines dynamically
     let HortPlannerEngine = null, HomePlannerEngine = null;
@@ -498,7 +497,7 @@
           return HORT_CATALOG;
         });
         const presetList = computed(() => {
-          return activeMode.value === 'home' ? HOME_PRESETS : PRESETS;
+          return activeMode.value === 'home' ? (engine?.getPresets?.() || []) : PRESETS;
         });
 
         const callbacks = {
@@ -511,21 +510,78 @@
           onFloorChange(idx) { activeFloor.value = idx; },
         };
 
+        // ── State persistence (localStorage) ──
+        const STORAGE_KEY = 'hortplanner-state';
+        let _lastPresetIdx = -1;
+        let _saveTimer = null;
+
+        function saveState() {
+          if (!engine) return;
+          const cam = engine.camera;
+          const ctrl = engine.controls;
+          const state = {
+            mode: activeMode.value,
+            presetIndex: _lastPresetIdx,
+            viewMode: viewMode.value,
+            floor: activeFloor.value,
+            camera: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+            target: { x: ctrl.target.x, y: ctrl.target.y, z: ctrl.target.z },
+            zoom: cam.zoom,
+          };
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+        }
+
+        function debouncedSave() {
+          clearTimeout(_saveTimer);
+          _saveTimer = setTimeout(saveState, 500);
+        }
+
+        function loadSavedState() {
+          try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
+        }
+
         onMounted(async () => {
           await engineReady;
-          // Check URL params for mode
           const params = new URLSearchParams(window.location.search);
-          const urlMode = params.get('mode') || 'hort';
-          activeMode.value = urlMode;
-          createEngine(urlMode);
+          const saved = loadSavedState();
 
-          // Auto-load preset from URL
-          const presetIdx = params.get('preset');
-          if (presetIdx !== null) loadPreset(parseInt(presetIdx));
+          // URL params override saved state
+          const urlMode = params.get('mode');
+          const urlPreset = params.get('preset');
+          const mode = urlMode || saved?.mode || 'hort';
+          activeMode.value = mode;
+          createEngine(mode);
+
+          // Load preset
+          const presetIdx = urlPreset !== null ? parseInt(urlPreset) : saved?.presetIndex ?? -1;
+          if (presetIdx >= 0) {
+            if (engine?._ready) {
+              await engine._ready;
+            }
+            loadPreset(presetIdx);
+          }
+
+          // Restore camera state (after a short delay for preset to render)
+          if (!urlMode && !urlPreset && saved) {
+            setTimeout(() => {
+              if (!engine) return;
+              if (saved.viewMode) { viewMode.value = saved.viewMode; engine.setViewMode?.(saved.viewMode); }
+              if (saved.floor !== undefined) { activeFloor.value = saved.floor; engine.setActiveFloor?.(saved.floor); }
+              if (saved.camera && saved.target) {
+                engine.camera.position.set(saved.camera.x, saved.camera.y, saved.camera.z);
+                engine.controls.target.set(saved.target.x, saved.target.y, saved.target.z);
+                engine.camera.zoom = saved.zoom || 1;
+                engine.camera.updateProjectionMatrix();
+                engine.camera.lookAt(engine.controls.target);
+              }
+            }, 500);
+          }
+
+          // Save on camera changes
+          engine?.controls?.addEventListener?.('change', debouncedSave);
 
           document.addEventListener('keydown', onKey);
 
-          // Expose for Playwright
           window.__hortplanner = {
             get engine() { return engine; },
             switchMode: (m) => switchMode(m),
@@ -551,9 +607,10 @@
         }
 
         function switchMode(mode) {
-          // v-model already updated activeMode — just recreate the engine
           activeTool.value = null;
           createEngine(mode);
+          engine?.controls?.addEventListener?.('change', debouncedSave);
+          saveState();
         }
 
         onBeforeUnmount(() => {
@@ -587,7 +644,7 @@
           if (type) engine?.handleDrop?.(type, event.clientX, event.clientY);
         }
 
-        function onViewChange(mode) { engine?.setViewMode?.(mode); }
+        function onViewChange(mode) { engine?.setViewMode?.(mode); saveState(); }
         function typeColor(t) { return TYPE_COLORS[t] || 'grey'; }
 
         function deleteSelected() {
@@ -612,12 +669,14 @@
           if (selected.value) engine?.updateProperty?.(selected.value.id, key, val);
         }
         function loadPreset(index) {
-          const list = activeMode.value === 'home' ? HOME_PRESETS : PRESETS;
+          const list = activeMode.value === 'home' ? (engine?.getPresets?.() || []) : PRESETS;
           const preset = list[index];
           if (!preset) return;
+          _lastPresetIdx = index;
           engine?.loadPreset?.(preset);
           presetsDialog.value = false;
           if (engine?.getFloorIndices) floorList.value = engine.getFloorIndices();
+          setTimeout(saveState, 1000); // save after render settles
         }
 
         function selectById(id) { engine?.selectComponent?.(id); }
@@ -647,6 +706,7 @@
         function setFloor(idx) {
           engine?.setActiveFloor?.(idx);
           activeFloor.value = idx;
+          saveState();
         }
 
         function addFloor() {

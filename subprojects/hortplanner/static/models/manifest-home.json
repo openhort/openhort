@@ -1,0 +1,599 @@
+{
+  "$schema": "hortplanner-home-models-v1",
+  "$comment": "Furniture and structure component definitions for home/apartment planning. Each grid cell = 25cm. Sizes are width x depth in tiles. Heights in metres. Shapes define the 3D rendering strategy. Doors and windows are catalog entries \u2014 actual placement uses wall tools.",
+  "components": {
+    "sofa": {
+      "displayName": "Sofa",
+      "category": "living",
+      "body": {
+        "width": 4,
+        "depth": 8,
+        "height": 1.0,
+        "shape": "sofa"
+      },
+      "material": {
+        "color": "#6b7280",
+        "roughness": 0.6,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "weekend",
+      "desc": "Three-seater sofa"
+    },
+    "armchair": {
+      "displayName": "Armchair",
+      "category": "living",
+      "body": {
+        "width": 3,
+        "depth": 3,
+        "height": 0.9,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#78716c",
+        "roughness": 0.6,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "weekend",
+      "desc": "Single armchair"
+    },
+    "tv": {
+      "displayName": "TV",
+      "category": "living",
+      "body": {
+        "width": 5,
+        "depth": 1,
+        "height": 2.8,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#1e293b",
+        "roughness": 0.3,
+        "metalness": 0.4
+      },
+      "features": {},
+      "animations": {},
+      "icon": "tv",
+      "desc": "Flat-screen television"
+    },
+    "bookshelf": {
+      "displayName": "Bookshelf",
+      "category": "living",
+      "body": {
+        "width": 4,
+        "depth": 1,
+        "height": 2.8,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#92400e",
+        "roughness": 0.7,
+        "metalness": 0.05
+      },
+      "features": {},
+      "animations": {},
+      "icon": "menu_book",
+      "desc": "Tall bookshelf"
+    },
+    "coffee-table": {
+      "displayName": "Coffee Table",
+      "category": "living",
+      "body": {
+        "width": 3,
+        "depth": 5,
+        "height": 0.5,
+        "shape": "table"
+      },
+      "material": {
+        "color": "#78716c",
+        "roughness": 0.5,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "table_restaurant",
+      "desc": "Low coffee table"
+    },
+    "counter": {
+      "displayName": "Counter",
+      "category": "kitchen",
+      "body": {
+        "width": 3,
+        "depth": 2,
+        "height": 1.1,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#d4d4d8",
+        "roughness": 0.4,
+        "metalness": 0.2
+      },
+      "features": {},
+      "animations": {},
+      "icon": "countertops",
+      "desc": "Kitchen countertop"
+    },
+    "stove": {
+      "displayName": "Stove",
+      "category": "kitchen",
+      "body": {
+        "width": 3,
+        "depth": 3,
+        "height": 1.1,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#27272a",
+        "roughness": 0.3,
+        "metalness": 0.5
+      },
+      "features": {},
+      "animations": {},
+      "icon": "local_fire_department",
+      "desc": "Four-burner stove"
+    },
+    "fridge": {
+      "displayName": "Fridge",
+      "category": "kitchen",
+      "body": {
+        "width": 3,
+        "depth": 3,
+        "height": 2.5,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#d4d4d8",
+        "roughness": 0.3,
+        "metalness": 0.3
+      },
+      "features": {},
+      "animations": {},
+      "icon": "kitchen",
+      "desc": "Full-size refrigerator"
+    },
+    "sink": {
+      "displayName": "Sink",
+      "category": "kitchen",
+      "body": {
+        "width": 3,
+        "depth": 2,
+        "height": 1.1,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#a8a29e",
+        "roughness": 0.3,
+        "metalness": 0.4
+      },
+      "features": {},
+      "animations": {},
+      "icon": "water_drop",
+      "desc": "Kitchen sink"
+    },
+    "dining-table": {
+      "displayName": "Dining Table",
+      "category": "kitchen",
+      "body": {
+        "width": 4,
+        "depth": 6,
+        "height": 0.9,
+        "shape": "table"
+      },
+      "material": {
+        "color": "#92400e",
+        "roughness": 0.6,
+        "metalness": 0.05
+      },
+      "features": {},
+      "animations": {},
+      "icon": "table_restaurant",
+      "desc": "Six-seater dining table"
+    },
+    "chair": {
+      "displayName": "Chair",
+      "category": "kitchen",
+      "body": {
+        "width": 2,
+        "depth": 2,
+        "height": 1.1,
+        "shape": "chair"
+      },
+      "material": {
+        "color": "#78716c",
+        "roughness": 0.6,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "chair",
+      "desc": "Dining chair"
+    },
+    "bed-single": {
+      "displayName": "Single Bed",
+      "category": "bedroom",
+      "body": {
+        "width": 4,
+        "depth": 8,
+        "height": 0.6,
+        "shape": "bed"
+      },
+      "material": {
+        "color": "#60a5fa",
+        "roughness": 0.8,
+        "metalness": 0.0
+      },
+      "features": {},
+      "animations": {},
+      "icon": "single_bed",
+      "desc": "Single bed (100 x 200 cm)"
+    },
+    "bed-double": {
+      "displayName": "Double Bed",
+      "category": "bedroom",
+      "body": {
+        "width": 7,
+        "depth": 8,
+        "height": 0.6,
+        "shape": "bed"
+      },
+      "material": {
+        "color": "#60a5fa",
+        "roughness": 0.8,
+        "metalness": 0.0
+      },
+      "features": {},
+      "animations": {},
+      "icon": "king_bed",
+      "desc": "Double bed (175 x 200 cm)"
+    },
+    "wardrobe": {
+      "displayName": "Wardrobe",
+      "category": "bedroom",
+      "body": {
+        "width": 5,
+        "depth": 2,
+        "height": 2.8,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#78716c",
+        "roughness": 0.6,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "door_sliding",
+      "desc": "Sliding-door wardrobe"
+    },
+    "desk": {
+      "displayName": "Desk",
+      "category": "bedroom",
+      "body": {
+        "width": 4,
+        "depth": 3,
+        "height": 0.9,
+        "shape": "table"
+      },
+      "material": {
+        "color": "#92400e",
+        "roughness": 0.6,
+        "metalness": 0.05
+      },
+      "features": {},
+      "animations": {},
+      "icon": "desk",
+      "desc": "Writing desk"
+    },
+    "nightstand": {
+      "displayName": "Nightstand",
+      "category": "bedroom",
+      "body": {
+        "width": 2,
+        "depth": 2,
+        "height": 0.6,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#78716c",
+        "roughness": 0.6,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "nightlight",
+      "desc": "Bedside nightstand"
+    },
+    "toilet": {
+      "displayName": "Toilet",
+      "category": "bathroom",
+      "body": {
+        "width": 2,
+        "depth": 3,
+        "height": 0.5,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#fafaf9",
+        "roughness": 0.2,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "wc",
+      "desc": "Standard toilet"
+    },
+    "bathtub": {
+      "displayName": "Bathtub",
+      "category": "bathroom",
+      "body": {
+        "width": 4,
+        "depth": 7,
+        "height": 0.8,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#fafaf9",
+        "roughness": 0.2,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "bathtub",
+      "desc": "Standard bathtub"
+    },
+    "shower": {
+      "displayName": "Shower",
+      "category": "bathroom",
+      "body": {
+        "width": 4,
+        "depth": 4,
+        "height": 0.15,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#e7e5e4",
+        "roughness": 0.2,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "shower",
+      "desc": "Walk-in shower tray"
+    },
+    "basin": {
+      "displayName": "Basin",
+      "category": "bathroom",
+      "body": {
+        "width": 2,
+        "depth": 2,
+        "height": 1.0,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#fafaf9",
+        "roughness": 0.2,
+        "metalness": 0.1
+      },
+      "features": {},
+      "animations": {},
+      "icon": "wash",
+      "desc": "Wash basin"
+    },
+    "washing-machine": {
+      "displayName": "Washing Machine",
+      "category": "utility",
+      "body": {
+        "width": 3,
+        "depth": 3,
+        "height": 1.1,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#d4d4d8",
+        "roughness": 0.3,
+        "metalness": 0.3
+      },
+      "features": {
+        "spin": {
+          "enabled": true,
+          "speed": 1.5,
+          "target": "drum"
+        }
+      },
+      "animations": {},
+      "icon": "local_laundry_service",
+      "desc": "Front-load washing machine"
+    },
+    "dryer": {
+      "displayName": "Dryer",
+      "category": "utility",
+      "body": {
+        "width": 3,
+        "depth": 3,
+        "height": 1.1,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#d4d4d8",
+        "roughness": 0.3,
+        "metalness": 0.3
+      },
+      "features": {},
+      "animations": {},
+      "icon": "dry_cleaning",
+      "desc": "Tumble dryer"
+    },
+    "ceiling-light": {
+      "displayName": "Ceiling Light",
+      "category": "lighting",
+      "body": {
+        "width": 2,
+        "depth": 2,
+        "height": 0.1,
+        "shape": "light"
+      },
+      "material": {
+        "color": "#fbbf24",
+        "roughness": 0.3,
+        "metalness": 0.2
+      },
+      "features": {
+        "light": {
+          "enabled": true,
+          "color": "#fbbf24",
+          "intensity": 2.0,
+          "type": "point"
+        }
+      },
+      "animations": {},
+      "icon": "light",
+      "desc": "Flush ceiling light"
+    },
+    "floor-lamp": {
+      "displayName": "Floor Lamp",
+      "category": "lighting",
+      "body": {
+        "width": 1,
+        "depth": 1,
+        "height": 2.0,
+        "shape": "lamp"
+      },
+      "material": {
+        "color": "#78716c",
+        "roughness": 0.5,
+        "metalness": 0.2
+      },
+      "features": {
+        "light": {
+          "enabled": true,
+          "color": "#fef3c7",
+          "intensity": 1.5,
+          "type": "point"
+        }
+      },
+      "animations": {},
+      "icon": "light",
+      "desc": "Standing floor lamp"
+    },
+    "wall-sconce": {
+      "displayName": "Wall Sconce",
+      "category": "lighting",
+      "body": {
+        "width": 1,
+        "depth": 1,
+        "height": 0.3,
+        "shape": "box"
+      },
+      "material": {
+        "color": "#d4d4d8",
+        "roughness": 0.3,
+        "metalness": 0.3
+      },
+      "features": {
+        "light": {
+          "enabled": true,
+          "color": "#fef3c7",
+          "intensity": 1.0,
+          "type": "spot"
+        }
+      },
+      "animations": {},
+      "icon": "light",
+      "desc": "Wall-mounted sconce"
+    },
+    "stairs-straight": {
+      "displayName": "Straight Stairs",
+      "category": "structure",
+      "body": {
+        "width": 4,
+        "depth": 10,
+        "height": 3.5,
+        "shape": "stairs"
+      },
+      "material": {
+        "color": "#92400e",
+        "roughness": 0.7,
+        "metalness": 0.05
+      },
+      "features": {},
+      "animations": {},
+      "icon": "stairs",
+      "desc": "Straight staircase (one flight)"
+    },
+    "door-s": {
+      "displayName": "Door (Small)",
+      "category": "doors",
+      "body": {
+        "width": 2
+      },
+      "material": {},
+      "features": {},
+      "animations": {},
+      "icon": "door_front",
+      "desc": "50 cm door"
+    },
+    "door-n": {
+      "displayName": "Door (Normal)",
+      "category": "doors",
+      "body": {
+        "width": 3
+      },
+      "material": {},
+      "features": {},
+      "animations": {},
+      "icon": "door_front",
+      "desc": "75 cm door"
+    },
+    "door-l": {
+      "displayName": "Door (Large)",
+      "category": "doors",
+      "body": {
+        "width": 4
+      },
+      "material": {},
+      "features": {},
+      "animations": {},
+      "icon": "door_front",
+      "desc": "100 cm door"
+    },
+    "door-slide": {
+      "displayName": "Sliding Door",
+      "category": "doors",
+      "body": {
+        "width": 4
+      },
+      "material": {},
+      "features": {},
+      "animations": {},
+      "icon": "door_sliding",
+      "desc": "100 cm sliding door"
+    },
+    "window-s": {
+      "displayName": "Window (Small)",
+      "category": "windows",
+      "body": {
+        "width": 2
+      },
+      "material": {},
+      "features": {},
+      "animations": {},
+      "icon": "window",
+      "desc": "50 cm window"
+    },
+    "window-l": {
+      "displayName": "Window (Large)",
+      "category": "windows",
+      "body": {
+        "width": 4
+      },
+      "material": {},
+      "features": {},
+      "animations": {},
+      "icon": "window",
+      "desc": "100 cm window"
+    }
+  }
+}

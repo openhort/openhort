@@ -8,6 +8,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { WorldGrid, InternalGrid, GRID } from './grid.js';
 import { ActionHistory, serializeWorld } from './history.js';
 import { loadManifest, getManifest, getDisplayName, getPorts, getBodyDef, buildComponentMesh, playAnimation } from './models.js';
@@ -79,6 +80,24 @@ function vizSize(type) {
   }
   // sub-horts: use footprint as visual size
   return { w: g.footW, d: g.footD };
+}
+
+// ── GLB model loader ───────────────────────────────────────
+
+const _glbCache = new Map();
+const _glbLoader = new GLTFLoader();
+
+async function loadGLBModel(type) {
+    if (_glbCache.has(type)) return _glbCache.get(type).clone();
+    try {
+        const gltf = await _glbLoader.loadAsync(`/static/models/glb/${type}.glb`);
+        const model = gltf.scene;
+        _glbCache.set(type, model);
+        return model.clone();
+    } catch (e) {
+        console.warn(`GLB not found for ${type}, using procedural fallback`);
+        return null;
+    }
 }
 
 // ── Shaders ─────────────────────────────────────────────────
@@ -445,6 +464,31 @@ function createComponentMesh(type) {
   const h = bodyDef.wallHeight || bodyDef.height || 1;
   addPorts(group, { w: sz.w, d: sz.d, h, ports });
 
+  group.userData.compType = type;
+  return group;
+}
+
+async function createComponentMeshAsync(type) {
+  const sz = vizSize(type);
+
+  // Try GLB first
+  let group = await loadGLBModel(type);
+  if (group) {
+    // GLB loaded — add port hit targets for connection creation
+    const ports = getPorts(type);
+    const bodyDef = getBodyDef(type);
+    const h = bodyDef.wallHeight || bodyDef.height || 1;
+    addPorts(group, { w: sz.w, d: sz.d, h, ports });
+    group.userData.compType = type;
+    return group;
+  }
+
+  // Fallback to procedural
+  group = buildComponentMesh(type, sz.w, sz.d);
+  const ports = getPorts(type);
+  const bodyDef = getBodyDef(type);
+  const h = bodyDef.wallHeight || bodyDef.height || 1;
+  addPorts(group, { w: sz.w, d: sz.d, h, ports });
   group.userData.compType = type;
   return group;
 }
@@ -960,7 +1004,7 @@ export class HortPlannerEngine {
 
   // ── Placement System (grid-based, relative coords) ────────
 
-  handleDrop(type, clientX, clientY) {
+  async handleDrop(type, clientX, clientY) {
     if (!DEFS[type] || !GRID[type]) return null;
     this._hidePreview();
 
@@ -973,26 +1017,26 @@ export class HortPlannerEngine {
       if (g.cat !== 'machine') {
         // dropping non-machine onto world → check if over a hort
         const hortId = this.worldGrid.hortAt(pos.x, pos.z);
-        if (hortId) return this._addChild(hortId, type);
+        if (hortId) return await this._addChild(hortId, type);
         return null;
       }
       const gx = Math.round(pos.x - g.innerW / 2);
       const gz = Math.round(pos.z - g.innerD / 2);
       if (!this.worldGrid.canPlace(gx, gz, g.innerW, g.innerD).valid) return null;
-      return this._placeMachineHort(type, gx, gz);
+      return await this._placeMachineHort(type, gx, gz);
     } else {
       // INSIDE A CONTAINER (isolated view)
       if (g.cat === 'machine') return null;
-      return this._addChild(this.currentLevelId, type);
+      return await this._addChild(this.currentLevelId, type);
     }
   }
 
   /** Place a machine hort in the world grid. */
-  _placeMachineHort(type, gx, gz) {
+  async _placeMachineHort(type, gx, gz) {
     const g = GRID[type];
     const def = DEFS[type];
     const id = this._nextId++;
-    const mesh = createComponentMesh(type);
+    const mesh = await createComponentMeshAsync(type);
     mesh.position.set(gx + g.innerW / 2, 0, gz + g.innerD / 2);
     mesh.userData.componentId = id;
 
@@ -1020,7 +1064,7 @@ export class HortPlannerEngine {
   }
 
   /** Add a child (sub-hort or tool) into a container. */
-  _addChild(parentId, type) {
+  async _addChild(parentId, type) {
     const parent = this.components.get(parentId);
     if (!parent || !parent.internalGrid) return null;
     const g = GRID[type];
@@ -1051,13 +1095,13 @@ export class HortPlannerEngine {
         this.worldGrid.occupy(parentId, parent.gridX, parent.gridZ, parent.innerW, parent.innerD);
         parent.footW = parent.innerW;
         parent.footD = parent.innerD;
-        this._rebuildContainerMesh(parentId);
+        await this._rebuildContainerMesh(parentId);
       }
     }
 
     const id = this._nextId++;
     parent.internalGrid.occupy(id, slot.x, slot.z, fw, fd);
-    const mesh = createComponentMesh(type);
+    const mesh = await createComponentMeshAsync(type);
     mesh.userData.componentId = id;
     mesh.scale.set(0, 0, 0);
     this._tweenScale(mesh, 1, 300);
@@ -1084,7 +1128,7 @@ export class HortPlannerEngine {
   }
 
   /** Rebuild a container's 3D mesh after resize (full dispose + recreate). */
-  _rebuildContainerMesh(compId) {
+  async _rebuildContainerMesh(compId) {
     const comp = this.components.get(compId);
     if (!comp) return;
     const def = DEFS[comp.type];
@@ -1100,8 +1144,11 @@ export class HortPlannerEngine {
       d = comp.footD || vizSize(comp.type).d;
     }
 
-    // Build fresh mesh at new dimensions
-    const newGroup = buildComponentMesh(comp.type, w, d);
+    // Try GLB first, fall back to procedural
+    let newGroup = await loadGLBModel(comp.type);
+    if (!newGroup) {
+      newGroup = buildComponentMesh(comp.type, w, d);
+    }
     const ports = getPorts(comp.type);
     const bodyDef = getBodyDef(comp.type);
     const h = bodyDef.wallHeight || bodyDef.height || 1;
@@ -1393,31 +1440,31 @@ export class HortPlannerEngine {
   }
 
   /** Undo last action — rebuilds world from snapshot. */
-  undo() {
+  async undo() {
     const action = this.history.undo();
     if (!action) return;
-    this._applyAction(action, true); // reverse
+    await this._applyAction(action, true); // reverse
   }
 
   /** Redo last undone action. */
-  redo() {
+  async redo() {
     const action = this.history.redo();
     if (!action) return;
-    this._applyAction(action, false); // forward
+    await this._applyAction(action, false); // forward
   }
 
-  _applyAction(action, reverse) {
+  async _applyAction(action, reverse) {
     if (action.type === 'place') {
       if (reverse) {
         this.removeComponent(action.compId);
       } else {
-        this._placeMachineHort(action.compType, action.gridX, action.gridZ);
+        await this._placeMachineHort(action.compType, action.gridX, action.gridZ);
       }
     } else if (action.type === 'addChild') {
       if (reverse) {
         this.removeComponent(action.compId);
       } else {
-        this._addChild(action.parentId, action.compType);
+        await this._addChild(action.parentId, action.compType);
       }
     } else if (action.type === 'move') {
       const id = action.compId;
@@ -1446,7 +1493,7 @@ export class HortPlannerEngine {
   }
 
   /** Resize a container by delta grid steps. */
-  resizeContainer(id, dw, dd) {
+  async resizeContainer(id, dw, dd) {
     const comp = this.components.get(id);
     if (!comp || comp.innerW == null) return;
 
@@ -1478,7 +1525,7 @@ export class HortPlannerEngine {
       comp.footD = newD;
     }
 
-    this._rebuildContainerMesh(id);
+    await this._rebuildContainerMesh(id);
     this._updateLevelView();
     this.history.push({ type: 'resize', compId: id, oldW, oldD, newW, newD });
   }
@@ -1548,7 +1595,7 @@ export class HortPlannerEngine {
     this._emitLevelChange();
   }
 
-  loadPreset(preset) {
+  async loadPreset(preset) {
     if (!preset?.components) return; // guard: not a hort preset
     this.clearAll();
     const idMap = new Map();
@@ -1562,7 +1609,7 @@ export class HortPlannerEngine {
       if (g?.cat === 'machine') {
         const gx = Math.round(c.x ?? 0);
         const gz = Math.round(c.z ?? 0);
-        const data = this._placeMachineHort(c.type, gx, gz);
+        const data = await this._placeMachineHort(c.type, gx, gz);
         if (data) {
           idMap.set(i, data.id);
           if (!firstMachineId) firstMachineId = data.id;
@@ -1586,7 +1633,7 @@ export class HortPlannerEngine {
         continue; // machine hort already placed
       }
       if (!parentId) continue;
-      const data = this._addChild(parentId, c.type);
+      const data = await this._addChild(parentId, c.type);
       if (data) {
         idMap.set(i, data.id);
         const comp = this.components.get(data.id);

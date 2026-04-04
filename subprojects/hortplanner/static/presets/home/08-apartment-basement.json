@@ -1,0 +1,76 @@
+{
+  "name": "Apartment with Basement",
+  "desc": "95 sqm, basement: storage/laundry; ground: living, bedroom, kitchen, bath",
+  "floors": {
+    "-1": {
+      "walls": [
+        [0, 0, 40, 0],
+        [0, 0, 0, 48],
+        [40, 0, 40, 48],
+        [0, 48, 40, 48],
+        [20, 0, 20, 48]
+      ],
+      "doors": [
+        { "x": 20, "z": 20, "o": "v", "type": "door-s" }
+      ],
+      "windows": [
+        { "x": 8, "z": 0, "o": "h", "type": "window-s" },
+        { "x": 32, "z": 0, "o": "h", "type": "window-s" }
+      ],
+      "furniture": [
+        { "type": "counter", "x": 1, "z": 2, "rot": 0 },
+        { "type": "sink", "x": 1, "z": 6, "rot": 0 },
+        { "type": "counter", "x": 1, "z": 10, "rot": 0 },
+        { "type": "bookshelf", "x": 22, "z": 1, "rot": 0 },
+        { "type": "bookshelf", "x": 28, "z": 1, "rot": 0 },
+        { "type": "bookshelf", "x": 34, "z": 1, "rot": 0 },
+        { "type": "stairs-straight", "x": 8, "z": 36, "rot": 180 }
+      ]
+    },
+    "0": {
+      "walls": [
+        [0, 0, 40, 0],
+        [0, 0, 0, 48],
+        [40, 0, 40, 48],
+        [0, 48, 40, 48],
+        [16, 24, 16, 48],
+        [0, 24, 16, 24],
+        [16, 0, 16, 24],
+        [16, 24, 40, 24],
+        [0, 36, 16, 36]
+      ],
+      "doors": [
+        { "x": 20, "z": 48, "o": "h", "type": "door-n" },
+        { "x": 8, "z": 24, "o": "h", "type": "door-n" },
+        { "x": 24, "z": 24, "o": "h", "type": "door-n" },
+        { "x": 8, "z": 36, "o": "h", "type": "door-n" }
+      ],
+      "windows": [
+        { "x": 4, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 28, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 0, "z": 10, "o": "v", "type": "window-l" },
+        { "x": 40, "z": 10, "o": "v", "type": "window-l" }
+      ],
+      "furniture": [
+        { "type": "bed-double", "x": 1, "z": 1, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 1, "rot": 0 },
+        { "type": "wardrobe", "x": 1, "z": 12, "rot": 0 },
+        { "type": "tv", "x": 17, "z": 1, "rot": 0 },
+        { "type": "coffee-table", "x": 17, "z": 5, "rot": 0 },
+        { "type": "sofa", "x": 17, "z": 12, "rot": 0 },
+        { "type": "counter", "x": 37, "z": 25, "rot": 90 },
+        { "type": "stove", "x": 37, "z": 28, "rot": 90 },
+        { "type": "sink", "x": 37, "z": 31, "rot": 90 },
+        { "type": "fridge", "x": 36, "z": 34, "rot": 0 },
+        { "type": "dining-table", "x": 20, "z": 32, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 29, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 39, "rot": 180 },
+        { "type": "chair", "x": 25, "z": 34, "rot": 90 },
+        { "type": "bathtub", "x": 1, "z": 37, "rot": 0 },
+        { "type": "toilet", "x": 7, "z": 37, "rot": 0 },
+        { "type": "basin", "x": 7, "z": 42, "rot": 0 },
+        { "type": "stairs-straight", "x": 2, "z": 26, "rot": 0 }
+      ]
+    }
+  }
+}

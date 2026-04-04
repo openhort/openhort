@@ -9,40 +9,74 @@
 import { THREE, OrbitControls, createScene, createGrid, createDotGrid,
          makeHtmlLabel, tweenScale, updateGridUniforms, projectToScreen,
          COLORS, getParticleGlowTexture } from './engine-base.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HomeGrid, RoomDetector } from './grid-home.js';
-import { HOME_PRESETS } from './presets-home.js';
 
-// ── Furniture definitions ──────────────────────────────────
-// w/d in grid cells (25 cm each), h in Three.js units
+// ── GLB model cache and loader ────────────────────────────
 
-const FURNITURE_DEFS = {
-  // Living
-  'sofa':            { w: 3, d: 6, h: 0.8, color: 0x6b7280, label: 'Sofa' },
-  'armchair':        { w: 2, d: 2, h: 0.8, color: 0x78716c, label: 'Armchair' },
-  'tv':              { w: 4, d: 1, h: 1.5, color: 0x1e293b, label: 'TV' },
-  'bookshelf':       { w: 3, d: 1, h: 2.0, color: 0x92400e, label: 'Bookshelf' },
-  'coffee-table':    { w: 2, d: 3, h: 0.4, color: 0x78716c, label: 'Coffee Table' },
-  // Kitchen
-  'counter':         { w: 2, d: 1, h: 0.9, color: 0xd4d4d8, label: 'Counter' },
-  'stove':           { w: 2, d: 2, h: 0.9, color: 0x27272a, label: 'Stove' },
-  'fridge':          { w: 2, d: 2, h: 2.0, color: 0xd4d4d8, label: 'Fridge' },
-  'sink':            { w: 2, d: 1, h: 0.9, color: 0xa8a29e, label: 'Sink' },
-  'dining-table':    { w: 3, d: 5, h: 0.75, color: 0x92400e, label: 'Dining Table' },
-  'chair':           { w: 1, d: 1, h: 0.9, color: 0x78716c, label: 'Chair' },
-  // Bedroom
-  'bed-single':      { w: 3, d: 7, h: 0.5, color: 0x60a5fa, label: 'Single Bed' },
-  'bed-double':      { w: 6, d: 8, h: 0.5, color: 0x60a5fa, label: 'Double Bed' },
-  'wardrobe':        { w: 4, d: 2, h: 2.0, color: 0x78716c, label: 'Wardrobe' },
-  'desk':            { w: 3, d: 2, h: 0.75, color: 0x92400e, label: 'Desk' },
-  'nightstand':      { w: 1, d: 1, h: 0.5, color: 0x78716c, label: 'Nightstand' },
-  // Bathroom
-  'toilet':          { w: 2, d: 2, h: 0.4, color: 0xfafaf9, label: 'Toilet' },
-  'bathtub':         { w: 3, d: 6, h: 0.6, color: 0xfafaf9, label: 'Bathtub' },
-  'shower':          { w: 3, d: 3, h: 0.1, color: 0xe7e5e4, label: 'Shower' },
-  'basin':           { w: 2, d: 1, h: 0.8, color: 0xfafaf9, label: 'Basin' },
-  // Stairs
-  'stairs-straight': { w: 3, d: 8, h: 3.0, color: 0x92400e, label: 'Stairs' },
-};
+const _glbCache = new Map(); // type -> THREE.Group (template)
+const _glbLoader = new GLTFLoader();
+
+/** Load a GLB model, clone from cache if already loaded. Returns a THREE.Group. */
+async function loadModel(type) {
+    if (_glbCache.has(type)) {
+        return _glbCache.get(type).clone();
+    }
+    try {
+        const gltf = await _glbLoader.loadAsync(`/static/models/glb/${type}.glb`);
+        const model = gltf.scene;
+        _glbCache.set(type, model);
+        return model.clone();
+    } catch (e) {
+        console.warn(`GLB not found for ${type}, using fallback box`);
+        return null;
+    }
+}
+
+// ── Furniture definitions (loaded from manifest-home.json) ──
+
+let FURNITURE_DEFS = {};
+let _manifestLoaded = false;
+let _presetCache = []; // loaded from individual JSON files
+
+/** Load the home manifest and preset index. */
+async function loadHomeManifest(basePath = '/static') {
+  if (_manifestLoaded) return;
+  try {
+    const res = await fetch(`${basePath}/models/manifest-home.json`);
+    const data = await res.json();
+    // Convert manifest components to FURNITURE_DEFS format
+    for (const [key, comp] of Object.entries(data.components || {})) {
+      if (!comp.body?.width) continue; // skip door/window catalog entries without dimensions
+      FURNITURE_DEFS[key] = {
+        w: comp.body.width,
+        d: comp.body.depth || comp.body.width,
+        h: comp.body.height || 1,
+        color: parseInt((comp.material?.color || '#888888').replace('#', ''), 16),
+        label: comp.displayName || key,
+        shape: comp.body.shape || 'box',
+        icon: comp.icon || 'widgets',
+        category: comp.category || 'other',
+        features: comp.features || {},
+        animations: comp.animations || {},
+      };
+    }
+  } catch (e) { console.warn('manifest-home.json load failed, using defaults', e); }
+  // Load preset index
+  try {
+    const presetFiles = [
+      '01-studio-apartment', '02-one-bedroom', '03-two-bedroom',
+      '04-loft-apartment', '05-small-house', '06-two-story-house',
+      '07-split-level-home', '08-apartment-basement',
+      '09-open-plan-penthouse', '10-tiny-house',
+    ];
+    _presetCache = await Promise.all(
+      presetFiles.map(f => fetch(`${basePath}/presets/home/${f}.json`).then(r => r.json()).catch(() => null))
+    );
+    _presetCache = _presetCache.filter(Boolean);
+  } catch (e) { console.warn('preset load failed', e); }
+  _manifestLoaded = true;
+}
 
 // ── Room floor colors ──────────────────────────────────────
 
@@ -59,7 +93,7 @@ const ROOM_COLORS = [
 
 // ── Wall constants ─────────────────────────────────────────
 
-const WALL_H       = 2.0;   // wall height (dollhouse look)
+const WALL_H       = 5.0;   // wall height (dollhouse look — taller than all furniture)
 const WALL_THICK   = 0.12;  // wall thickness
 const WALL_COLOR   = 0xd4d4d8;
 const WALL_EMISSIVE = 0x222222;
@@ -79,7 +113,7 @@ const OPENING_WIDTHS = {
 
 // ── Grid sizing ────────────────────────────────────────────
 
-const WORLD_SIZE = 80;      // 80 tiles = 20 m
+const WORLD_SIZE_MIN = 20;  // minimum world size
 const GRID_CELLS = 80;      // detect rooms within this extent
 
 // ════════════════════════════════════════════════════════════
@@ -97,7 +131,7 @@ export class HomePlannerEngine {
     this.container = container;
     this.callbacks = callbacks;
     this.labelOverlay = labelOverlay;
-    this.worldSize = WORLD_SIZE;
+    this.worldSize = WORLD_SIZE_MIN;
 
     // ── Data model ──────────────────────────────────────
     this.homeGrid = new HomeGrid();
@@ -156,6 +190,8 @@ export class HomePlannerEngine {
     // Clock and animation loop
     this._clock = new THREE.Clock();
     this._rafId = null;
+    // Load manifest (presets + furniture defs) then start rendering
+    this._ready = loadHomeManifest();
     this._animate();
   }
 
@@ -240,7 +276,7 @@ export class HomePlannerEngine {
   //  Pointer Handlers
   // ════════════════════════════════════════════════════════
 
-  _handlePointerDown(e) {
+  async _handlePointerDown(e) {
     if (e.button !== 0) return;  // left-click only for tools
     const pos = this._groundHit(e);
     if (!pos) return;
@@ -264,7 +300,7 @@ export class HomePlannerEngine {
       } else {
         floor.walls.setWall(edge.x, edge.z, edge.o, { type: 'wall' });
       }
-      this._rebuildAll();
+      await this._rebuildAll();
       this.controls.enabled = false;  // prevent pan while drawing walls
       return;
     }
@@ -283,7 +319,7 @@ export class HomePlannerEngine {
         const ez = edge.o === 'v' ? edge.z + i : edge.z;
         floor.walls.setWall(ex, ez, edge.o, { type: tool });
       }
-      this._rebuildAll();
+      await this._rebuildAll();
       return;
     }
 
@@ -294,7 +330,7 @@ export class HomePlannerEngine {
       if (!def) return;
       const snap = this._snapToGrid(pos);
       const id = this.homeGrid.addFurniture(type, snap.x, snap.z, 0);
-      this._rebuildAll();
+      await this._rebuildAll();
       this._selectFurniture(id);
       return;
     }
@@ -317,7 +353,7 @@ export class HomePlannerEngine {
     }
   }
 
-  _handlePointerMove(e) {
+  async _handlePointerMove(e) {
     const pos = this._groundHit(e);
     if (!pos) return;
 
@@ -339,7 +375,7 @@ export class HomePlannerEngine {
       } else {
         floor.walls.setWall(edge.x, edge.z, edge.o, { type: 'wall' });
       }
-      this._rebuildAll();
+      await this._rebuildAll();
       return;
     }
 
@@ -375,7 +411,7 @@ export class HomePlannerEngine {
     this._removeGhostMesh();
   }
 
-  _handlePointerUp(e) {
+  async _handlePointerUp(e) {
     if (this._isDrawingWall) {
       this._isDrawingWall = false;
       this._wallDrawMode = null;
@@ -386,7 +422,7 @@ export class HomePlannerEngine {
       this._isDragging = false;
       this._dragOffset = null;
       this.controls.enabled = true;
-      this._rebuildAll();  // re-detect rooms after furniture move
+      await this._rebuildAll();  // re-detect rooms after furniture move
     }
   }
 
@@ -595,11 +631,51 @@ export class HomePlannerEngine {
   //  Rebuild All Visuals
   // ════════════════════════════════════════════════════════
 
-  _rebuildAll() {
+  async _rebuildAll() {
     this._rebuildWallMeshes();
     this._rebuildFloorMeshes();
-    this._rebuildFurnitureMeshes();
+    await this._rebuildFurnitureMeshes();
+    this._fitWorldToContent();
     this._notifyCountChange();
+  }
+
+  /** Fit the world grid tightly around all wall content + padding. */
+  _fitWorldToContent() {
+    const pad = 3; // tight padding around content
+    let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+    for (const [, floor] of this.homeGrid.floors) {
+      for (const w of floor.walls.getAllWalls()) {
+        minX = Math.min(minX, w.x);
+        maxX = Math.max(maxX, w.x + 1);
+        minZ = Math.min(minZ, w.z);
+        maxZ = Math.max(maxZ, w.z + 1);
+      }
+    }
+    if (!isFinite(minX)) { this.worldSize = WORLD_SIZE_MIN; return; }
+    const needHalfW = Math.max(Math.abs(minX - pad), Math.abs(maxX + pad));
+    const needHalfD = Math.max(Math.abs(minZ - pad), Math.abs(maxZ + pad));
+    this.worldSize = Math.max(WORLD_SIZE_MIN, Math.ceil(Math.max(needHalfW, needHalfD) * 2));
+
+    // Update grass ground plane
+    this._updateGrass(minX - 2, minZ - 2, maxX + 2, maxZ + 2);
+  }
+
+  /** Green grass ground around the building footprint (F0 only). */
+  _updateGrass(minX, minZ, maxX, maxZ) {
+    if (this._grassMesh) { this.scene.remove(this._grassMesh); this._grassMesh.geometry.dispose(); }
+    if (this.homeGrid.activeFloor !== 0) return; // grass only on ground floor
+    const w = maxX - minX, d = maxZ - minZ;
+    if (w <= 0 || d <= 0) return;
+    const geo = new THREE.PlaneGeometry(w + 8, d + 8);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x4a7c59, roughness: 0.9, metalness: 0.0,
+    });
+    this._grassMesh = new THREE.Mesh(geo, mat);
+    this._grassMesh.position.set((minX + maxX) / 2, -0.02, (minZ + maxZ) / 2);
+    this._grassMesh.receiveShadow = true;
+    this._grassMesh.renderOrder = -2;
+    this.scene.add(this._grassMesh);
   }
 
   _notifyCountChange() {
@@ -619,77 +695,121 @@ export class HomePlannerEngine {
     // Clear existing wall meshes
     for (const mesh of this._wallMeshes) {
       this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      if (mesh.material.dispose) mesh.material.dispose();
+      mesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material?.dispose) c.material.dispose(); });
     }
     this._wallMeshes = [];
 
     const floor = this.homeGrid.getActiveFloor();
     if (!floor) return;
 
-    const walls = floor.walls.getAllWalls();
+    const allWalls = floor.walls.getAllWalls();
     const floorY = floor.yOffset;
 
-    // Wall material (shared)
+    // Materials (shared instances — no cloning)
     const wallMat = new THREE.MeshStandardMaterial({
-      color: WALL_COLOR,
-      roughness: 0.7,
-      metalness: 0.05,
-      emissive: WALL_EMISSIVE,
-      emissiveIntensity: 0.1,
+      color: WALL_COLOR, roughness: 0.7, metalness: 0.05,
+      emissive: WALL_EMISSIVE, emissiveIntensity: 0.1,
     });
-
-    // Door frame material
     const frameMat = new THREE.MeshStandardMaterial({
-      color: DOOR_FRAME_COLOR,
-      roughness: 0.5,
-      metalness: 0.15,
+      color: 0x6b5b4f, roughness: 0.4, metalness: 0.1,
     });
-
-    // Window glass material
+    const doorMat = new THREE.MeshStandardMaterial({
+      color: 0xa0845c, roughness: 0.5, metalness: 0.05,
+    });
     const glassMat = new THREE.MeshStandardMaterial({
-      color: 0x93c5fd,
-      roughness: 0.1,
-      metalness: 0.3,
-      transparent: true,
-      opacity: 0.35,
+      color: 0x93c5fd, roughness: 0.1, metalness: 0.3,
+      transparent: true, opacity: 0.35, side: THREE.DoubleSide,
+    });
+    const arcMat = new THREE.MeshBasicMaterial({
+      color: 0xa0845c, transparent: true, opacity: 0.18, side: THREE.DoubleSide,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
 
-    // Track corner positions for corner posts
-    const corners = new Set();
+    // ── Step 1: Merge consecutive wall segments into runs ──
+    // Group by (orientation, perpendicular coordinate)
+    const hGroups = new Map(); // z -> [{x, type}]
+    const vGroups = new Map(); // x -> [{z, type}]
 
-    for (const { x, z, orientation, segment } of walls) {
+    for (const { x, z, orientation, segment } of allWalls) {
       const type = segment.type || 'wall';
-
-      if (type === 'wall') {
-        this._createWallSegment(x, z, orientation, floorY, WALL_H, wallMat);
-        this._registerCorners(x, z, orientation, corners);
-      } else if (type === 'door-s' || type === 'door-n') {
-        // Door: gap with thin frame on sides
-        this._createDoorSegment(x, z, orientation, floorY, frameMat);
-      } else if (type === 'window-s' || type === 'window-l') {
-        // Window: lower wall + glass gap + upper wall
-        this._createWindowSegment(x, z, orientation, floorY, wallMat, glassMat);
+      if (orientation === 'h') {
+        if (!hGroups.has(z)) hGroups.set(z, []);
+        hGroups.get(z).push({ pos: x, type });
+      } else {
+        if (!vGroups.has(x)) vGroups.set(x, []);
+        vGroups.get(x).push({ pos: z, type });
       }
     }
 
-    // Corner posts where walls meet
+    const corners = new Set();
+
+    // ── Step 2: Build merged wall runs ──
+    const buildRuns = (groups, orient) => {
+      for (const [perp, segments] of groups) {
+        segments.sort((a, b) => a.pos - b.pos);
+        let runStart = null, runType = null, runLen = 0;
+
+        const flushRun = () => {
+          if (runStart === null) return;
+          if (runType === 'wall') {
+            this._addMergedWall(runStart, perp, runLen, orient, floorY, wallMat, corners);
+          }
+          runStart = null; runLen = 0;
+        };
+
+        for (let i = 0; i < segments.length; i++) {
+          const s = segments[i];
+          if (s.type === 'wall') {
+            if (runStart === null || runType !== 'wall' || s.pos !== runStart + runLen) {
+              flushRun();
+              runStart = s.pos; runType = 'wall'; runLen = 1;
+            } else {
+              runLen++;
+            }
+          } else {
+            flushRun();
+            // Merge consecutive same-type door/window segments into one opening
+            let spanLen = 1;
+            while (i + spanLen < segments.length &&
+                   segments[i + spanLen].type === s.type &&
+                   segments[i + spanLen].pos === s.pos + spanLen) {
+              spanLen++;
+            }
+            if (s.type.startsWith('door-')) {
+              this._addDoor(s.pos, perp, spanLen, orient, floorY, frameMat, doorMat, arcMat);
+            } else if (s.type.startsWith('window-')) {
+              this._addWindow(s.pos, perp, spanLen, orient, floorY, wallMat, glassMat);
+            }
+            i += spanLen - 1; // skip merged segments
+          }
+        }
+        flushRun();
+      }
+    };
+
+    buildRuns(hGroups, 'h');
+    buildRuns(vGroups, 'v');
+
+    // ── Step 3: Corner posts ──
     this._createCornerPosts(corners, floorY, wallMat);
   }
 
-  /** Create a solid wall box for one edge cell. */
-  _createWallSegment(x, z, orientation, floorY, h, material) {
+  /** Create a single merged wall box spanning `len` segments. */
+  _addMergedWall(start, perp, len, orient, floorY, mat, corners) {
+    const t = WALL_THICK;
     let geo, mesh;
-    if (orientation === 'h') {
-      // Horizontal edge at (x, z): between cells (x, z-1) and (x, z)
-      geo = new THREE.BoxGeometry(1.0, h, WALL_THICK);
-      mesh = new THREE.Mesh(geo, material.clone());
-      mesh.position.set(x + 0.5, floorY + h / 2, z);
+    if (orient === 'h') {
+      geo = new THREE.BoxGeometry(len, WALL_H, t);
+      mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(start + len / 2, floorY + WALL_H / 2, perp);
+      corners.add(`${start},${perp}`);
+      corners.add(`${start + len},${perp}`);
     } else {
-      // Vertical edge at (x, z): between cells (x-1, z) and (x, z)
-      geo = new THREE.BoxGeometry(WALL_THICK, h, 1.0);
-      mesh = new THREE.Mesh(geo, material.clone());
-      mesh.position.set(x, floorY + h / 2, z + 0.5);
+      geo = new THREE.BoxGeometry(t, WALL_H, len);
+      mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(perp, floorY + WALL_H / 2, start + len / 2);
+      corners.add(`${perp},${start}`);
+      corners.add(`${perp},${start + len}`);
     }
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -697,131 +817,124 @@ export class HomePlannerEngine {
     this._wallMeshes.push(mesh);
   }
 
-  /** Register corner positions for a wall segment. */
-  _registerCorners(x, z, orientation, corners) {
-    if (orientation === 'h') {
-      corners.add(`${x},${z}`);
-      corners.add(`${x + 1},${z}`);
-    } else {
-      corners.add(`${x},${z}`);
-      corners.add(`${x},${z + 1}`);
-    }
-  }
-
-  /** Create a door gap with thin frame posts on the sides. */
-  _createDoorSegment(x, z, orientation, floorY, frameMat) {
-    // Door frame: two thin vertical posts on each side of the opening,
-    // plus a lintel across the top
-    const doorH = WALL_H * 0.85;   // door height
-    const frameW = 0.04;           // frame post width
+  /** Create a door spanning `width` edge segments, with frame, leaf, and swing arc. */
+  _addDoor(pos, perp, width, orient, floorY, frameMat, doorMat, arcMat) {
+    const doorH = WALL_H * 0.82;
     const lintelH = WALL_H - doorH;
+    const leafThick = 0.04;
+    const w = width;
+    const leafW = w - 0.06;
+    const group = new THREE.Group();
 
-    if (orientation === 'h') {
-      // Left frame post
-      const lgeo = new THREE.BoxGeometry(frameW, doorH, WALL_THICK);
-      const lpost = new THREE.Mesh(lgeo, frameMat.clone());
-      lpost.position.set(x, floorY + doorH / 2, z);
-      this.scene.add(lpost);
-      this._wallMeshes.push(lpost);
-
-      // Right frame post
-      const rgeo = new THREE.BoxGeometry(frameW, doorH, WALL_THICK);
-      const rpost = new THREE.Mesh(rgeo, frameMat.clone());
-      rpost.position.set(x + 1, floorY + doorH / 2, z);
-      this.scene.add(rpost);
-      this._wallMeshes.push(rpost);
-
-      // Lintel above door
-      if (lintelH > 0.01) {
-        const ltgeo = new THREE.BoxGeometry(1.0, lintelH, WALL_THICK);
-        const lintel = new THREE.Mesh(ltgeo, frameMat.clone());
-        lintel.position.set(x + 0.5, floorY + doorH + lintelH / 2, z);
-        this.scene.add(lintel);
-        this._wallMeshes.push(lintel);
-      }
-    } else {
-      // Top frame post
-      const tgeo = new THREE.BoxGeometry(WALL_THICK, doorH, frameW);
-      const tpost = new THREE.Mesh(tgeo, frameMat.clone());
-      tpost.position.set(x, floorY + doorH / 2, z);
-      this.scene.add(tpost);
-      this._wallMeshes.push(tpost);
-
-      // Bottom frame post
-      const bgeo = new THREE.BoxGeometry(WALL_THICK, doorH, frameW);
-      const bpost = new THREE.Mesh(bgeo, frameMat.clone());
-      bpost.position.set(x, floorY + doorH / 2, z + 1);
-      this.scene.add(bpost);
-      this._wallMeshes.push(bpost);
-
+    if (orient === 'h') {
+      const cx = pos + w / 2, cz = perp;
       // Lintel
       if (lintelH > 0.01) {
-        const ltgeo = new THREE.BoxGeometry(WALL_THICK, lintelH, 1.0);
-        const lintel = new THREE.Mesh(ltgeo, frameMat.clone());
-        lintel.position.set(x, floorY + doorH + lintelH / 2, z + 0.5);
-        this.scene.add(lintel);
-        this._wallMeshes.push(lintel);
+        const lt = new THREE.Mesh(new THREE.BoxGeometry(w, lintelH, WALL_THICK), frameMat);
+        lt.position.set(cx, floorY + doorH + lintelH / 2, cz);
+        group.add(lt);
       }
+      // Door leaf — hinge at left edge of opening, swings into +z
+      const leafGeo = new THREE.BoxGeometry(leafW, doorH, leafThick);
+      leafGeo.translate(leafW / 2, 0, 0); // pivot at x=0 (hinge side)
+      const leaf = new THREE.Mesh(leafGeo, doorMat);
+      leaf.position.set(pos + 0.03, floorY + doorH / 2, cz);
+      leaf.rotation.y = -0.4;
+      group.add(leaf);
+      // Swing arc — slightly above floor, no depth write
+      const arcGeo = new THREE.RingGeometry(0.05, leafW, 24, 1, 0, Math.PI / 2);
+      const arc = new THREE.Mesh(arcGeo, arcMat);
+      arc.rotation.x = -Math.PI / 2;
+      arc.position.set(pos + 0.03, floorY + 0.03, cz);
+      arc.renderOrder = 1;
+      group.add(arc);
+    } else {
+      const cx = perp, cz = pos + w / 2;
+      if (lintelH > 0.01) {
+        const lt = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICK, lintelH, w), frameMat);
+        lt.position.set(cx, floorY + doorH + lintelH / 2, cz);
+        group.add(lt);
+      }
+      // Door leaf — hinge at top edge, swings into +x
+      const leafGeo = new THREE.BoxGeometry(leafThick, doorH, leafW);
+      leafGeo.translate(0, 0, leafW / 2);
+      const leaf = new THREE.Mesh(leafGeo, doorMat);
+      leaf.position.set(cx, floorY + doorH / 2, pos + 0.03);
+      leaf.rotation.y = 0.4;
+      group.add(leaf);
+      const arcGeo = new THREE.RingGeometry(0.05, leafW, 24, 1, 0, Math.PI / 2);
+      const arc = new THREE.Mesh(arcGeo, arcMat);
+      arc.rotation.x = -Math.PI / 2;
+      arc.rotation.z = Math.PI / 2;
+      arc.position.set(cx, floorY + 0.03, pos + 0.03);
+      arc.renderOrder = 1;
+      group.add(arc);
     }
+
+    group.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+    this.scene.add(group);
+    this._wallMeshes.push(group);
   }
 
-  /** Create a window: lower wall + glass pane + upper wall strip. */
-  _createWindowSegment(x, z, orientation, floorY, wallMat, glassMat) {
+  /** Create a window spanning `width` segments with sill, glass pane, and head strip. */
+  _addWindow(pos, perp, width, orient, floorY, wallMat, glassMat) {
+    const w = width;
     const glassH = WALL_H - WINDOW_SILL_H - WINDOW_HEAD_H;
+    const group = new THREE.Group();
+    const fr = new THREE.MeshStandardMaterial({ color: 0xd4d4d8, roughness: 0.3, metalness: 0.2 });
 
-    if (orientation === 'h') {
-      // Sill (lower wall below window)
+    if (orient === 'h') {
+      const cx = pos + w / 2, cz = perp;
       if (WINDOW_SILL_H > 0.01) {
-        const sgeo = new THREE.BoxGeometry(1.0, WINDOW_SILL_H, WALL_THICK);
-        const sill = new THREE.Mesh(sgeo, wallMat.clone());
-        sill.position.set(x + 0.5, floorY + WINDOW_SILL_H / 2, z);
-        sill.castShadow = true;
-        this.scene.add(sill);
-        this._wallMeshes.push(sill);
+        const s = new THREE.Mesh(new THREE.BoxGeometry(w, WINDOW_SILL_H, WALL_THICK), wallMat);
+        s.position.set(cx, floorY + WINDOW_SILL_H / 2, cz);
+        group.add(s);
       }
-      // Glass pane
       if (glassH > 0.01) {
-        const ggeo = new THREE.BoxGeometry(1.0, glassH, WALL_THICK * 0.5);
-        const glass = new THREE.Mesh(ggeo, glassMat.clone());
-        glass.position.set(x + 0.5, floorY + WINDOW_SILL_H + glassH / 2, z);
-        this.scene.add(glass);
-        this._wallMeshes.push(glass);
+        const g = new THREE.Mesh(new THREE.BoxGeometry(w - 0.08, glassH, 0.03), glassMat);
+        g.position.set(cx, floorY + WINDOW_SILL_H + glassH / 2, cz);
+        group.add(g);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(w, 0.04, WALL_THICK * 0.7), fr);
+        top.position.set(cx, floorY + WINDOW_SILL_H + glassH, cz);
+        group.add(top);
+        const bot = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, WALL_THICK * 0.8), fr);
+        bot.position.set(cx, floorY + WINDOW_SILL_H, cz);
+        group.add(bot);
       }
-      // Head (upper wall strip above window)
+      // Head strip
       if (WINDOW_HEAD_H > 0.01) {
-        const hgeo = new THREE.BoxGeometry(1.0, WINDOW_HEAD_H, WALL_THICK);
-        const head = new THREE.Mesh(hgeo, wallMat.clone());
-        head.position.set(x + 0.5, floorY + WALL_H - WINDOW_HEAD_H / 2, z);
-        head.castShadow = true;
-        this.scene.add(head);
-        this._wallMeshes.push(head);
+        const h = new THREE.Mesh(new THREE.BoxGeometry(1.0, WINDOW_HEAD_H, WALL_THICK), wallMat);
+        h.position.set(cx, floorY + WALL_H - WINDOW_HEAD_H / 2, cz);
+        group.add(h);
       }
     } else {
-      // Vertical orientation
+      const cx = perp, cz = pos + w / 2;
       if (WINDOW_SILL_H > 0.01) {
-        const sgeo = new THREE.BoxGeometry(WALL_THICK, WINDOW_SILL_H, 1.0);
-        const sill = new THREE.Mesh(sgeo, wallMat.clone());
-        sill.position.set(x, floorY + WINDOW_SILL_H / 2, z + 0.5);
-        sill.castShadow = true;
-        this.scene.add(sill);
-        this._wallMeshes.push(sill);
+        const s = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICK, WINDOW_SILL_H, w), wallMat);
+        s.position.set(cx, floorY + WINDOW_SILL_H / 2, cz);
+        group.add(s);
       }
       if (glassH > 0.01) {
-        const ggeo = new THREE.BoxGeometry(WALL_THICK * 0.5, glassH, 1.0);
-        const glass = new THREE.Mesh(ggeo, glassMat.clone());
-        glass.position.set(x, floorY + WINDOW_SILL_H + glassH / 2, z + 0.5);
-        this.scene.add(glass);
-        this._wallMeshes.push(glass);
+        const g = new THREE.Mesh(new THREE.BoxGeometry(0.03, glassH, w - 0.08), glassMat);
+        g.position.set(cx, floorY + WINDOW_SILL_H + glassH / 2, cz);
+        group.add(g);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICK * 0.7, 0.04, w), fr);
+        top.position.set(cx, floorY + WINDOW_SILL_H + glassH, cz);
+        group.add(top);
+        const bot = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICK * 0.8, 0.06, w), fr);
+        bot.position.set(cx, floorY + WINDOW_SILL_H, cz);
+        group.add(bot);
       }
       if (WINDOW_HEAD_H > 0.01) {
-        const hgeo = new THREE.BoxGeometry(WALL_THICK, WINDOW_HEAD_H, 1.0);
-        const head = new THREE.Mesh(hgeo, wallMat.clone());
-        head.position.set(x, floorY + WALL_H - WINDOW_HEAD_H / 2, z + 0.5);
-        head.castShadow = true;
-        this.scene.add(head);
-        this._wallMeshes.push(head);
+        const h = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICK, WINDOW_HEAD_H, w), wallMat);
+        h.position.set(cx, floorY + WALL_H - WINDOW_HEAD_H / 2, cz);
+        group.add(h);
       }
     }
+
+    group.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+    this.scene.add(group);
+    this._wallMeshes.push(group);
   }
 
   /** Create corner posts where walls meet. */
@@ -909,12 +1022,14 @@ export class HomePlannerEngine {
   //  Furniture Mesh Generation
   // ════════════════════════════════════════════════════════
 
-  _rebuildFurnitureMeshes() {
-    // Clear existing furniture meshes
+  async _rebuildFurnitureMeshes() {
+    // Clear existing furniture meshes (safely handle groups)
     for (const [id, mesh] of this._furnitureMeshes) {
       this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      if (mesh.material.dispose) mesh.material.dispose();
+      mesh.traverse(c => {
+        if (c.geometry) c.geometry.dispose();
+        if (c.material?.dispose) c.material.dispose();
+      });
     }
     this._furnitureMeshes.clear();
 
@@ -922,10 +1037,11 @@ export class HomePlannerEngine {
     if (!floor) return;
 
     const floorY = floor.yOffset;
-
+    const promises = [];
     for (const [id, furn] of floor.furniture) {
-      this._createFurnitureMesh(id, furn, floorY);
+      promises.push(this._createFurnitureMesh(id, furn, floorY));
     }
+    await Promise.all(promises);
 
     // Re-select if we had a selection
     if (this._selectedFurnId !== null && this._furnitureMeshes.has(this._selectedFurnId)) {
@@ -947,104 +1063,44 @@ export class HomePlannerEngine {
     return { rw: def.w, rd: def.d };
   }
 
-  /** Create a single furniture mesh and add to scene. */
-  _createFurnitureMesh(id, furn, floorY) {
+  /** Create a single furniture mesh and add to scene (loads GLB, falls back to box). */
+  async _createFurnitureMesh(id, furn, floorY) {
     const def = FURNITURE_DEFS[furn.type];
     if (!def) return;
 
     const { rw, rd } = this._rotatedDims(def, furn.rotation);
-
-    // Build furniture mesh based on type
-    let mesh;
-    const mat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.6, metalness: 0.1 });
     const cx = furn.x + rw / 2;
     const cz = furn.z + rd / 2;
 
-    if (furn.type === 'stairs-straight') {
-      mesh = this._createStairsMesh(def, furn, floorY);
-    } else if (furn.type === 'chair') {
-      // Chair with legs and back
-      mesh = new THREE.Group();
-      const legH = 0.45, legR = 0.06, seatH = 0.06;
-      const legMat = mat.clone(); legMat.color.setHex(0x5c534a);
-      const seatMat = mat;
-      // Seat
-      const seat = new THREE.Mesh(new THREE.BoxGeometry(rw * 0.85, seatH, rd * 0.85), seatMat);
-      seat.position.set(0, legH + seatH / 2, 0);
-      mesh.add(seat);
-      // 4 legs
-      const legGeo = new THREE.CylinderGeometry(legR, legR, legH, 6);
-      const offX = rw * 0.35, offZ = rd * 0.35;
-      for (const [lx, lz] of [[-offX,-offZ],[offX,-offZ],[-offX,offZ],[offX,offZ]]) {
-        const leg = new THREE.Mesh(legGeo, legMat);
-        leg.position.set(lx, legH / 2, lz);
-        mesh.add(leg);
-      }
-      // Back rest
-      const back = new THREE.Mesh(new THREE.BoxGeometry(rw * 0.85, 0.35, 0.06), seatMat);
-      back.position.set(0, legH + seatH + 0.17, -rd * 0.35);
-      mesh.add(back);
-      mesh.position.set(cx, floorY, cz);
-    } else if (furn.type === 'dining-table' || furn.type === 'coffee-table' || furn.type === 'desk') {
-      // Table with legs
-      mesh = new THREE.Group();
-      const topH = 0.06, legH = def.h - topH;
-      const legMat = mat.clone(); legMat.color.offsetHSL(0, 0, -0.1);
-      // Top
-      const top = new THREE.Mesh(new THREE.BoxGeometry(rw, topH, rd), mat);
-      top.position.set(0, legH + topH / 2, 0);
-      mesh.add(top);
-      // 4 legs
-      const legGeo = new THREE.CylinderGeometry(0.06, 0.06, legH, 6);
-      const offX = rw / 2 - 0.12, offZ = rd / 2 - 0.12;
-      for (const [lx, lz] of [[-offX,-offZ],[offX,-offZ],[-offX,offZ],[offX,offZ]]) {
-        const leg = new THREE.Mesh(legGeo, legMat);
-        leg.position.set(lx, legH / 2, lz);
-        mesh.add(leg);
-      }
-      mesh.position.set(cx, floorY, cz);
-    } else if (furn.type.startsWith('bed-')) {
-      // Bed with mattress + frame
-      mesh = new THREE.Group();
-      const frameH = 0.15, mattH = def.h - frameH;
-      const frameMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.7, metalness: 0.05 });
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(rw, frameH, rd), frameMat);
-      frame.position.set(0, frameH / 2, 0);
-      mesh.add(frame);
-      const mattress = new THREE.Mesh(new THREE.BoxGeometry(rw - 0.1, mattH, rd - 0.1), mat);
-      mattress.position.set(0, frameH + mattH / 2, 0);
-      mesh.add(mattress);
-      // Headboard
-      const hb = new THREE.Mesh(new THREE.BoxGeometry(rw, 0.6, 0.1), frameMat);
-      hb.position.set(0, 0.3, -rd / 2 + 0.05);
-      mesh.add(hb);
-      mesh.position.set(cx, floorY, cz);
-    } else if (furn.type === 'sofa') {
-      // Sofa with cushions + back
-      mesh = new THREE.Group();
-      const baseH = 0.25, cushH = 0.2;
-      const baseMat = mat.clone(); baseMat.color.offsetHSL(0, 0, -0.1);
-      const base = new THREE.Mesh(new THREE.BoxGeometry(rw, baseH, rd), baseMat);
-      base.position.set(0, baseH / 2, 0);
-      mesh.add(base);
-      const cushion = new THREE.Mesh(new THREE.BoxGeometry(rw - 0.15, cushH, rd * 0.6), mat);
-      cushion.position.set(0, baseH + cushH / 2, rd * 0.1);
-      mesh.add(cushion);
-      // Back
-      const backMat = mat.clone(); backMat.color.offsetHSL(0, 0, -0.05);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(rw, 0.35, 0.2), backMat);
-      back.position.set(0, baseH + 0.17, -rd / 2 + 0.1);
-      mesh.add(back);
-      mesh.position.set(cx, floorY, cz);
-    } else {
-      // Default: simple box
+    // Try to load GLB model
+    let mesh = await loadModel(furn.type);
+
+    if (!mesh) {
+      // Fallback: simple box
       const geo = new THREE.BoxGeometry(rw, def.h, rd);
+      const mat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.6, metalness: 0.1 });
       mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(cx, floorY + def.h / 2, cz);
+    } else {
+      // GLB loaded — scale footprint to match def, height proportionally (preserves shape)
+      const box = new THREE.Box3().setFromObject(mesh);
+      const gs = box.getSize(new THREE.Vector3());
+      if (gs.x > 0.01 && gs.z > 0.01) {
+        const sx = def.w / gs.x;
+        const sz = def.d / gs.z;
+        const sy = (sx + sz) / 2; // proportional height — keeps backrests, legs, etc. correct
+        mesh.scale.set(sx, sy, sz);
+      }
+      mesh.position.set(cx, floorY, cz);
+    }
+
+    // Apply rotation
+    const rot = ((furn.rotation || 0) % 360 + 360) % 360;
+    if (rot !== 0) {
+      mesh.rotation.y = -rot * Math.PI / 180;
     }
 
     mesh.userData.furnId = id;
-    // Enable shadows on all child meshes for groups
     mesh.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
 
     this.scene.add(mesh);
@@ -1117,7 +1173,8 @@ export class HomePlannerEngine {
    * Load a home preset. Clears existing data and rebuilds.
    * @param {Object} preset - A preset from HOME_PRESETS
    */
-  loadPreset(preset) {
+  async loadPreset(preset) {
+    await this._ready; // ensure manifest + presets loaded
     this.clearAll();
 
     for (const [floorIdx, floorData] of Object.entries(preset.floors)) {
@@ -1175,7 +1232,7 @@ export class HomePlannerEngine {
       this.homeGrid.setActiveFloor(indices[0]);
     }
 
-    this._rebuildAll();
+    await this._rebuildAll();
     this._centerCameraOnContent();
 
     if (this.callbacks.onFloorChange) {
@@ -1248,10 +1305,10 @@ export class HomePlannerEngine {
   // ════════════════════════════════════════════════════════
 
   /** Switch active floor and rebuild all visuals. */
-  setActiveFloor(index) {
+  async setActiveFloor(index) {
     this.homeGrid.setActiveFloor(index);
     this._deselectFurniture();
-    this._rebuildAll();
+    await this._rebuildAll();
     if (this.callbacks.onFloorChange) {
       this.callbacks.onFloorChange(index);
     }
@@ -1319,16 +1376,18 @@ export class HomePlannerEngine {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Load a home preset from HOME_PRESETS. */
-  loadPresetByIndex(index) {
-    if (index >= 0 && index < HOME_PRESETS.length) {
-      this.loadPreset(HOME_PRESETS[index]);
+  /** Load a home preset by index from cached presets. */
+  async loadPresetByIndex(index) {
+    await this._ready;
+    if (index >= 0 && index < _presetCache.length) {
+      await this.loadPreset(_presetCache[index]);
     }
   }
 
   /** Clear all data and visuals. */
   clearAll() {
     this._deselectFurniture();
+    if (this._grassMesh) { this.scene.remove(this._grassMesh); this._grassMesh.geometry.dispose(); this._grassMesh = null; }
 
     // Clear wall meshes
     for (const mesh of this._wallMeshes) {
@@ -1346,16 +1405,13 @@ export class HomePlannerEngine {
     }
     this._floorMeshes = [];
 
-    // Clear furniture meshes (including stair groups)
+    // Clear furniture meshes (handles both single meshes and GLB groups)
     for (const [id, mesh] of this._furnitureMeshes) {
-      if (mesh.userData.stairsGroup) {
-        const group = mesh.userData.stairsGroup;
-        group.traverse(c => { if (c.geometry) c.geometry.dispose(); });
-        this.scene.remove(group);
-      }
       this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      if (mesh.material.dispose) mesh.material.dispose();
+      mesh.traverse(c => {
+        if (c.geometry) c.geometry.dispose();
+        if (c.material?.dispose) c.material.dispose();
+      });
     }
     this._furnitureMeshes.clear();
 
@@ -1366,37 +1422,34 @@ export class HomePlannerEngine {
   }
 
   /** Remove the currently selected furniture. */
-  removeSelected() {
+  async removeSelected() {
     if (this._selectedFurnId === null) return;
     const id = this._selectedFurnId;
 
     // Remove mesh
     const mesh = this._furnitureMeshes.get(id);
     if (mesh) {
-      if (mesh.userData.stairsGroup) {
-        const group = mesh.userData.stairsGroup;
-        group.traverse(c => { if (c.geometry) c.geometry.dispose(); });
-        this.scene.remove(group);
-      }
       this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      if (mesh.material.dispose) mesh.material.dispose();
+      mesh.traverse(c => {
+        if (c.geometry) c.geometry.dispose();
+        if (c.material?.dispose) c.material.dispose();
+      });
       this._furnitureMeshes.delete(id);
     }
 
     // Remove from data
     this.homeGrid.removeFurniture(id);
     this._deselectFurniture();
-    this._rebuildAll();
+    await this._rebuildAll();
   }
 
   /** Rotate selected furniture by 90 degrees clockwise. */
-  rotateSelected() {
+  async rotateSelected() {
     if (this._selectedFurnId === null) return;
     const furn = this._getFurnitureData(this._selectedFurnId);
     if (!furn) return;
     furn.rotation = ((furn.rotation || 0) + 90) % 360;
-    this._rebuildFurnitureMeshes();
+    await this._rebuildFurnitureMeshes();
   }
 
   /** Get the palette catalog for the UI. */
@@ -1453,7 +1506,7 @@ export class HomePlannerEngine {
 
   /** Get all available presets. */
   getPresets() {
-    return HOME_PRESETS;
+    return _presetCache;
   }
 
   /** Get the active floor index. */
@@ -1654,11 +1707,10 @@ export class HomePlannerEngine {
       if (mesh.material.dispose) mesh.material.dispose();
     }
     for (const [, mesh] of this._furnitureMeshes) {
-      if (mesh.userData.stairsGroup) {
-        mesh.userData.stairsGroup.traverse(c => { if (c.geometry) c.geometry.dispose(); });
-      }
-      mesh.geometry.dispose();
-      if (mesh.material.dispose) mesh.material.dispose();
+      mesh.traverse(c => {
+        if (c.geometry) c.geometry.dispose();
+        if (c.material?.dispose) c.material.dispose();
+      });
     }
     this._removeGhostMesh();
   }

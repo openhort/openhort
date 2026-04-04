@@ -1,0 +1,67 @@
+{
+  "name": "Open-Plan Penthouse",
+  "desc": "120 sqm, huge living/dining, kitchen island, master suite, guest bath",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 48, 0],
+        [0, 0, 0, 80],
+        [48, 0, 48, 80],
+        [0, 80, 48, 80],
+        [28, 48, 48, 48],
+        [28, 48, 28, 80],
+        [36, 64, 36, 80],
+        [36, 64, 48, 64],
+        [14, 60, 14, 80],
+        [0, 60, 14, 60]
+      ],
+      "doors": [
+        { "x": 20, "z": 80, "o": "h", "type": "door-n" },
+        { "x": 34, "z": 48, "o": "h", "type": "door-n" },
+        { "x": 36, "z": 70, "o": "v", "type": "door-s" },
+        { "x": 6, "z": 60, "o": "h", "type": "door-n" }
+      ],
+      "windows": [
+        { "x": 8, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 22, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 36, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 0, "z": 16, "o": "v", "type": "window-l" },
+        { "x": 48, "z": 16, "o": "v", "type": "window-l" },
+        { "x": 0, "z": 40, "o": "v", "type": "window-l" },
+        { "x": 48, "z": 56, "o": "v", "type": "window-l" }
+      ],
+      "furniture": [
+        { "type": "bookshelf", "x": 1, "z": 1, "rot": 0 },
+        { "type": "bookshelf", "x": 7, "z": 1, "rot": 0 },
+        { "type": "tv", "x": 1, "z": 5, "rot": 0 },
+        { "type": "coffee-table", "x": 1, "z": 9, "rot": 0 },
+        { "type": "sofa", "x": 1, "z": 16, "rot": 0 },
+        { "type": "sofa", "x": 8, "z": 16, "rot": 270 },
+        { "type": "armchair", "x": 8, "z": 9, "rot": 0 },
+        { "type": "counter", "x": 30, "z": 1, "rot": 0 },
+        { "type": "counter", "x": 35, "z": 1, "rot": 0 },
+        { "type": "stove", "x": 30, "z": 5, "rot": 0 },
+        { "type": "sink", "x": 35, "z": 5, "rot": 0 },
+        { "type": "fridge", "x": 44, "z": 1, "rot": 0 },
+        { "type": "dining-table", "x": 16, "z": 30, "rot": 0 },
+        { "type": "chair", "x": 17, "z": 27, "rot": 0 },
+        { "type": "chair", "x": 17, "z": 37, "rot": 180 },
+        { "type": "chair", "x": 13, "z": 32, "rot": 270 },
+        { "type": "chair", "x": 21, "z": 32, "rot": 90 },
+        { "type": "chair", "x": 19, "z": 27, "rot": 0 },
+        { "type": "chair", "x": 19, "z": 37, "rot": 180 },
+        { "type": "bed-double", "x": 29, "z": 50, "rot": 0 },
+        { "type": "nightstand", "x": 37, "z": 50, "rot": 0 },
+        { "type": "nightstand", "x": 37, "z": 56, "rot": 0 },
+        { "type": "wardrobe", "x": 45, "z": 50, "rot": 90 },
+        { "type": "shower", "x": 37, "z": 65, "rot": 0 },
+        { "type": "bathtub", "x": 43, "z": 65, "rot": 0 },
+        { "type": "toilet", "x": 37, "z": 72, "rot": 0 },
+        { "type": "basin", "x": 37, "z": 76, "rot": 0 },
+        { "type": "toilet", "x": 1, "z": 61, "rot": 0 },
+        { "type": "basin", "x": 5, "z": 61, "rot": 0 },
+        { "type": "shower", "x": 9, "z": 61, "rot": 0 }
+      ]
+    }
+  }
+}
