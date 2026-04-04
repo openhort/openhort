@@ -220,8 +220,8 @@
         class="bg-dark" style="border-left:1px solid #1e293b">
         <q-scroll-area class="fit">
 
-          <!-- ─── Component Properties ─── -->
-          <template v-if="selected">
+          <!-- ─── Component Properties (hort mode only) ─── -->
+          <template v-if="selected && activeMode !== 'home'">
             <div class="q-pa-md">
               <div class="text-caption text-grey-6 q-mb-sm">PROPERTIES</div>
               <q-input v-model="selected.name" label="Name" dark dense filled

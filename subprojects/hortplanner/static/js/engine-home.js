@@ -715,17 +715,23 @@ export class HomePlannerEngine {
 
   /** Green grass ground around the building footprint (F0 only). */
   _updateGrass(minX, minZ, maxX, maxZ) {
-    if (this._grassMesh) { this.scene.remove(this._grassMesh); this._grassMesh.geometry.dispose(); }
-    if (this.homeGrid.activeFloor !== 0) return; // grass only on ground floor
+    if (this._grassMesh) {
+      this.scene.remove(this._grassMesh);
+      this._grassMesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material?.dispose) c.material.dispose(); });
+      this._grassMesh = null;
+    }
+    if (this.homeGrid.activeFloor !== 0) return;
     const w = maxX - minX, d = maxZ - minZ;
     if (w <= 0 || d <= 0) return;
     const geo = new THREE.PlaneGeometry(w + 8, d + 8);
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshStandardMaterial({
       color: 0x4a7c59, roughness: 0.9, metalness: 0.0,
+      depthWrite: true,
+      polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2,
     });
     this._grassMesh = new THREE.Mesh(geo, mat);
-    this._grassMesh.position.set((minX + maxX) / 2, -0.02, (minZ + maxZ) / 2);
+    this._grassMesh.position.set((minX + maxX) / 2, 0.01, (minZ + maxZ) / 2);
     this._grassMesh.receiveShadow = true;
     this._grassMesh.renderOrder = -2;
     this.scene.add(this._grassMesh);
@@ -1473,21 +1479,23 @@ export class HomePlannerEngine {
   /** Clear all data and visuals. */
   clearAll() {
     this._deselectFurniture();
-    if (this._grassMesh) { this.scene.remove(this._grassMesh); this._grassMesh.geometry.dispose(); this._grassMesh = null; }
+    if (this._grassMesh) {
+      this.scene.remove(this._grassMesh);
+      this._grassMesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material?.dispose) c.material.dispose(); });
+      this._grassMesh = null;
+    }
 
-    // Clear wall meshes
+    // Clear wall meshes (may be Groups for doors/windows)
     for (const mesh of this._wallMeshes) {
       this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      if (mesh.material.dispose) mesh.material.dispose();
+      mesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material?.dispose) c.material.dispose(); });
     }
     this._wallMeshes = [];
 
     // Clear floor meshes
     for (const mesh of this._floorMeshes) {
       this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      if (mesh.material.dispose) mesh.material.dispose();
+      mesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material?.dispose) c.material.dispose(); });
     }
     this._floorMeshes = [];
 
