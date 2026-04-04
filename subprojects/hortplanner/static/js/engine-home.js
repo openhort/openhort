@@ -485,15 +485,15 @@ export class HomePlannerEngine {
     );
     this.raycaster.setFromCamera(mouse, this.camera);
 
-    const meshes = [];
-    for (const [id, mesh] of this._furnitureMeshes) {
-      meshes.push(mesh);
-    }
-    const hits = this.raycaster.intersectObjects(meshes, false);
+    const targets = [...this._furnitureMeshes.values()];
+    const hits = this.raycaster.intersectObjects(targets, true);
     if (hits.length > 0) {
-      const mesh = hits[0].object;
-      const id = mesh.userData.furnId;
-      if (id !== undefined) return { id, mesh };
+      // Walk up parent chain to find the root furniture object with furnId
+      let obj = hits[0].object;
+      while (obj) {
+        if (obj.userData.furnId !== undefined) return { id: obj.userData.furnId, mesh: obj };
+        obj = obj.parent;
+      }
     }
     return null;
   }
@@ -505,16 +505,14 @@ export class HomePlannerEngine {
   _selectFurniture(id) {
     // Deselect previous
     if (this._selectedMesh) {
-      this._selectedMesh.material.emissive.setHex(0x000000);
-      this._selectedMesh.material.emissiveIntensity = 0;
+      this._setFurnGlow(this._selectedMesh, false);
     }
 
     this._selectedFurnId = id;
     const mesh = this._furnitureMeshes.get(id);
     if (mesh) {
       this._selectedMesh = mesh;
-      mesh.material.emissive.setHex(COLORS.selected);
-      mesh.material.emissiveIntensity = 0.4;
+      this._setFurnGlow(mesh, true);
     }
 
     // Resolve furniture data for callback
@@ -534,12 +532,34 @@ export class HomePlannerEngine {
 
   _deselectFurniture() {
     if (this._selectedMesh) {
-      this._selectedMesh.material.emissive.setHex(0x000000);
-      this._selectedMesh.material.emissiveIntensity = 0;
+      this._setFurnGlow(this._selectedMesh, false);
     }
     this._selectedFurnId = null;
     this._selectedMesh = null;
     if (this.callbacks.onDeselect) this.callbacks.onDeselect();
+  }
+
+  /** Safely set/clear selection glow on a furniture mesh (handles groups + missing emissive). */
+  _setFurnGlow(obj, on) {
+    const traverse = (o) => {
+      if (o.isMesh && o.material) {
+        if (!o.material.emissive) return;
+        if (on) {
+          o._origEmissive = o.material.emissive.getHex();
+          o._origEmissiveI = o.material.emissiveIntensity;
+          o.material = o.material.clone();
+          o.material.emissive.setHex(COLORS.selected);
+          o.material.emissiveIntensity = 0.4;
+        } else if (o._origEmissive !== undefined) {
+          o.material.emissive.setHex(o._origEmissive);
+          o.material.emissiveIntensity = o._origEmissiveI;
+          delete o._origEmissive;
+          delete o._origEmissiveI;
+        }
+      }
+      if (o.children) o.children.forEach(traverse);
+    };
+    traverse(obj);
   }
 
   /** Get furniture data by id (searches active floor). */
@@ -911,8 +931,7 @@ export class HomePlannerEngine {
     if (this._selectedFurnId !== null && this._furnitureMeshes.has(this._selectedFurnId)) {
       const mesh = this._furnitureMeshes.get(this._selectedFurnId);
       this._selectedMesh = mesh;
-      mesh.material.emissive.setHex(COLORS.selected);
-      mesh.material.emissiveIntensity = 0.4;
+      this._setFurnGlow(mesh, true);
     } else {
       this._selectedFurnId = null;
       this._selectedMesh = null;
@@ -935,28 +954,98 @@ export class HomePlannerEngine {
 
     const { rw, rd } = this._rotatedDims(def, furn.rotation);
 
-    // Special handling for stairs: create stepped geometry
+    // Build furniture mesh based on type
     let mesh;
+    const mat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.6, metalness: 0.1 });
+    const cx = furn.x + rw / 2;
+    const cz = furn.z + rd / 2;
+
     if (furn.type === 'stairs-straight') {
       mesh = this._createStairsMesh(def, furn, floorY);
+    } else if (furn.type === 'chair') {
+      // Chair with legs and back
+      mesh = new THREE.Group();
+      const legH = 0.45, legR = 0.06, seatH = 0.06;
+      const legMat = mat.clone(); legMat.color.setHex(0x5c534a);
+      const seatMat = mat;
+      // Seat
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(rw * 0.85, seatH, rd * 0.85), seatMat);
+      seat.position.set(0, legH + seatH / 2, 0);
+      mesh.add(seat);
+      // 4 legs
+      const legGeo = new THREE.CylinderGeometry(legR, legR, legH, 6);
+      const offX = rw * 0.35, offZ = rd * 0.35;
+      for (const [lx, lz] of [[-offX,-offZ],[offX,-offZ],[-offX,offZ],[offX,offZ]]) {
+        const leg = new THREE.Mesh(legGeo, legMat);
+        leg.position.set(lx, legH / 2, lz);
+        mesh.add(leg);
+      }
+      // Back rest
+      const back = new THREE.Mesh(new THREE.BoxGeometry(rw * 0.85, 0.35, 0.06), seatMat);
+      back.position.set(0, legH + seatH + 0.17, -rd * 0.35);
+      mesh.add(back);
+      mesh.position.set(cx, floorY, cz);
+    } else if (furn.type === 'dining-table' || furn.type === 'coffee-table' || furn.type === 'desk') {
+      // Table with legs
+      mesh = new THREE.Group();
+      const topH = 0.06, legH = def.h - topH;
+      const legMat = mat.clone(); legMat.color.offsetHSL(0, 0, -0.1);
+      // Top
+      const top = new THREE.Mesh(new THREE.BoxGeometry(rw, topH, rd), mat);
+      top.position.set(0, legH + topH / 2, 0);
+      mesh.add(top);
+      // 4 legs
+      const legGeo = new THREE.CylinderGeometry(0.06, 0.06, legH, 6);
+      const offX = rw / 2 - 0.12, offZ = rd / 2 - 0.12;
+      for (const [lx, lz] of [[-offX,-offZ],[offX,-offZ],[-offX,offZ],[offX,offZ]]) {
+        const leg = new THREE.Mesh(legGeo, legMat);
+        leg.position.set(lx, legH / 2, lz);
+        mesh.add(leg);
+      }
+      mesh.position.set(cx, floorY, cz);
+    } else if (furn.type.startsWith('bed-')) {
+      // Bed with mattress + frame
+      mesh = new THREE.Group();
+      const frameH = 0.15, mattH = def.h - frameH;
+      const frameMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.7, metalness: 0.05 });
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(rw, frameH, rd), frameMat);
+      frame.position.set(0, frameH / 2, 0);
+      mesh.add(frame);
+      const mattress = new THREE.Mesh(new THREE.BoxGeometry(rw - 0.1, mattH, rd - 0.1), mat);
+      mattress.position.set(0, frameH + mattH / 2, 0);
+      mesh.add(mattress);
+      // Headboard
+      const hb = new THREE.Mesh(new THREE.BoxGeometry(rw, 0.6, 0.1), frameMat);
+      hb.position.set(0, 0.3, -rd / 2 + 0.05);
+      mesh.add(hb);
+      mesh.position.set(cx, floorY, cz);
+    } else if (furn.type === 'sofa') {
+      // Sofa with cushions + back
+      mesh = new THREE.Group();
+      const baseH = 0.25, cushH = 0.2;
+      const baseMat = mat.clone(); baseMat.color.offsetHSL(0, 0, -0.1);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(rw, baseH, rd), baseMat);
+      base.position.set(0, baseH / 2, 0);
+      mesh.add(base);
+      const cushion = new THREE.Mesh(new THREE.BoxGeometry(rw - 0.15, cushH, rd * 0.6), mat);
+      cushion.position.set(0, baseH + cushH / 2, rd * 0.1);
+      mesh.add(cushion);
+      // Back
+      const backMat = mat.clone(); backMat.color.offsetHSL(0, 0, -0.05);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(rw, 0.35, 0.2), backMat);
+      back.position.set(0, baseH + 0.17, -rd / 2 + 0.1);
+      mesh.add(back);
+      mesh.position.set(cx, floorY, cz);
     } else {
+      // Default: simple box
       const geo = new THREE.BoxGeometry(rw, def.h, rd);
-      const mat = new THREE.MeshStandardMaterial({
-        color: def.color,
-        roughness: 0.6,
-        metalness: 0.1,
-      });
       mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(
-        furn.x + rw / 2,
-        floorY + def.h / 2,
-        furn.z + rd / 2
-      );
+      mesh.position.set(cx, floorY + def.h / 2, cz);
     }
 
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
     mesh.userData.furnId = id;
+    // Enable shadows on all child meshes for groups
+    mesh.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
 
     this.scene.add(mesh);
     this._furnitureMeshes.set(id, mesh);
