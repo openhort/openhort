@@ -547,8 +547,7 @@
         }
 
         function switchMode(mode) {
-          if (mode === activeMode.value) return;
-          activeMode.value = mode;
+          // v-model already updated activeMode — just recreate the engine
           activeTool.value = null;
           createEngine(mode);
         }
