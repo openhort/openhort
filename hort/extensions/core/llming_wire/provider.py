@@ -74,6 +74,13 @@ class LlmingWire(PluginBase):
             if cid not in plugin._conversations:
                 plugin._conversations[cid] = []
 
+            # Handle slash commands (same as Telegram)
+            if text.startswith("/"):
+                cmd = text.strip().lstrip("/").split()[0].lower()
+                result = await plugin._handle_command(cid, cmd)
+                if result:
+                    return JSONResponse(result)
+
             # Add user message
             user_msg = {
                 "id": uuid.uuid4().hex[:8],
@@ -84,8 +91,9 @@ class LlmingWire(PluginBase):
             plugin._conversations[cid].append(user_msg)
 
             # Get AI response via chat backend
+            client_session_id = body.get("session_id")
             try:
-                response_text = await plugin._get_ai_response(cid, text)
+                response_text = await plugin._get_ai_response(cid, text, client_session_id)
             except Exception as exc:
                 logger.error("Chat error: %s", exc)
                 response_text = f"Error: {exc}"
@@ -94,12 +102,17 @@ class LlmingWire(PluginBase):
             buttons = _extract_buttons(response_text)
             clean_text = response_text if not buttons else _strip_button_lines(response_text)
 
+            # Get session_id from the chat session for --resume
+            session = plugin._chat_mgr.get_session(f"llming-wire:{cid}") if hasattr(plugin, '_chat_mgr') and plugin._chat_mgr else None
+            resume_id = session._session_id if session else None
+
             ai_msg = {
                 "id": uuid.uuid4().hex[:8],
                 "role": "assistant",
                 "text": clean_text,
                 "ts": time.time(),
                 "buttons": buttons,
+                "session_id": resume_id,
             }
             plugin._conversations[cid].append(ai_msg)
 
@@ -108,7 +121,65 @@ class LlmingWire(PluginBase):
         self._router = r
         return r
 
-    async def _get_ai_response(self, cid: str, text: str) -> str:
+    async def _handle_command(self, cid: str, cmd: str) -> dict[str, Any] | None:
+        """Handle slash commands — uses the same CommandRegistry as Telegram."""
+        def _reply(text: str, session_id: Any = ...) -> dict[str, Any]:
+            r: dict[str, Any] = {
+                "id": uuid.uuid4().hex[:8],
+                "role": "assistant",
+                "text": text,
+                "ts": time.time(),
+                "buttons": [],
+            }
+            if session_id is not ...:
+                r["session_id"] = session_id
+            return r
+
+        # Built-in: /new resets the chat session
+        if cmd == "new":
+            if hasattr(self, "_chat_mgr") and self._chat_mgr:
+                self._chat_mgr.reset_session(f"llming-wire:{cid}")
+            return _reply("New chat session started.", session_id=None)
+
+        # Built-in: /help lists all available commands
+        if cmd == "help":
+            lines = ["/new — start a fresh conversation"]
+            try:
+                from hort.plugins import get_command_registry
+                registry = get_command_registry()
+                if registry:
+                    for c in registry.get_all_commands():
+                        if not c.hidden:
+                            lines.append(f"/{c.name} — {c.description}")
+            except Exception:
+                pass
+            return _reply("\n".join(lines))
+
+        # Try the shared command registry (same commands as Telegram)
+        try:
+            from hort.plugins import get_command_registry
+            from hort.ext.connectors import IncomingMessage, ConnectorCapabilities
+
+            registry = get_command_registry()
+            if registry:
+                msg = IncomingMessage(
+                    connector_id="llming-wire",
+                    chat_id=cid,
+                    user_id="local",
+                    username="local",
+                    text=f"/{cmd}",
+                )
+                caps = ConnectorCapabilities(text=True)
+                result = await registry.dispatch(msg, caps)
+                if result:
+                    text = result.text or result.html or result.markdown or ""
+                    return _reply(text)
+        except Exception as exc:
+            logger.debug("Command dispatch failed: %s", exc)
+
+        return None  # Unknown — pass to AI
+
+    async def _get_ai_response(self, cid: str, text: str, client_session_id: str | None = None) -> str:
         """Route message to the chat backend and return the response."""
         try:
             from hort.ext.chat_backend import ChatBackendManager
@@ -121,6 +192,9 @@ class LlmingWire(PluginBase):
                 self._chat_mgr.start()
 
             session = self._chat_mgr.get_session(f"llming-wire:{cid}")
+            # Resume from client's session_id if server lost it (restart)
+            if client_session_id and not session._session_id:
+                session._session_id = client_session_id
             response = await session.send(text)
             return response
         except ImportError:

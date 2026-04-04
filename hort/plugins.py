@@ -121,6 +121,8 @@ async def _start_connectors(registry: ExtensionRegistry) -> None:  # pragma: no 
     from hort.ext.connectors import CommandRegistry, ConnectorBase, ConnectorMixin
 
     cmd_registry = CommandRegistry()
+    # Make registry accessible globally for llming-wire and other consumers
+    _global_cmd_registry[0] = cmd_registry
 
     # Register system commands
     from hort.extensions.core.telegram_connector.provider import SYSTEM_COMMANDS
@@ -143,6 +145,14 @@ async def _start_connectors(registry: ExtensionRegistry) -> None:  # pragma: no 
                 logger.info("Started connector: %s", name)
             except Exception as e:
                 logger.error("Failed to start connector %s: %s", name, e)
+
+
+_global_cmd_registry: list = [None]  # mutable container for the singleton
+
+
+def get_command_registry():
+    """Get the global command registry (available after plugin startup)."""
+    return _global_cmd_registry[0]
 
 
 _caffeinate_proc: Any = None

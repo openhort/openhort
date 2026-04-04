@@ -19,6 +19,64 @@
 <link rel="stylesheet" href="static/vendor/quasar.prod.css">
 <link rel="stylesheet" href="static/vendor/xterm.css">
 <link rel="stylesheet" href="static/hort.css">
+<style>
+/* ── Shared floating window ──────────────────────────────── */
+.hort-float-window {
+  background: #0e1621;
+  border: 1px solid #1e2d3d;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.hort-float-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: #17212b;
+  border-bottom: 1px solid #1e2d3d;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+.hort-float-header:active { cursor: grabbing; }
+.hort-float-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #dce5ed;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hort-float-actions { display: flex; gap: 4px; }
+.hort-float-btn {
+  background: none;
+  border: none;
+  color: #5b6b7d;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.hort-float-btn:hover { color: #dce5ed; background: rgba(255,255,255,0.08); }
+.hort-float-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* Phone: slide up from bottom */
+@media (max-width: 639px) {
+  .hort-float-window {
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+  }
+  .hort-float-header { cursor: default; }
+}
+</style>
 </head>
 <body>
 
@@ -32,7 +90,7 @@
 <script src="static/vendor/xterm-addon-webgl.min.js"></script>
 <script src="static/vendor/vue.global.prod.js"></script>
 <script src="static/vendor/quasar.umd.prod.js"></script>
-<script src="static/vendor/hort-ext.js"></script>
+<script src="static/vendor/hort-ext.js?v=6"></script>
 <script src="static/vendor/hort-widgets.js"></script>
 <script src="static/vendor/hort-plugins-ui.js"></script>
 <!-- Connector extension panels -->
@@ -455,8 +513,7 @@
         break;
       case 'terminal_list':
         state.terminals = msg.terminals || [];
-        { const tmux = state.terminals.filter(t => t.tmux && !t.title.endsWith('_web'));
-          if (tmux.length) console.log('[tmux]', tmux.map(t => t.claude_state + '/' + t.mode + ' border=' + t.border_color).join(', ')); }
+        /* tmux debug logging removed */
         break;
       case 'terminal_closed':
         state.terminals = state.terminals.filter(t => t.terminal_id !== msg.terminal_id);
@@ -1040,8 +1097,34 @@
   // ===== SPIRIT FULLSCREEN (shared between picker and root) =====
   const fullscreenSpirit = ref(null);
   function openSpiritFullscreen(name) {
+    // For ALL llmings with widgets: check available screen space.
+    // Float if there's room, fullscreen if screen is too small.
+    if (typeof HortExtension !== 'undefined' && HortExtension.resolveDisplayMode) {
+      for (const [id, ExtClass] of HortExtension.getRegistry()) {
+        if (id === name && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
+          const mode = HortExtension.resolveDisplayMode(ExtClass);
+          if (mode === 'float') {
+            HortExtension.openFloat(id, ExtClass.llmingWidgets[0], {
+              title: ExtClass.llmingTitle || ExtClass.name || id,
+            });
+            return;
+          }
+          break;
+        }
+      }
+    }
     fullscreenSpirit.value = name;
     state.view = 'spirit-fullscreen';
+  }
+  function floatClose(id) { if (typeof HortExtension !== 'undefined') HortExtension.closeFloat(id); }
+  function floatToggleMin(id) { if (typeof HortExtension !== 'undefined') HortExtension.toggleMinimize(id); }
+  function floatDragStart(e, fw) {
+    const startX = e.clientX, startY = e.clientY;
+    const origX = fw.x, origY = fw.y;
+    function onMove(ev) { fw.x = origX + ev.clientX - startX; fw.y = origY + ev.clientY - startY; }
+    function onUp() { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); }
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
   function closeSpiritFullscreen() {
     fullscreenSpirit.value = null;
@@ -3612,6 +3695,31 @@
 
       </teleport>
 
+      <!-- Float windows (rendered by Vue so components mount correctly) -->
+      <div v-for="fw in floatWindows" :key="fw.id" class="hort-float-window"
+           :style="{position:'fixed', left: fw.x+'px', top: fw.y+'px',
+                    width: fw.minimized ? '240px' : fw.width+'px',
+                    height: fw.minimized ? 'auto' : fw.height+'px',
+                    minWidth: fw.minimized ? 0 : fw.minWidth+'px',
+                    minHeight: fw.minimized ? 0 : fw.minHeight+'px',
+                    zIndex: 500, resize: fw.minimized ? 'none' : 'both', overflow: 'hidden'}">
+        <div class="hort-float-header"
+             @pointerdown.prevent="floatDragStart($event, fw)">
+          <span class="hort-float-title">{{ fw.title }}</span>
+          <div class="hort-float-actions">
+            <button class="hort-float-btn" @click.stop="floatToggleMin(fw.id)" title="Minimize">
+              <i class="ph ph-minus"></i>
+            </button>
+            <button class="hort-float-btn" @click.stop="floatClose(fw.id)" title="Close">
+              <i class="ph ph-x"></i>
+            </button>
+          </div>
+        </div>
+        <div v-show="!fw.minimized" class="hort-float-body">
+          <component :is="fw.widgetName" />
+        </div>
+      </div>
+
       <!-- Fullscreen spirit view -->
       <div v-if="state.view === 'spirit-fullscreen' && fullscreenSpirit"
            style="position:fixed;inset:0;z-index:400;background:var(--el-bg);display:flex;flex-direction:column"
@@ -3625,9 +3733,8 @@
             <i class="ph ph-x" style="font-size:16px"></i>
           </button>
         </div>
-        <div style="flex:1;display:flex;justify-content:center"
-             :style="{ padding: isFullscreenCapable ? '0' : '16px', 'overflow-y': isFullscreenCapable ? 'hidden' : 'auto' }">
-          <div :style="{ width: '100%', 'max-width': isFullscreenCapable ? '100%' : '600px' }">
+        <div style="flex:1;display:flex;overflow:hidden">
+          <div style="width:100%;height:100%">
             <component v-if="fullscreenSpiritWidget" :is="fullscreenSpiritWidget" />
           </div>
         </div>
@@ -3637,6 +3744,29 @@
       const viewer = ref(null);
       const guideUrl = computed(() => _basePath + '/guide/');
       const hortmapUrl = computed(() => _basePath + '/hortmap');
+
+      // Float windows (shared across all llmings)
+      const floatWindows = ref([]);
+      if (typeof HortExtension !== 'undefined') {
+        HortExtension._floatChangeCallback = () => {
+          floatWindows.value = HortExtension.getFloatWindows ? [...HortExtension.getFloatWindows()] : [];
+        };
+        // When a float promotes to fullscreen, close float and open fullscreen
+        HortExtension._promoteCallback = (id) => {
+          fullscreenSpirit.value = id;
+          state.view = 'spirit-fullscreen';
+        };
+      }
+      function floatClose(id) { if (typeof HortExtension !== 'undefined') HortExtension.closeFloat(id); }
+      function floatToggleMin(id) { if (typeof HortExtension !== 'undefined') HortExtension.toggleMinimize(id); }
+      function floatDragStart(e, fw) {
+        const startX = e.clientX, startY = e.clientY;
+        const origX = fw.x, origY = fw.y;
+        function onMove(ev) { fw.x = origX + ev.clientX - startX; fw.y = origY + ev.clientY - startY; }
+        function onUp() { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); }
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      }
 
       function openHelp() {
         state.sidebarOpen = false;
@@ -3702,6 +3832,7 @@
         state, viewer, onSelectWindow,
         fullscreenSpirit, fullscreenSpiritWidget, isFullscreenCapable, closeSpiritFullscreen,
         guideUrl, hortmapUrl, openHelp,
+        floatWindows, floatClose, floatToggleMin, floatDragStart,
       };
     },
   };

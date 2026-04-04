@@ -169,10 +169,10 @@ hort llmings            # list all installed llmings
 hort topology           # show hort topology tree
 hort config             # show hort-config.yaml
 hort config agent       # show specific config section
-hort watch list         # list active code sessions
-hort watch start claude # create + attach tmux session (runs claude)
-hort watch start clauded # runs claude --dangerously-skip-permissions
-hort watch start shell  # just a shell
+hort watch              # list active code sessions
+hort watch claude       # create + attach tmux session (runs claude)
+hort watch clauded      # runs claude --dangerously-skip-permissions
+hort watch shell        # just a shell
 hort watch read <name>  # read session output
 hort watch send <name> "text" # send text to session
 hort watch stop <name>  # kill session

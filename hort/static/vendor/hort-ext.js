@@ -60,6 +60,30 @@
     /** Auto-show UI in the grid on startup (like auto-launching a window). */
     static autoShow = false;
 
+    /**
+     * Device types this llming's UI is optimized for.
+     *
+     * Set by the llming author:
+     * - ``['phone']``                  — phone-only UI (e.g. simple chat)
+     * - ``['phone', 'tablet']``        — mobile optimized
+     * - ``['desktop']``                — desktop-only (e.g. complex editor)
+     * - ``['phone', 'tablet', 'desktop']`` — works everywhere (default)
+     *
+     * The system uses this + available screen space to decide presentation:
+     * - If there's enough space → float (stays on grid as overlay)
+     * - If screen is too small → fullscreen (own page with back button)
+     */
+    static deviceTypes = ['phone', 'tablet', 'desktop'];
+
+    /**
+     * Float window sizing — read from extension.json ``ui_float`` field.
+     * Values are viewport-relative (pct) with absolute minimums (px).
+     * Set via manifest, not hardcoded in JS.
+     *
+     * Defaults: 30% width, 65% height, min 320x400.
+     */
+    static ui_float = null;  // set from extension.json
+
     /** Unique extension identifier (kebab-case, must match server-side name). */
     static id = '';
 
@@ -223,7 +247,139 @@
     static getRegistry() {
       return _registry;
     }
+
+    // ---- Device detection ----
+
+    /**
+     * Detect the current device type from viewport size.
+     *
+     * @returns {'phone'|'tablet'|'desktop'}
+     */
+    static getDeviceType() {
+      const w = window.innerWidth || 0;
+      if (w < 820) return 'phone';
+      if (w < 1024) return 'tablet';
+      return 'desktop';
+    }
+
+    /**
+     * Determine how a llming should open based on available screen space.
+     *
+     * Rules:
+     * - If viewport has room for a floating overlay (>= 640px wide AND
+     *   >= 500px tall) → float (overlay on the grid)
+     * - If viewport is too small (phone) → fullscreen (own page, back button)
+     *
+     * The llming's ``deviceTypes`` is informational — it tells the system
+     * what the UI was designed for, not how to display it.
+     *
+     * @param {typeof HortExtension} ExtClass
+     * @returns {'fullscreen'|'float'}
+     */
+    static resolveDisplayMode(ExtClass) {
+      // Fullscreen-capable llmings (e.g. llming-lens viewer) always go fullscreen
+      if (ExtClass.fullscreenCapable) return 'fullscreen';
+      const w = window.innerWidth || 0;
+      const h = window.innerHeight || 0;
+      // Float only on screens with enough room (desktop / landscape tablet)
+      if (w >= 1024 && h >= 600) return 'float';
+      return 'fullscreen';
+    }
   }
+
+  // ── Shared floating window state ────────────────────────────────
+  //
+  // Float windows are rendered by the Vue app (not raw DOM), so Vue
+  // components mount correctly.  This just manages the open/close state.
+
+  const _floatWindows = new Map(); // id → { widgetName, title, minimized }
+
+  /** Reactive callback — the Vue app watches this to render floats. */
+  HortExtension._floatChangeCallback = null;
+
+  HortExtension.openFloat = function (id, widgetName, opts) {
+    const o = opts || {};
+    if (_floatWindows.has(id)) return _floatWindows.get(id);
+    const ExtClass = _registry.get(id);
+    const vw = window.innerWidth || 800;
+    const vh = window.innerHeight || 600;
+
+    // Read sizing from extension's ui_float (manifest) or use defaults
+    const uf = ExtClass?.ui_float || o.ui_float || {};
+    const wpct = uf.width_pct || 30;
+    const hpct = uf.height_pct || 65;
+    const minW = uf.min_width || 320;
+    const minH = uf.min_height || 400;
+
+    // Compute from viewport percentage, clamp to min/max
+    const fw = Math.max(minW, Math.min(Math.round(vw * wpct / 100), vw - 40));
+    const fh = Math.max(minH, Math.min(Math.round(vh * hpct / 100), vh - 40));
+
+    // Center on screen
+    const cx = Math.round((vw - fw) / 2);
+    const cy = Math.round((vh - fh) / 2);
+
+    const win = {
+      id, widgetName,
+      title: o.title || id,
+      width: fw, height: fh,
+      minWidth: minW, minHeight: minH,
+      minimized: false,
+      x: cx, y: cy,
+    };
+    _floatWindows.set(id, win);
+    if (HortExtension._floatChangeCallback) HortExtension._floatChangeCallback();
+    return win;
+  };
+
+  HortExtension.closeFloat = function (id) {
+    _floatWindows.delete(id);
+    if (HortExtension._floatChangeCallback) HortExtension._floatChangeCallback();
+  };
+
+  HortExtension.isFloatOpen = function (id) {
+    return _floatWindows.has(id);
+  };
+
+  HortExtension.getFloatWindows = function () {
+    return Array.from(_floatWindows.values());
+  };
+
+  /**
+   * Promote a floating window to fullscreen.
+   * Closes the float and opens the llming in fullscreen view.
+   * The llming calls this when it needs more space (e.g., viewer mode).
+   */
+  HortExtension.promoteToFullscreen = function (id) {
+    HortExtension.closeFloat(id);
+    // The host app listens for this and opens fullscreen
+    if (HortExtension._promoteCallback) {
+      HortExtension._promoteCallback(id);
+    }
+  };
+
+  HortExtension._promoteCallback = null;
+
+  HortExtension.toggleMinimize = function (id) {
+    const win = _floatWindows.get(id);
+    if (!win) return;
+    if (!win.minimized) {
+      // Save position before minimizing
+      win._savedX = win.x;
+      win._savedY = win.y;
+      // Move to bottom center
+      const vw = window.innerWidth || 800;
+      win.x = Math.round((vw - 240) / 2);
+      win.y = (window.innerHeight || 600) - 44;
+      win.minimized = true;
+    } else {
+      // Restore to saved position
+      win.x = win._savedX ?? win.x;
+      win.y = win._savedY ?? win.y;
+      win.minimized = false;
+    }
+    if (HortExtension._floatChangeCallback) HortExtension._floatChangeCallback();
+  };
 
   // ---- Shared components ----
 

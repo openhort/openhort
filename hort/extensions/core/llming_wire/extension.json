@@ -11,5 +11,11 @@
   "ui_widgets": ["llming-wire-chat"],
   "ui_script": "static/panel.js",
   "features": {},
-  "risk_level": "safe"
+  "risk_level": "safe",
+  "ui_float": {
+    "width_pct": 35,
+    "height_pct": 75,
+    "min_width": 380,
+    "min_height": 500
+  }
 }

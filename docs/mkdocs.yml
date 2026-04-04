@@ -72,6 +72,8 @@ nav:
     - Configuration: guide/configuration.md
     - Multi-Agent Setups: guide/multi-agent.md
     - Running Across Machines: guide/multi-node.md
+    - Code Watch: guide/code-watch.md
+    - Wire Chat: guide/wire-chat.md
     - Extensions:
       - Peer-to-Peer: guide/extensions/peer2peer.md
     - Cloud Providers:
@@ -106,6 +108,8 @@ nav:
     - UX Guidelines: develop/ux-guidelines.md
     - Screen Capture: develop/screen-capture.md
     - Memory Safety: develop/memory-safety.md
+    - Code Watch Extension: develop/code-watch-extension.md
+    - Wire Chat Extension: develop/wire-chat-extension.md
     - Docs Writing Guide: develop/docs-writing-guide.md
   - Internals:
     - Architecture: internals/architecture.md
