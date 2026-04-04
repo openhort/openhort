@@ -1139,24 +1139,17 @@ export class HomePlannerEngine {
 
     this.controls.target.set(cx, 0, cz);
 
-    // Adjust zoom to fit content
+    // Adjust zoom to fit content — orthographic zoom = frustumSize / contentSpan
     const spanX = maxX - minX;
     const spanZ = maxZ - minZ;
     const span = Math.max(spanX, spanZ, 10);
-
-    // Calculate zoom needed to fit the span into the view
-    const camSize = 28;
-    const aspect = this.container.clientWidth / (this.container.clientHeight || 1);
-    const viewW = camSize * aspect;
-    const viewH = camSize;
-    // In isometric view, the diagonal of the content projects differently
-    const needed = Math.max(span / viewW, span / viewH) * 1.6;
-    const zoom = Math.max(0.2, Math.min(3, 1 / needed));
-    this.camera.zoom = zoom;
+    const frustumH = this.camera.top - this.camera.bottom; // 28
+    // In isometric, the ground diagonal takes ~1.4× more screen space
+    this.camera.zoom = Math.max(0.3, frustumH / (span * 1.5));
     this.camera.updateProjectionMatrix();
 
     // Update camera position to look at new target
-    const d = 35;
+    const d = Math.max(span * 0.5, 20);
     this.camera.position.set(cx + d, d, cz + d);
     this.camera.lookAt(this.controls.target);
   }
