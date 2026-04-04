@@ -7,18 +7,21 @@
 // ── Component grid definitions ──────────────────────────────
 
 export const GRID = {
-  // Machine Horts — world level
-  'mac-mini':     { cat: 'machine', innerW: 4, innerD: 4, wall: 0.15 },
-  'macbook':      { cat: 'machine', innerW: 5, innerD: 3, wall: 0.15 },
-  'rpi':          { cat: 'machine', innerW: 3, innerD: 3, wall: 0.12 },
-  'cloud-vm':     { cat: 'machine', innerW: 4, innerD: 4, wall: 0.15 },
+  // Machine Horts — world level (generous defaults for spacious layouts)
+  'mac-mini':     { cat: 'machine', innerW: 6, innerD: 6, wall: 0.15 },
+  'macbook':      { cat: 'machine', innerW: 7, innerD: 5, wall: 0.15 },
+  'rpi':          { cat: 'machine', innerW: 5, innerD: 5, wall: 0.12 },
+  'cloud-vm':     { cat: 'machine', innerW: 6, innerD: 6, wall: 0.15 },
   // Sub-Horts — inside machine horts
-  'docker':       { cat: 'subhort', footW: 2, footD: 2, innerW: 4, innerD: 4, minInner: 2 },
-  'virtual-hort': { cat: 'subhort', footW: 2, footD: 2, innerW: 4, innerD: 4, minInner: 2 },
+  'docker':       { cat: 'subhort', footW: 2, footD: 2, innerW: 5, innerD: 5, minInner: 2 },
+  'virtual-hort': { cat: 'subhort', footW: 2, footD: 2, innerW: 5, innerD: 5, minInner: 2 },
   // Tools — leaf nodes
   'mcp-server':   { cat: 'tool', footW: 1, footD: 1 },
   'llming':       { cat: 'tool', footW: 1, footD: 1 },
   'program':      { cat: 'tool', footW: 1, footD: 1 },
+  // Security
+  'agent':        { cat: 'tool', footW: 1, footD: 1 },
+  'fence':        { cat: 'tool', footW: 2, footD: 2 },
 };
 
 function key(x, z) { return `${x},${z}`; }
@@ -106,7 +109,7 @@ export class InternalGrid {
   constructor(w, d) {
     this.w = w;
     this.d = d;
-    this.cells = new Map();      // "x,z" → childId
+    this.cells = new Map();      // "x,z" → { id: childId, layer: 'content'|'gap' }
     this.childRects = new Map(); // childId → { x, z, w, d }
   }
 
@@ -120,15 +123,23 @@ export class InternalGrid {
   }
 
   occupy(childId, x, z, fw, fd) {
+    // content cells
     for (let cx = x; cx < x + fw; cx++)
       for (let cz = z; cz < z + fd; cz++)
-        this.cells.set(key(cx, cz), childId);
+        this.cells.set(key(cx, cz), { id: childId, layer: 'content' });
+    // 1-cell gap border (prevents adjacent placement)
+    for (let cx = x - 1; cx <= x + fw; cx++)
+      for (let cz = z - 1; cz <= z + fd; cz++) {
+        const k = key(cx, cz);
+        if (!this.cells.has(k))
+          this.cells.set(k, { id: childId, layer: 'gap' });
+      }
     this.childRects.set(childId, { x, z, w: fw, d: fd });
   }
 
   vacate(childId) {
     for (const [k, v] of this.cells)
-      if (v === childId) this.cells.delete(k);
+      if (v.id === childId) this.cells.delete(k);
     this.childRects.delete(childId);
   }
 

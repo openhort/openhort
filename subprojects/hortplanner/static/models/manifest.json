@@ -30,14 +30,14 @@
           "color": "#333333"
         },
         "led": {
-          "enabled": true,
+          "enabled": false,
           "color": "#22c55e",
           "emissiveIntensity": 3.0,
           "radius": 0.06,
           "positionYFactor": 0.4
         }
       },
-      "ports": { "in": 2, "out": 2 },
+      "ports": { "in": 1, "out": 1 },
       "animations": {
         "idle": { "type": "none" }
       }
@@ -71,14 +71,14 @@
           "displayEmissiveIntensity": 0.6
         },
         "led": {
-          "enabled": true,
+          "enabled": false,
           "color": "#22c55e",
           "emissiveIntensity": 3.0,
           "radius": 0.06,
           "positionYFactor": 0.4
         }
       },
-      "ports": { "in": 2, "out": 2 },
+      "ports": { "in": 1, "out": 1 },
       "animations": {
         "open": {
           "type": "rotation",
@@ -121,7 +121,7 @@
       },
       "features": {
         "led": {
-          "enabled": true,
+          "enabled": false,
           "color": "#22c55e",
           "emissiveIntensity": 3.0,
           "radius": 0.06,
@@ -152,14 +152,14 @@
       },
       "features": {
         "led": {
-          "enabled": true,
+          "enabled": false,
           "color": "#22c55e",
           "emissiveIntensity": 3.0,
           "radius": 0.06,
           "positionYFactor": 0.4
         }
       },
-      "ports": { "in": 2, "out": 2 },
+      "ports": { "in": 1, "out": 1 },
       "animations": {}
     },
 
@@ -183,7 +183,7 @@
       },
       "features": {
         "led": {
-          "enabled": true,
+          "enabled": false,
           "color": "#22c55e",
           "emissiveIntensity": 3.0,
           "radius": 0.06,
@@ -262,7 +262,7 @@
           "speed": 0.6
         }
       },
-      "ports": { "in": 2, "out": 1 },
+      "ports": { "in": 1, "out": 1 },
       "animations": {
         "idle": {
           "type": "rotation",
@@ -290,6 +290,62 @@
       },
       "features": {},
       "ports": { "in": 1, "out": 1 },
+      "animations": {}
+    },
+
+    "agent": {
+      "displayName": "Agent",
+      "profile": {
+        "type": "octahedron"
+      },
+      "body": {
+        "height": 2.5,
+        "solid": true
+      },
+      "material": {
+        "color": "#06b6d4",
+        "metalness": 0.25,
+        "roughness": 0.35,
+        "emissive": "#06b6d4",
+        "emissiveIntensity": 0.5
+      },
+      "features": {
+        "spin": {
+          "enabled": true,
+          "speed": 0.3
+        }
+      },
+      "ports": { "in": 1, "out": 1 },
+      "animations": {
+        "idle": {
+          "type": "rotation",
+          "target": "body",
+          "property": "rotation.y",
+          "continuous": true,
+          "speed": 0.3
+        }
+      }
+    },
+
+    "fence": {
+      "displayName": "Fence",
+      "profile": {
+        "type": "fence"
+      },
+      "body": {
+        "height": 0.08,
+        "solid": true
+      },
+      "material": {
+        "color": "#f97316",
+        "metalness": 0.0,
+        "roughness": 1.0,
+        "opacity": 0.30,
+        "emissive": "#f97316",
+        "emissiveIntensity": 0.4
+      },
+      "features": {},
+      "ports": { "in": 0, "out": 0 },
       "animations": {}
     }
   },

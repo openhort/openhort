@@ -28,6 +28,12 @@
     .conn-badge { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
     .status-bar { font-size: 12px; color: #64748b; padding: 4px 16px; background: #0f172a;
       border-top: 1px solid #1e293b; display: flex; gap: 16px; align-items: center; }
+    .q-drawer { background: rgba(15, 23, 42, 0.92) !important; backdrop-filter: blur(8px); }
+    .label-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+    .label-3d { position: absolute; left: 0; top: 0; white-space: nowrap; pointer-events: none;
+      font: 500 11px -apple-system, 'Segoe UI', Roboto, sans-serif; color: #e2e8f0;
+      text-shadow: 0 0 4px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.7);
+      transform: translate(-50%, -100%); padding-bottom: 2px; }
   </style>
 </head>
 <body>
@@ -45,8 +51,34 @@
             HortPlanner
           </q-toolbar-title>
 
-          <!-- Breadcrumb -->
-          <template v-if="levelStack.length">
+          <!-- Breadcrumb: shows selection ancestry (with sibling dropdowns) or nav stack -->
+          <template v-if="selected && selected.ancestry && selected.ancestry.length">
+            <div class="row items-center no-wrap q-mr-md text-caption text-grey-4">
+              <span class="cursor-pointer text-grey-5" @click="goHome">Infrastructure</span>
+              <template v-for="(a, ai) in selected.ancestry" :key="a.id">
+                <q-icon name="chevron_right" size="16px" color="grey-6" class="q-mx-xs"></q-icon>
+                <q-btn flat dense no-caps size="sm" class="q-px-xs"
+                  :color="ai === selected.ancestry.length - 1 ? 'white' : 'grey-4'"
+                  :label="a.name" @click="selectById(a.id)"
+                  style="min-height:24px; font-size:12px">
+                  <q-icon v-if="a.siblings.length" name="arrow_drop_down" size="16px"
+                    color="grey-6" class="q-ml-none"></q-icon>
+                  <q-menu v-if="a.siblings.length" dark anchor="bottom left" self="top left">
+                    <q-list dense dark style="min-width:140px">
+                      <q-item v-for="s in a.siblings" :key="s.id" clickable v-close-popup
+                        @click="selectById(s.id)">
+                        <q-item-section>
+                          <q-item-label style="font-size:12px">{{ s.name }}</q-item-label>
+                          <q-item-label caption style="font-size:10px; color:#64748b">{{ s.type }}</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </q-list>
+                  </q-menu>
+                </q-btn>
+              </template>
+            </div>
+          </template>
+          <template v-else-if="levelStack.length">
             <q-breadcrumbs active-color="white" separator=">" class="q-mr-md text-caption">
               <q-breadcrumbs-el label="Infrastructure" icon="home" class="cursor-pointer"
                 @click="navigateToRoot"></q-breadcrumbs-el>
@@ -96,11 +128,16 @@
             @click="deleteSelected">
             <q-tooltip>Delete (Del)</q-tooltip>
           </q-btn>
+
+          <q-separator vertical dark class="q-mx-xs"></q-separator>
+          <q-btn flat dense round icon="info" @click="rightOpen = !rightOpen">
+            <q-tooltip>Toggle properties panel</q-tooltip>
+          </q-btn>
         </q-toolbar>
       </q-header>
 
-      <!-- Left Drawer — Component Palette -->
-      <q-drawer v-model="leftOpen" side="left" :width="250" bordered
+      <!-- Left Drawer — Component Palette (overlay, doesn't shrink canvas) -->
+      <q-drawer v-model="leftOpen" side="left" :width="250" bordered overlay
         class="bg-dark" style="border-right:1px solid #1e293b">
         <q-scroll-area class="fit">
           <div class="q-pa-sm q-pb-none">
@@ -132,18 +169,20 @@
           <q-separator dark class="q-my-sm"></q-separator>
           <div class="q-px-md q-pb-md text-grey-7" style="font-size:11px; line-height:1.5">
             <b>Drag</b> a component onto the grid to place it.<br>
-            <b>Drag</b> placed components to reposition.<br>
-            <b>Esc</b> deselect tool &bull; <b>Click</b> select &bull; <b>DblClick</b> enter container<br>
-            Click <span class="conn-badge" style="background:#22c55e"></span>output port then
-            <span class="conn-badge" style="background:#3b82f6"></span>input port to connect.
+            <b>Click</b> select &bull; <b>DblClick</b> enter container<br>
+            Click <span class="conn-badge" style="background:#22c55e"></span>port &rarr;
+            <span class="conn-badge" style="background:#3b82f6"></span>port to wire.<br>
+            <b>Click a wire</b> to set its security level.
           </div>
         </q-scroll-area>
       </q-drawer>
 
-      <!-- Right Drawer — Properties -->
-      <q-drawer v-model="rightOpen" side="right" :width="280" bordered
+      <!-- Right Drawer — Properties (overlay, doesn't shrink canvas) -->
+      <q-drawer v-model="rightOpen" side="right" :width="280" bordered overlay
         class="bg-dark" style="border-left:1px solid #1e293b">
         <q-scroll-area class="fit">
+
+          <!-- ─── Component Properties ─── -->
           <template v-if="selected">
             <div class="q-pa-md">
               <div class="text-caption text-grey-6 q-mb-sm">PROPERTIES</div>
@@ -161,7 +200,7 @@
                 <span class="text-grey-3">{{ selected.children }} items inside</span>
               </div>
 
-              <div class="q-mb-md">
+              <div class="q-mb-md" v-if="selected.ports && (selected.ports.in || selected.ports.out)">
                 <div class="prop-label q-mb-xs">Ports</div>
                 <span class="text-grey-3">
                   <span class="conn-badge" style="background:#3b82f6"></span>{{ selected.ports.in }} in
@@ -170,28 +209,16 @@
                 </span>
               </div>
 
-              <!-- Resize controls -->
-              <div class="q-mb-sm" v-if="selected.isContainer">
-                <div class="prop-label q-mb-xs">Size ({{ selected.innerW }} x {{ selected.innerD }})</div>
+              <!-- Trust Level (horts only) -->
+              <div class="q-mb-md" v-if="selected.isContainer">
+                <div class="prop-label q-mb-xs">Trust Level</div>
                 <div class="row q-gutter-xs">
-                  <q-btn dense flat size="sm" icon="remove" color="grey-5"
-                    @click="resizeComp(-1, 0)">
-                    <q-tooltip>Shrink width</q-tooltip>
-                  </q-btn>
-                  <q-btn dense flat size="sm" label="W" color="grey-6" disable></q-btn>
-                  <q-btn dense flat size="sm" icon="add" color="primary"
-                    @click="resizeComp(1, 0)">
-                    <q-tooltip>Grow width</q-tooltip>
-                  </q-btn>
-                  <div style="width:8px"></div>
-                  <q-btn dense flat size="sm" icon="remove" color="grey-5"
-                    @click="resizeComp(0, -1)">
-                    <q-tooltip>Shrink depth</q-tooltip>
-                  </q-btn>
-                  <q-btn dense flat size="sm" label="D" color="grey-6" disable></q-btn>
-                  <q-btn dense flat size="sm" icon="add" color="primary"
-                    @click="resizeComp(0, 1)">
-                    <q-tooltip>Grow depth</q-tooltip>
+                  <q-btn v-for="t in TRUST_LEVELS" :key="t.value"
+                    dense no-caps size="sm" :color="selected.trust === t.value ? t.color : 'grey-8'"
+                    :outline="selected.trust !== t.value"
+                    :label="t.label"
+                    @click="setTrust(t.value)"
+                    style="font-size:10px; min-height:26px">
                   </q-btn>
                 </div>
               </div>
@@ -204,9 +231,84 @@
                 flat no-caps class="full-width" @click="deleteSelected"></q-btn>
             </div>
           </template>
+
+          <!-- ─── Connection (Wire) Properties ─── -->
+          <template v-else-if="selectedConn">
+            <div class="q-pa-md">
+              <div class="text-caption text-grey-6 q-mb-sm">WIRE PROPERTIES</div>
+
+              <div class="q-mb-md">
+                <div class="prop-label q-mb-xs">From</div>
+                <div class="text-grey-2" style="font-size:13px">
+                  <q-badge :color="typeColor(selectedConn.fromType)" :label="selectedConn.fromType"
+                    class="q-mr-xs" style="font-size:9px"></q-badge>
+                  {{ selectedConn.fromName }}
+                </div>
+              </div>
+
+              <div class="q-mb-md">
+                <div class="prop-label q-mb-xs">To</div>
+                <div class="text-grey-2" style="font-size:13px">
+                  <q-badge :color="typeColor(selectedConn.toType)" :label="selectedConn.toType"
+                    class="q-mr-xs" style="font-size:9px"></q-badge>
+                  {{ selectedConn.toName }}
+                </div>
+              </div>
+
+              <q-separator dark class="q-my-sm"></q-separator>
+
+              <div class="q-mb-md">
+                <div class="prop-label q-mb-xs">Security Level</div>
+                <div class="column q-gutter-xs">
+                  <q-btn v-for="s in SECURITY_LEVELS" :key="s.value"
+                    dense no-caps size="sm" align="left" class="full-width"
+                    :style="{
+                      borderLeft: '3px solid ' + s.color,
+                      background: selectedConn.security === s.value ? s.color + '22' : 'transparent',
+                    }"
+                    @click="setConnSecurity(s.value)">
+                    <q-icon :name="s.icon" size="16px" :style="{color: s.color}" class="q-mr-sm"></q-icon>
+                    <span :style="{color: selectedConn.security === s.value ? '#fff' : '#94a3b8'}">
+                      {{ s.label }}
+                    </span>
+                    <q-space></q-space>
+                    <q-icon v-if="selectedConn.security === s.value" name="check" size="14px"
+                      color="white"></q-icon>
+                  </q-btn>
+                </div>
+              </div>
+
+              <q-separator dark class="q-my-sm"></q-separator>
+
+              <!-- Wire Ruleset Summary -->
+              <div class="q-mb-md" v-if="selectedConn.security !== 'none'">
+                <div class="prop-label q-mb-xs">Wire Ruleset</div>
+                <div class="text-grey-5" style="font-size:11px; line-height:1.6">
+                  <template v-if="selectedConn.security === 'read'">
+                    <b style="color:#22c55e">allow_groups:</b> [read]<br>
+                    <b style="color:#ef4444">deny_groups:</b> [write, send, destroy]
+                  </template>
+                  <template v-else-if="selectedConn.security === 'write'">
+                    <b style="color:#22c55e">allow_groups:</b> [read, write]<br>
+                    <b style="color:#ef4444">deny_groups:</b> [send, destroy]
+                  </template>
+                  <template v-else-if="selectedConn.security === 'send'">
+                    <b style="color:#22c55e">allow_groups:</b> [read, write, send]<br>
+                    <b style="color:#ef4444">deny_groups:</b> [destroy]
+                  </template>
+                  <template v-else-if="selectedConn.security === 'destroy'">
+                    <b style="color:#22c55e">allow_groups:</b> [read, write, send, destroy]<br>
+                    <span style="color:#ef4444">Full access — no restrictions</span>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ─── Empty State ─── -->
           <div v-else class="q-pa-md text-grey-7 text-center" style="margin-top:40%">
             <q-icon name="touch_app" size="48px" color="grey-8"></q-icon><br>
-            <span style="font-size:13px">Select a component<br>to see its properties</span>
+            <span style="font-size:13px">Select a component or wire<br>to see its properties</span>
           </div>
         </q-scroll-area>
       </q-drawer>
@@ -215,7 +317,9 @@
       <q-page-container>
         <q-page class="relative-position">
           <div ref="canvasWrap" class="canvas-wrap"
-            @dragover.prevent="onDragOver" @drop.prevent="onDrop"></div>
+            @dragover.prevent="onDragOver" @drop.prevent="onDrop">
+            <div ref="labelOverlay" class="label-overlay"></div>
+          </div>
         </q-page>
       </q-page-container>
 
@@ -224,7 +328,7 @@
         <span><q-icon name="grid_on" size="14px" class="q-mr-xs"></q-icon>
           {{ componentCount }} components</span>
         <span><q-icon name="link" size="14px" class="q-mr-xs"></q-icon>
-          {{ connectionCount }} connections</span>
+          {{ connectionCount }} wires</span>
         <q-space></q-space>
         <span>{{ viewMode === 'isometric' ? '3D Isometric' : '2D Flat' }}</span>
       </q-footer>
@@ -297,11 +401,18 @@
         ],
       },
       {
-        label: 'Tools', icon: 'build',
+        label: 'Llmings', icon: 'build',
         items: [
           { type: 'mcp-server', label: 'MCP Server', icon: 'hub', color: '#f59e0b', desc: 'MCP protocol server' },
-          { type: 'llming', label: 'LLMing', icon: 'psychology', color: '#8b5cf6', desc: 'AI agent' },
+          { type: 'llming', label: 'LLMing', icon: 'psychology', color: '#8b5cf6', desc: 'AI tool provider' },
           { type: 'program', label: 'Program', icon: 'terminal', color: '#10b981', desc: 'Script / pipeline step' },
+        ],
+      },
+      {
+        label: 'Security', icon: 'security',
+        items: [
+          { type: 'agent', label: 'Agent', icon: 'smart_toy', color: '#06b6d4', desc: 'AI controller (central hub)' },
+          { type: 'fence', label: 'Fence', icon: 'fence', color: '#f97316', desc: 'Virtual security boundary' },
         ],
       },
     ];
@@ -310,15 +421,33 @@
       'mac-mini': 'blue-grey', 'macbook': 'grey', 'rpi': 'green',
       'cloud-vm': 'blue', 'docker': 'cyan', 'virtual-hort': 'purple',
       'mcp-server': 'amber', 'llming': 'deep-purple', 'program': 'teal',
+      'agent': 'cyan', 'fence': 'orange',
     };
+
+    const SECURITY_LEVELS = [
+      { value: 'none', label: 'None', color: '#eab308', icon: 'link' },
+      { value: 'read', label: 'Read', color: '#22c55e', icon: 'visibility' },
+      { value: 'write', label: 'Write', color: '#eab308', icon: 'edit' },
+      { value: 'send', label: 'Send', color: '#f97316', icon: 'send' },
+      { value: 'destroy', label: 'Destroy', color: '#ef4444', icon: 'delete_forever' },
+    ];
+
+    const TRUST_LEVELS = [
+      { value: null, label: 'Not set', color: 'grey' },
+      { value: 'trusted', label: 'Trusted', color: 'green' },
+      { value: 'sandboxed', label: 'Sandboxed', color: 'amber' },
+      { value: 'untrusted', label: 'Untrusted', color: 'red' },
+    ];
 
     const app = createApp({
       setup() {
         const canvasWrap = ref(null);
-        const leftOpen = ref(true);
+        const labelOverlay = ref(null);
+        const leftOpen = ref(false);
         const rightOpen = ref(false);
         const viewMode = ref('isometric');
         const selected = ref(null);
+        const selectedConn = ref(null);
         const activeTool = ref(null);
         const levelStack = ref([]);
         const componentCount = ref(0);
@@ -328,8 +457,10 @@
         let engine = null;
 
         const callbacks = {
-          onSelect(data) { selected.value = { ...data }; rightOpen.value = true; },
+          onSelect(data) { selected.value = { ...data }; selectedConn.value = null; rightOpen.value = true; },
           onDeselect() { selected.value = null; },
+          onSelectConnection(data) { selectedConn.value = { ...data }; selected.value = null; rightOpen.value = true; },
+          onDeselectConnection() { selectedConn.value = null; },
           onLevelChange(stack) { levelStack.value = stack.map(s => ({ ...s })); },
           onCountChange(comps, conns) { componentCount.value = comps; connectionCount.value = conns; },
         };
@@ -337,7 +468,7 @@
         onMounted(async () => {
           await engineReady;
           if (HortPlannerEngine && canvasWrap.value) {
-            engine = new HortPlannerEngine(canvasWrap.value, callbacks);
+            engine = new HortPlannerEngine(canvasWrap.value, callbacks, labelOverlay.value);
           } else {
             console.error('HortPlanner engine failed to load');
           }
@@ -410,14 +541,42 @@
           presetsDialog.value = false;
         }
 
+        function selectById(id) {
+          engine?.selectComponent(id);
+        }
+
+        function setConnSecurity(level) {
+          if (!selectedConn.value) return;
+          engine?.setConnectionSecurity(selectedConn.value.id, level);
+          selectedConn.value = { ...selectedConn.value, security: level };
+        }
+
+        function setTrust(trust) {
+          if (!selected.value) return;
+          engine?.setTrust(selected.value.id, trust);
+          selected.value = { ...selected.value, trust };
+        }
+
+        function deleteConnection() {
+          if (!selectedConn.value) return;
+          engine?.removeConnection?.(selectedConn.value.id);
+          selectedConn.value = null;
+        }
+
+        function securityColor(level) {
+          return SECURITY_LEVELS.find(s => s.value === level)?.color || '#eab308';
+        }
+
         return {
-          canvasWrap, leftOpen, rightOpen, viewMode, selected, activeTool,
+          canvasWrap, labelOverlay, leftOpen, rightOpen, viewMode, selected, selectedConn, activeTool,
           levelStack, componentCount, connectionCount,
           presetsDialog, presetList,
           catalog: CATALOG, setTool, onDragStart, onDragOver, onDrop,
           onViewChange, typeColor,
-          deleteSelected, enterSelected, navigateToRoot, navigateToLevel, updateProp, loadPreset, goHome,
+          deleteSelected, enterSelected, navigateToRoot, navigateToLevel, updateProp, loadPreset, goHome, selectById,
           doUndo, doRedo, resizeComp,
+          setConnSecurity, setTrust, deleteConnection, securityColor,
+          SECURITY_LEVELS, TRUST_LEVELS,
         };
       },
     });

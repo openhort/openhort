@@ -233,6 +233,45 @@ function buildSolid(type, w, d, compDef) {
   } else if (profile.type === 'icosphere') {
     mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(w * 0.55, profile.subdivisions || 1), mat);
     mesh.position.y = h / 2 + 0.15;
+  } else if (profile.type === 'octahedron') {
+    mesh = new THREE.Mesh(new THREE.OctahedronGeometry(w * 0.55), mat);
+    mesh.position.y = h / 2 + 0.15;
+  } else if (profile.type === 'fence') {
+    // Flat translucent ground region with glowing corner posts
+    const planeMat = makeMaterial(matDef, true);
+    planeMat.depthWrite = false;
+    planeMat.side = THREE.DoubleSide;
+    const plane = new THREE.Mesh(new THREE.BoxGeometry(w - 0.1, 0.06, d - 0.1), planeMat);
+    plane.position.y = 0.03;
+    plane.name = 'body';
+    group.add(plane);
+
+    const postColor = new THREE.Color(matDef.emissive || matDef.color);
+    const postMat = new THREE.MeshStandardMaterial({
+      color: postColor, emissive: postColor, emissiveIntensity: 2.0,
+    });
+    const postGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.5, 8);
+    const barGeo = new THREE.CylinderGeometry(0.02, 0.02, 1, 6);
+    const hw = (w - 0.2) / 2, hd = (d - 0.2) / 2;
+    for (const [px, pz] of [[-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd]]) {
+      const post = new THREE.Mesh(postGeo, postMat);
+      post.position.set(px, 0.25, pz);
+      group.add(post);
+    }
+    // Horizontal bars connecting posts (top edges)
+    const barMat = new THREE.MeshStandardMaterial({
+      color: postColor, emissive: postColor, emissiveIntensity: 1.2,
+      transparent: true, opacity: 0.7,
+    });
+    const barW = w - 0.2, barD = d - 0.2;
+    for (const [bx, bz, len, rotY] of [[0, -hd, barW, 0], [0, hd, barW, 0], [-hw, 0, barD, Math.PI/2], [hw, 0, barD, Math.PI/2]]) {
+      const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, len, 6), barMat);
+      bar.position.set(bx, 0.48, bz);
+      bar.rotation.z = Math.PI / 2;
+      bar.rotation.y = rotY;
+      group.add(bar);
+    }
+    return group;
   } else {
     mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     mesh.position.y = h / 2 + 0.05;
