@@ -1067,29 +1067,35 @@ export class HomePlannerEngine {
     const rooms = floor.detectRooms(GRID_CELLS, GRID_CELLS);
     const floorY = floor.yOffset;
 
-    // Create floor planes for each room
+    // Create ONE merged floor plane per room (prevents per-cell z-fighting)
     for (let ri = 0; ri < rooms.length; ri++) {
       const room = rooms[ri];
       const color = ROOM_COLORS[ri % ROOM_COLORS.length];
 
-      // Create individual cell planes for the room
-      // (Merging into a single mesh per room would be more efficient
-      //  but per-cell is simpler and fine for home-scale grids)
+      // Merge all cells into a single BufferGeometry
+      const positions = [];
+      const indices = [];
       for (const cell of room.cells) {
-        const geo = new THREE.PlaneGeometry(1, 1);
-        geo.rotateX(-Math.PI / 2);
-        const mat = new THREE.MeshStandardMaterial({
-          color,
-          roughness: 0.8,
-          metalness: 0.02,
-          side: THREE.DoubleSide,
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(cell.x + 0.5, floorY + 0.01, cell.z + 0.5);
-        mesh.receiveShadow = true;
-        this.scene.add(mesh);
-        this._floorMeshes.push(mesh);
+        const vi = positions.length / 3;
+        const cx = cell.x, cz = cell.z;
+        positions.push(cx, 0, cz, cx + 1, 0, cz, cx + 1, 0, cz + 1, cx, 0, cz + 1);
+        indices.push(vi, vi + 1, vi + 2, vi, vi + 2, vi + 3);
       }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+
+      const mat = new THREE.MeshStandardMaterial({
+        color, roughness: 0.8, metalness: 0.02, side: THREE.DoubleSide,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = floorY + 0.03; // above grid to prevent z-fighting
+      mesh.receiveShadow = true;
+      mesh.renderOrder = 0;
+      this.scene.add(mesh);
+      this._floorMeshes.push(mesh);
     }
   }
 
