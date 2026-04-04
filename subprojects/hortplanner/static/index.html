@@ -179,9 +179,9 @@
                 expand-icon-class="text-grey-6">
                 <q-item v-for="item in cat.items" :key="item.type" dense clickable
                   class="palette-item" :class="{ 'active-tool': activeTool === item.type }"
-                  :draggable="activeMode === 'hort' || !['wall','door-s','door-n','window-s','window-l'].includes(item.type)"
+                  :draggable="activeMode === 'hort'"
                   @dragstart="onDragStart($event, item.type)"
-                  @click="['wall','door-s','door-n','window-s','window-l','stairs-straight'].includes(item.type) ? setTool(item.type) : null">
+                  @click="setTool(item.type)">
                   <q-item-section avatar>
                     <div class="palette-icon" :style="{background: item.color + '22', color: item.color}">
                       <q-icon :name="item.icon"></q-icon>
@@ -198,11 +198,19 @@
 
           <q-separator dark class="q-my-sm"></q-separator>
           <div class="q-px-md q-pb-md text-grey-7" style="font-size:11px; line-height:1.5">
-            <b>Drag</b> a component onto the grid to place it.<br>
-            <b>Click</b> select &bull; <b>DblClick</b> enter container<br>
-            Click <span class="conn-badge" style="background:#22c55e"></span>port &rarr;
-            <span class="conn-badge" style="background:#3b82f6"></span>port to wire.<br>
-            <b>Click a wire</b> to set its security level.
+            <template v-if="activeMode === 'home'">
+              <b>Click</b> a tool to activate it.<br>
+              <b>Wall</b>: click/drag grid edges to draw.<br>
+              <b>Door/Window</b>: click existing wall to place.<br>
+              <b>Furniture</b>: click to activate, click grid to place.<br>
+              <b>R</b> rotate &bull; <b>F</b> flip &bull; <b>Del</b> delete &bull; <b>Esc</b> deselect
+            </template>
+            <template v-else>
+              <b>Drag</b> a component onto the grid to place it.<br>
+              <b>Click</b> select &bull; <b>DblClick</b> enter container<br>
+              Click port &rarr; port to wire.<br>
+              <b>Click a wire</b> to set its security level.
+            </template>
           </div>
         </q-scroll-area>
       </q-drawer>
@@ -335,6 +343,63 @@
             </div>
           </template>
 
+          <!-- ─── Home Mode: Furniture Properties ─── -->
+          <template v-else-if="selected && activeMode === 'home'">
+            <div class="q-pa-md">
+              <div class="text-caption text-grey-6 q-mb-sm">FURNITURE</div>
+
+              <div class="q-mb-sm">
+                <div class="prop-label q-mb-xs">Type</div>
+                <span class="text-grey-2" style="font-size:14px">{{ selected.label || selected.type }}</span>
+              </div>
+
+              <div class="q-mb-sm">
+                <div class="prop-label q-mb-xs">Position</div>
+                <span class="text-grey-4" style="font-size:12px">
+                  x: {{ selected.x }} &bull; z: {{ selected.z }}
+                </span>
+              </div>
+
+              <div class="q-mb-md">
+                <div class="prop-label q-mb-xs">Rotation</div>
+                <span class="text-grey-4" style="font-size:12px">{{ selected.rotation || 0 }}°</span>
+              </div>
+
+              <q-separator dark class="q-my-sm"></q-separator>
+
+              <div class="column q-gutter-xs q-mt-sm">
+                <q-btn flat no-caps dense icon="rotate_right" label="Rotate 90° (R)"
+                  color="primary" class="full-width" @click="rotateSelected"
+                  style="justify-content:flex-start"></q-btn>
+                <q-btn flat no-caps dense icon="flip" label="Flip direction (F)"
+                  color="amber" class="full-width" @click="flipSelected"
+                  style="justify-content:flex-start"></q-btn>
+                <q-btn flat no-caps dense icon="delete_outline" label="Delete (Del)"
+                  color="negative" class="full-width" @click="deleteSelected"
+                  style="justify-content:flex-start"></q-btn>
+              </div>
+            </div>
+          </template>
+
+          <!-- ─── Active Tool Info ─── -->
+          <template v-else-if="activeTool && activeMode === 'home'">
+            <div class="q-pa-md text-grey-5 text-center" style="margin-top:30%">
+              <q-icon :name="activeTool === 'wall' ? 'border_all' : activeTool.startsWith('door') ? 'door_front' : activeTool.startsWith('window') ? 'window' : 'chair'"
+                size="40px" color="primary"></q-icon>
+              <div class="text-grey-3 q-mt-sm" style="font-size:14px; font-weight:500">
+                {{ activeTool.replace('-s', ' (50cm)').replace('-n', ' (75cm)').replace('-l', ' (100cm)') }}
+              </div>
+              <div class="q-mt-xs" style="font-size:11px">
+                <template v-if="activeTool === 'wall'">Click/drag grid edges to draw walls</template>
+                <template v-else-if="activeTool.startsWith('door') || activeTool.startsWith('window')">Click an existing wall to place</template>
+                <template v-else>Click on the floor to place</template>
+              </div>
+              <div class="q-mt-md" style="font-size:11px">
+                Press <b>Esc</b> to deselect tool
+              </div>
+            </div>
+          </template>
+
           <!-- ─── Empty State ─── -->
           <div v-else class="q-pa-md text-grey-7 text-center" style="margin-top:40%">
             <q-icon name="touch_app" size="48px" color="grey-8"></q-icon><br>
@@ -368,6 +433,10 @@
             {{ connectionCount }} items</span>
           <span><q-icon name="layers" size="14px" class="q-mr-xs"></q-icon>
             Floor {{ activeFloor }}</span>
+          <span v-if="activeTool" style="color:#60a5fa">
+            <q-icon name="build" size="14px" class="q-mr-xs"></q-icon>
+            Tool: {{ activeTool }}
+          </span>
         </template>
         <q-space></q-space>
         <span>{{ viewMode === 'isometric' ? '3D Isometric' : '2D Flat' }}</span>
@@ -622,15 +691,20 @@
           if (e.key === 'Escape') { activeTool.value = null; engine?.setActiveTool?.(null); }
           if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
           if (e.key === 'h' || e.key === 'H') goHome();
-          if (e.key === 'r' || e.key === 'R') { if (activeMode.value === 'home') engine?.rotateSelected?.(); }
+          if (e.key === 'r' || e.key === 'R') { if (activeMode.value === 'home') rotateSelected(); }
+          if (e.key === 'f' || e.key === 'F') { if (activeMode.value === 'home') flipSelected(); }
           if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); engine?.undo?.(); }
           if ((e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) ||
               (e.key === 'y' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); engine?.redo?.(); }
         }
 
         function setTool(type) {
-          activeTool.value = activeTool.value === type ? null : type;
-          engine?.setActiveTool?.(activeTool.value);
+          // Toggle tool — click same tool again to deselect
+          const newTool = activeTool.value === type ? null : type;
+          activeTool.value = newTool;
+          engine?.setActiveTool?.(newTool);
+          // Open right panel to show tool info in home mode
+          if (newTool && activeMode.value === 'home') { selected.value = null; selectedConn.value = null; rightOpen.value = true; }
         }
 
         function onDragStart(event, type) {
@@ -653,6 +727,14 @@
           else { engine?.removeComponent?.(selected.value.id); }
           selected.value = null;
           rightOpen.value = false;
+        }
+
+        function rotateSelected() {
+          engine?.rotateSelected?.();
+        }
+
+        function flipSelected() {
+          engine?.flipSelected?.();
         }
 
         function enterSelected() {
@@ -724,7 +806,7 @@
           activeMode, switchMode, activeFloor, floorList, setFloor, addFloor,
           setTool, onDragStart, onDragOver, onDrop,
           onViewChange, typeColor,
-          deleteSelected, enterSelected, navigateToRoot, navigateToLevel, updateProp, loadPreset, goHome, selectById,
+          deleteSelected, enterSelected, rotateSelected, flipSelected, navigateToRoot, navigateToLevel, updateProp, loadPreset, goHome, selectById,
           doUndo, doRedo,
           setConnSecurity, setTrust, deleteConnection, securityColor,
           SECURITY_LEVELS, TRUST_LEVELS,

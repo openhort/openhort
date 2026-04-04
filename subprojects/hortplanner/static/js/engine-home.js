@@ -1450,6 +1450,24 @@ export class HomePlannerEngine {
     if (!furn) return;
     furn.rotation = ((furn.rotation || 0) + 90) % 360;
     await this._rebuildFurnitureMeshes();
+    if (this.callbacks.onSelect) {
+      const def = FURNITURE_DEFS[furn.type] || {};
+      this.callbacks.onSelect({ id: this._selectedFurnId, type: furn.type, label: def.label || furn.type, x: furn.x, z: furn.z, rotation: furn.rotation });
+    }
+  }
+
+  /** Flip the selected furniture's facing (mirror: 0↔180, 90↔270). */
+  async flipSelected() {
+    if (this._selectedFurnId === null) return;
+    const furn = this._getFurnitureData(this._selectedFurnId);
+    if (!furn) return;
+    furn.rotation = ((furn.rotation || 0) + 180) % 360;
+    await this._rebuildFurnitureMeshes();
+    // Re-notify UI with updated data
+    if (this.callbacks.onSelect) {
+      const def = FURNITURE_DEFS[furn.type] || {};
+      this.callbacks.onSelect({ id: this._selectedFurnId, type: furn.type, label: def.label || furn.type, x: furn.x, z: furn.z, rotation: furn.rotation });
+    }
   }
 
   /** Get the palette catalog for the UI. */
