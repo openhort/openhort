@@ -204,6 +204,8 @@
                 </div>
                 <div v-for="msg in messages" :key="msg.id"
                      :class="['llming-wire-bubble', msg.role === 'user' ? 'llming-wire-user' : 'llming-wire-ai']">
+                  <img v-if="msg.image" :src="msg.image" @click="zoomImage = msg.image"
+                       style="max-width:100%;border-radius:8px;margin-bottom:4px;cursor:zoom-in" loading="lazy" />
                   <span class="llming-wire-bubble-text" v-html="linkify(msg.text)"></span>
                   <span class="llming-wire-ts">
                     {{ formatTime(msg.ts) }}
@@ -211,7 +213,7 @@
                   </span>
                   <div v-if="msg.buttons && msg.buttons.length" class="llming-wire-buttons">
                     <button v-for="btn in msg.buttons" :key="btn.id"
-                            class="llming-wire-btn" @click="sendButton(btn)">
+                            class="llming-wire-btn" @click="sendCallbackButton(btn)">
                       {{ btn.label }}
                     </button>
                   </div>
@@ -234,6 +236,15 @@
                 </button>
               </div>
             </div>
+
+            <!-- Photobox zoom overlay -->
+            <div v-if="zoomImage" class="llming-wire-zoom" @click.self="zoomImage = null"
+                 @keydown.esc="zoomImage = null" tabindex="0" ref="zoomOverlay">
+              <button class="llming-wire-zoom-close" @click="zoomImage = null">
+                <i class="ph ph-x"></i>
+              </button>
+              <img :src="zoomImage" class="llming-wire-zoom-img" />
+            </div>
           </div>
         `,
 
@@ -247,6 +258,7 @@
             serverConvId: null,   // server-side conversation ID
             sessionId: null,      // Claude session_id for --resume
             showSidebar: false,
+            zoomImage: null,
           };
         },
 
@@ -257,7 +269,13 @@
           },
         },
 
+        unmounted() {
+          if (this._escHandler) document.removeEventListener('keydown', this._escHandler);
+        },
+
         async mounted() {
+          this._escHandler = (e) => this.onKeydown(e);
+          document.addEventListener('keydown', this._escHandler);
           await this.loadConversations();
           if (this.conversations.length > 0) {
             // Resume most recent conversation
@@ -280,16 +298,23 @@
             try {
               this.messages = await dbGetAll('messages', 'cid', convId);
               this.messages.sort((a, b) => a.ts - b.ts);
+              const withImg = this.messages.filter(m => m.image);
+              if (withImg.length) console.log('[wire] loaded ' + this.messages.length + ' msgs, ' + withImg.length + ' with images');
             } catch (e) { this.messages = []; }
             this.scrollBottom();
           },
 
           async saveMessage(msg) {
-            try { await dbPut('messages', msg); } catch (e) { /* best effort */ }
+            try {
+              // Deep-clone to plain object — Vue reactive proxies and
+              // non-cloneable objects break IndexedDB's structured clone
+              const plain = JSON.parse(JSON.stringify(msg));
+              await dbPut('messages', plain);
+            } catch (e) { console.error('[wire] save failed:', e); }
           },
 
           async saveConversation(conv) {
-            try { await dbPut('conversations', conv); } catch (e) { /* best effort */ }
+            try { await dbPut('conversations', JSON.parse(JSON.stringify(conv))); } catch (e) { /* best effort */ }
           },
 
           // ── Conversation management ───────────────────────────
@@ -399,6 +424,7 @@
                 text: msg.error || msg.text || '(no response)',
                 ts: msg.ts || Date.now() / 1000,
                 buttons: msg.buttons || [],
+                image: msg.image || null,
               };
               this.messages.push(aiMsg);
               await this.saveMessage(aiMsg);
@@ -426,6 +452,10 @@
             }
           },
 
+          onKeydown(e) {
+            if (e.key === 'Escape' && this.zoomImage) { this.zoomImage = null; e.preventDefault(); }
+          },
+
           onMsgClick(e) {
             const link = e.target.closest('.llming-wire-cmd-link');
             if (link) {
@@ -440,6 +470,47 @@
             await this.send();
           },
 
+          async sendCallbackButton(btn) {
+            // For callback buttons (from /windows etc.), send the callback_data
+            // to the server which dispatches to the plugin's callback handler
+            this.loading = true;
+            this.scrollBottom();
+            try {
+              const r = await fetch(
+                this.apiUrl('conversations/' + this.serverConvId + '/callback'),
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ callback_data: btn.id }),
+                }
+              );
+              const msg = await r.json();
+              if (msg.text || msg.image) {
+                this.messages.push({
+                  id: (msg.id || Date.now().toString()) + 'cb',
+                  cid: this.activeConvId,
+                  role: 'assistant',
+                  text: msg.text || '',
+                  image: msg.image || null,
+                  ts: msg.ts || Date.now() / 1000,
+                  buttons: msg.buttons || [],
+                });
+                await this.saveMessage(this.messages[this.messages.length - 1]);
+              }
+            } catch (e) {
+              this.messages.push({
+                id: Date.now().toString() + 'e',
+                cid: this.activeConvId,
+                role: 'assistant',
+                text: 'Error: ' + e.message,
+                ts: Date.now() / 1000,
+              });
+            } finally {
+              this.loading = false;
+              this.scrollBottom();
+            }
+          },
+
           scrollBottom() {
             this.$nextTick(() => {
               const el = this.$refs.msgList;
@@ -449,12 +520,25 @@
 
           linkify(text) {
             if (!text) return '';
-            // Escape HTML first
-            let s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            // URLs → clickable links
-            s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#6ab3e8">$1</a>');
-            // /commands → clickable (sends the command)
-            s = s.replace(/(^|\s)(\/\w+)/gm, '$1<a href="#" class="llming-wire-cmd-link" data-cmd="$2" style="color:#6ab3e8;cursor:pointer">$2</a>');
+            // SECURITY: escape ALL HTML first — prevents XSS from any source.
+            // Then add back ONLY safe patterns (URLs, /commands) as links.
+            let s = text
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
+            // URLs → clickable links (only http/https, no javascript:)
+            s = s.replace(
+              /\bhttps?:\/\/[^\s&lt;]+/g,
+              m => '<a href="' + m + '" target="_blank" rel="noopener noreferrer" style="color:#6ab3e8">' + m + '</a>'
+            );
+            // /commands → clickable (sends the command via data attribute, no href)
+            s = s.replace(
+              /(^|[\s])(\/([\w_]+))/gm,
+              '$1<a href="#" class="llming-wire-cmd-link" data-cmd="/$3" style="color:#6ab3e8;cursor:pointer" onclick="return false">$2</a>'
+            );
+            // **bold** → <b> (safe, no nesting exploits with escaped HTML)
+            s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
             return s;
           },
 

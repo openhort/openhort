@@ -118,6 +118,64 @@ class LlmingWire(PluginBase):
 
             return JSONResponse(ai_msg)
 
+        @r.post("/conversations/{cid}/callback")
+        async def handle_callback(cid: str, request: Request) -> JSONResponse:
+            """Handle inline button callbacks (e.g., clicking a window to screenshot)."""
+            body = await request.json()
+            callback_data = body.get("callback_data", "")
+            if not callback_data:
+                return JSONResponse({"error": "no callback_data"}, status_code=400)
+
+            try:
+                from hort.plugins import get_command_registry
+                from hort.ext.connectors import IncomingMessage, ConnectorCapabilities
+
+                registry = get_command_registry()
+                if registry and ":" in callback_data:
+                    # Route callback to plugin: "plugin_id:payload"
+                    prefix = callback_data.split(":", 1)[0]
+                    logger.info("Callback: prefix=%s, data=%s", prefix, callback_data)
+                    plugin_handler = registry.get_plugin(prefix)
+                    logger.info("Plugin handler for %s: %s", prefix, plugin_handler)
+                    msg = IncomingMessage(
+                        connector_id="llming-wire",
+                        chat_id=cid,
+                        user_id="local",
+                        username="local",
+                        callback_data=callback_data,
+                    )
+                    caps = ConnectorCapabilities(
+                        text=True, html=True, images=True,
+                        inline_buttons=True, commands=True,
+                    )
+                    result = None
+                    if plugin_handler:
+                        result = await plugin_handler.handle_connector_command(
+                            "_callback", msg, caps
+                        )
+                    if result:
+                        import base64
+                        resp: dict[str, Any] = {
+                            "id": uuid.uuid4().hex[:8],
+                            "role": "assistant",
+                            "text": result.text or result.image_caption or "",
+                            "ts": time.time(),
+                            "buttons": [],
+                        }
+                        if result.image:
+                            resp["image"] = "data:image/jpeg;base64," + base64.b64encode(result.image).decode()
+                        if result.buttons:
+                            resp["buttons"] = [
+                                {"id": btn.callback_data, "label": btn.label}
+                                for row in result.buttons for btn in row
+                            ]
+                        return JSONResponse(resp)
+            except Exception as exc:
+                logger.error("Callback error: %s", exc)
+                return JSONResponse({"error": str(exc)}, status_code=500)
+
+            return JSONResponse({"text": "No handler for this callback.", "ts": time.time()})
+
         self._router = r
         return r
 
@@ -169,11 +227,24 @@ class LlmingWire(PluginBase):
                     username="local",
                     text=f"/{cmd}",
                 )
-                caps = ConnectorCapabilities(text=True)
+                caps = ConnectorCapabilities(
+                    text=True, html=True, images=True,
+                    inline_buttons=True, commands=True,
+                )
                 result = await registry.dispatch(msg, caps)
                 if result:
-                    text = result.text or result.html or result.markdown or ""
-                    return _reply(text)
+                    import base64
+                    resp = _reply(result.text or "")
+                    # Pass structured data for rich rendering
+                    if result.buttons:
+                        resp["buttons"] = [
+                            {"id": btn.callback_data, "label": btn.label}
+                            for row in result.buttons for btn in row
+                        ]
+                    if result.image:
+                        resp["image"] = "data:image/jpeg;base64," + base64.b64encode(result.image).decode()
+                        resp["text"] = result.image_caption or result.text or ""
+                    return resp
         except Exception as exc:
             logger.debug("Command dispatch failed: %s", exc)
 
