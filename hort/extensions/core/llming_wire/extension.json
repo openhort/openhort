@@ -1,0 +1,15 @@
+{
+  "name": "llming-wire",
+  "version": "0.1.0",
+  "description": "Built-in chat UI — talk to your hort",
+  "provider": "core",
+  "platforms": ["darwin", "linux", "win32"],
+  "capabilities": ["ui"],
+  "entry_point": "provider:LlmingWire",
+  "icon": "ph ph-chat-dots",
+  "plugin_type": "connector",
+  "ui_widgets": ["llming-wire-chat"],
+  "ui_script": "static/panel.js",
+  "features": {},
+  "risk_level": "safe"
+}
