@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import hashlib
 import io
 import json
 import logging
 import os
+import re
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -772,6 +774,494 @@ def _register_routes(app: FastAPI) -> None:
             return {"error": "token_hash required"}
         ok = plugin._device_store.revoke(token_hash)
         return {"ok": ok}
+
+    # ===== Hosted Apps API + reverse proxy =====
+
+    @app.get("/api/hosted-apps/catalog")
+    async def hosted_apps_catalog() -> dict[str, Any]:
+        """List available app types."""
+        from hort.extensions.core.hosted_apps.catalog import get_catalog
+        return {"catalog": get_catalog()}
+
+    @app.post("/api/hosted-apps/instances")
+    async def hosted_apps_create(request: Request) -> dict[str, Any]:
+        """Create a new hosted app instance."""
+        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        if not plugin:
+            return {"error": "Hosted apps not available"}
+        body = await request.json()
+        app_type = body.get("app_type", "")
+        name = body.get("name", app_type)
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(None, plugin.create_instance, app_type, name)
+            return result
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    @app.get("/api/hosted-apps/instances")
+    async def hosted_apps_list() -> dict[str, Any]:
+        """List all instances."""
+        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        if not plugin:
+            return {"instances": []}
+        return {"instances": plugin.list_instances()}
+
+    @app.post("/api/hosted-apps/instances/{name}/start")
+    async def hosted_apps_start(name: str) -> dict[str, Any]:
+        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        if not plugin:
+            return {"error": "not available"}
+        ok = await asyncio.get_event_loop().run_in_executor(None, plugin.start_instance, name)
+        return {"ok": ok}
+
+    @app.post("/api/hosted-apps/instances/{name}/stop")
+    async def hosted_apps_stop(name: str) -> dict[str, Any]:
+        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        if not plugin:
+            return {"error": "not available"}
+        ok = await asyncio.get_event_loop().run_in_executor(None, plugin.stop_instance, name)
+        return {"ok": ok}
+
+    @app.delete("/api/hosted-apps/instances/{name}")
+    async def hosted_apps_destroy(name: str) -> dict[str, Any]:
+        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        if not plugin:
+            return {"error": "not available"}
+        ok = await asyncio.get_event_loop().run_in_executor(None, plugin.destroy_instance, name)
+        return {"ok": ok}
+
+    @app.get("/app/{instance}/")
+    @app.get("/app/{instance}")
+    async def hosted_app_redirect(instance: str, request: Request) -> Response:
+        """Redirect to the proxy path where relative URLs resolve correctly."""
+        location = "./~/" if request.url.path.endswith("/") else f"{instance}/~/"
+        return Response(status_code=302, headers={"Location": location})
+
+    def _hosted_app_bootstrap() -> bytes:
+        """Rewrite rooted browser URLs relative to the visible /~/ page prefix."""
+        js = r"""
+<script>
+(function() {
+  function getPrefix() {
+    var p = window.location.pathname || '';
+    if (p.endsWith('/~')) return p;
+    var i = p.indexOf('/~/');
+    return i >= 0 ? p.slice(0, i + 2) : '';
+  }
+  var PREFIX = getPrefix();
+  function rewriteUrl(input) {
+    try {
+      var url = input instanceof URL ? input : new URL(String(input), window.location.href);
+      if (url.origin !== window.location.origin) return input;
+      if (!PREFIX) return input;
+      if (!url.pathname.startsWith('/')) return input;
+      if (url.pathname.startsWith(PREFIX + '/')
+          || url.pathname === PREFIX
+          || url.pathname.startsWith('/api/')
+          || url.pathname.startsWith('/ws/')
+          || url.pathname.startsWith('/ext/')
+          || url.pathname.startsWith('/app/')
+          || url.pathname.startsWith('/proxy/')
+          || url.pathname.startsWith('/guide/')
+          || url.pathname.startsWith('/hortmap')
+          || url.pathname.startsWith('/viewer')
+          || url.pathname.startsWith('/static/vendor/')
+          || url.pathname === '/') {
+        return input;
+      }
+      return PREFIX + url.pathname + url.search + url.hash;
+    } catch (_) {
+      return input;
+    }
+  }
+  function rewriteInit(init) {
+    if (!init || !init.headers || init.headers instanceof Headers) return init;
+    return init;
+  }
+  var _fetch = window.fetch.bind(window);
+  window.fetch = function(input, init) {
+    if (typeof input === 'string' || input instanceof URL) {
+      return _fetch(rewriteUrl(input), rewriteInit(init));
+    }
+    if (input instanceof Request) {
+      var nextUrl = rewriteUrl(input.url);
+      if (nextUrl === input.url) return _fetch(input, init);
+      return _fetch(new Request(nextUrl, input), init);
+    }
+    return _fetch(input, init);
+  };
+  var _open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    return _open.call(this, method, rewriteUrl(url), arguments[2], arguments[3], arguments[4]);
+  };
+  var NativeWS = window.WebSocket;
+  window.WebSocket = function(url, protocols) {
+    return protocols === undefined ? new NativeWS(rewriteUrl(url)) : new NativeWS(rewriteUrl(url), protocols);
+  };
+  window.WebSocket.prototype = NativeWS.prototype;
+  window.WebSocket.CONNECTING = NativeWS.CONNECTING;
+  window.WebSocket.OPEN = NativeWS.OPEN;
+  window.WebSocket.CLOSING = NativeWS.CLOSING;
+  window.WebSocket.CLOSED = NativeWS.CLOSED;
+  if (window.EventSource) {
+    var NativeES = window.EventSource;
+    window.EventSource = function(url, config) {
+      return new NativeES(rewriteUrl(url), config);
+    };
+    window.EventSource.prototype = NativeES.prototype;
+  }
+  var _push = history.pushState.bind(history);
+  history.pushState = function(state, title, url) {
+    return _push(state, title, typeof url === 'string' ? rewriteUrl(url) : url);
+  };
+  var _replace = history.replaceState.bind(history);
+  history.replaceState = function(state, title, url) {
+    return _replace(state, title, typeof url === 'string' ? rewriteUrl(url) : url);
+  };
+})();
+</script>
+"""
+        return js.encode("utf-8")
+
+    def _relative_to_app_root(path: str, rooted_location: str) -> str:
+        """Convert a rooted app redirect (/login) to a relative /~/ redirect."""
+        target = rooted_location.lstrip("/")
+        if not path:
+            return f"./{target}"
+        depth = path.count("/")
+        return ("../" * depth) + target
+
+    def _instance_from_referer(request: Request) -> str | None:
+        """Extract hosted app instance name from Referer for root asset fallbacks."""
+        referer = request.headers.get("referer", "")
+        if not referer:
+            cookie_instance = request.cookies.get("ohapp_instance", "").strip()
+            return cookie_instance or None
+        try:
+            path = httpx.URL(referer).path
+        except Exception:
+            cookie_instance = request.cookies.get("ohapp_instance", "").strip()
+            return cookie_instance or None
+        m = re.search(r"/app/([^/]+)/~(?:/|$)", path)
+        if m:
+            return m.group(1)
+        cookie_instance = request.cookies.get("ohapp_instance", "").strip()
+        return cookie_instance or None
+
+    def _rewrite_hosted_app_json(body: bytes, container_url: str, instance: str) -> bytes:
+        """Rewrite absolute upstream self-URLs inside JSON payloads to hosted-app paths."""
+        try:
+            import httpx as httpx_client
+            upstream = httpx_client.URL(container_url)
+        except Exception:
+            return body
+        app_base = f"/app/{instance}/~"
+        candidates = {
+            container_url.rstrip("/"),
+            f"{upstream.scheme}://{upstream.host}",
+            f"{upstream.scheme}://{upstream.host}{':' + str(upstream.port) if upstream.port else ''}",
+            "http://localhost:5678",
+            "https://localhost:5678",
+            "http://127.0.0.1:5678",
+            "https://127.0.0.1:5678",
+        }
+        rewritten = body
+        for candidate in sorted({c for c in candidates if c}, key=len, reverse=True):
+            rewritten = rewritten.replace(candidate.encode(), app_base.encode())
+        return rewritten
+
+    def _normalize_hosted_app_json(body: bytes, path: str) -> bytes:
+        """Fill in fields that some hosted app frontends assume always exist."""
+        if path != "rest/settings":
+            return body
+        try:
+            payload = json.loads(body)
+        except Exception:
+            return body
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return body
+        data.setdefault("license", {"planName": "Community", "consumerId": None, "environment": "production"})
+        data.setdefault("security", {"blockFileAccessToN8nFiles": False})
+        data.setdefault("concurrency", -1)
+        data.setdefault("pruning", {"isEnabled": False})
+        data.setdefault("versionNotifications", {"enabled": False})
+        data.setdefault("banners", {"dismissed": []})
+        data.setdefault("versionCli", "")
+        enterprise = data.setdefault("enterprise", {})
+        if isinstance(enterprise, dict):
+            enterprise.setdefault("projects", {"team": {"limit": 0}})
+            projects = enterprise.get("projects")
+            if isinstance(projects, dict):
+                projects.setdefault("team", {"limit": 0})
+                team = projects.get("team")
+                if isinstance(team, dict):
+                    team.setdefault("limit", 0)
+        try:
+            return json.dumps(payload, separators=(",", ":")).encode()
+        except Exception:
+            return body
+
+    def _hosted_app_upstream_path(path: str, request: Request) -> str:
+        """Map browser-visible SPA routes back to the upstream app shell."""
+        method = request.method.upper()
+        if method not in {"GET", "HEAD"}:
+            return path
+        if not path:
+            return path
+        if path.startswith(("assets/", "static/", "rest/", "favicon.ico")):
+            return path
+        if "." in path.rsplit("/", 1)[-1]:
+            return path
+        return ""
+
+    def _browser_app_base(request: Request) -> str:
+        """Return the visible hosted-app mount path with trailing slash."""
+        path = request.url.path
+        if "/~/" in path:
+            return path.split("/~/", 1)[0] + "/~/"
+        if path.endswith("/~"):
+            return path + "/"
+        return "/"
+
+    async def _proxy_hosted_app(instance: str, path: str, request: Request) -> Response:
+        """Reverse proxy HTTP to a hosted app container."""
+        logger.warning("HOSTED APP PROXY hit instance=%s path=%r method=%s", instance, path, request.method)
+        if not hasattr(app.state, "plugin_registry"):
+            return Response(content="Plugins not loaded", status_code=503)
+        plugin = app.state.plugin_registry.get_instance("hosted-apps")
+        if not plugin:
+            return Response(content="Hosted apps not available", status_code=503)
+        container_url = plugin.get_container_url(instance)
+        if not container_url:
+            return Response(content="Instance not found or not running", status_code=404)
+
+        import httpx as httpx_client
+
+        async with httpx_client.AsyncClient(timeout=30.0) as client:
+            headers = dict(request.headers)
+            headers.pop("host", None)
+            headers.pop("accept-encoding", None)
+            headers.pop("Accept-Encoding", None)
+            headers["accept-encoding"] = "identity"
+            try:
+                # Forward to container — strip the /app/{instance}/~/ prefix
+                qs = '?' + str(request.query_params) if request.query_params else ''
+                upstream_path = _hosted_app_upstream_path(path, request)
+                resp = await client.request(
+                    method=request.method,
+                    url=f"{container_url}/{upstream_path}{qs}",
+                    headers=headers,
+                    content=await request.body(),
+                )
+            except Exception as exc:
+                return Response(content=f"Container unreachable: {exc}", status_code=502)
+
+            resp_headers = dict(resp.headers)
+            resp_headers["x-hosted-app-proxy"] = "1"
+            for h in ["x-frame-options", "X-Frame-Options", "content-security-policy",
+                       "Content-Security-Policy", "transfer-encoding", "connection"]:
+                resp_headers.pop(h, None)
+
+            body = resp.content
+            ct = resp_headers.get("content-type", resp_headers.get("Content-Type", ""))
+            is_html = "text/html" in ct
+            is_js = ct.startswith("application/javascript") or "text/javascript" in ct or path.endswith(".js")
+            is_css = ct.startswith("text/css") or path.endswith(".css")
+            is_json = "application/json" in ct or path.endswith(".json")
+            content_encoding = resp_headers.get("content-encoding", resp_headers.get("Content-Encoding", ""))
+
+            if content_encoding.lower() == "gzip" and (is_html or is_js or is_css or is_json):
+                try:
+                    body = gzip.decompress(body)
+                    resp_headers.pop("content-encoding", None)
+                    resp_headers.pop("Content-Encoding", None)
+                    resp_headers.pop("content-length", None)
+                    resp_headers.pop("Content-Length", None)
+                except OSError:
+                    pass
+
+            location = resp_headers.get("location", resp_headers.get("Location"))
+            if location and location.startswith("/"):
+                resp_headers["location"] = _relative_to_app_root(path, location)
+                resp_headers.pop("Location", None)
+                resp_headers.pop("content-length", None)
+                resp_headers.pop("Content-Length", None)
+
+            if is_html:
+                resp_headers["x-hosted-app-html"] = "1"
+                resp_headers["set-cookie"] = f"ohapp_instance={instance}; Path=/; SameSite=Lax"
+                body = b"<!-- hosted-app-html -->\n" + body
+                body = body.replace(b'href="/', b'href="./')
+                body = body.replace(b"href='/", b"href='./")
+                body = body.replace(b'src="/', b'src="./')
+                body = body.replace(b"src='/", b"src='./")
+                body = body.replace(b'action="/', b'action="./')
+                body = body.replace(b"action='/", b"action='./")
+                if b"<head>" in body:
+                    body = body.replace(
+                        b"<head>",
+                        b'<head><base href="./">' + _hosted_app_bootstrap(),
+                        1,
+                    )
+                elif b"<html>" in body:
+                    body = body.replace(
+                        b"<html>",
+                        b"<html><head><base href=\"./\">" + _hosted_app_bootstrap() + b"</head>",
+                        1,
+                    )
+                else:
+                    body = _hosted_app_bootstrap() + body
+                resp_headers.pop("content-length", None)
+                resp_headers.pop("Content-Length", None)
+
+            # Rewrite rooted URLs to page-relative URLs so they work both under
+            # /app/... and /proxy/{host}/app/... without container-specific config.
+            if is_js:
+                if path == "static/base-path.js":
+                    body = f'window.BASE_PATH = "{_browser_app_base(request)}";'.encode()
+                body = body.replace(b'"/assets/', b'"./assets/')
+                body = body.replace(b"'/assets/", b"'./assets/")
+                body = body.replace(b'"/static/', b'"./static/')
+                body = body.replace(b"'/static/", b"'./static/")
+                body = body.replace(b'"/rest/', b'"./rest/')
+                body = body.replace(b"'/rest/", b"'./rest/")
+                body = body.replace(b'"/favicon', b'"./favicon')
+                body = body.replace(b"'/favicon", b"'./favicon")
+                body = body.replace(b'"/login', b'"./login')
+                body = body.replace(b"'/login", b"'./login")
+                body = body.replace(b'"/logout', b'"./logout')
+                body = body.replace(b"'/logout", b"'./logout")
+                body = body.replace(b"window.BASE_PATH = '/'", f'window.BASE_PATH = "{_browser_app_base(request)}"'.encode())
+                body = body.replace(b'window.BASE_PATH = "/"', f'window.BASE_PATH = "{_browser_app_base(request)}"'.encode())
+                resp_headers.pop("content-length", None)
+                resp_headers.pop("Content-Length", None)
+
+            # Most hosted-app stylesheets live under ./assets/*.css, so ../assets
+            # keeps root URLs inside the same visible /~/ prefix.
+            if is_css:
+                body = body.replace(b'url("/assets/', b'url("../assets/')
+                body = body.replace(b"url('/assets/", b"url('../assets/")
+                body = body.replace(b'url(/assets/', b'url(../assets/')
+                body = body.replace(b'url("/static/', b'url("../static/')
+                body = body.replace(b"url('/static/", b"url('../static/")
+                body = body.replace(b'url(/static/', b'url(../static/')
+                resp_headers.pop("content-length", None)
+                resp_headers.pop("Content-Length", None)
+
+            if is_json:
+                body = _rewrite_hosted_app_json(body, container_url, instance)
+                body = _normalize_hosted_app_json(body, path)
+                resp_headers.pop("content-length", None)
+                resp_headers.pop("Content-Length", None)
+
+            return Response(
+                content=body,
+                status_code=resp.status_code,
+                headers=resp_headers,
+            )
+
+    @app.api_route(
+        "/app/{instance}/~/",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    )
+    @app.api_route(
+        "/app/{instance}/~",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    )
+    async def proxy_hosted_app_root(instance: str, request: Request) -> Response:
+        return await _proxy_hosted_app(instance, "", request)
+
+    @app.api_route(
+        "/app/{instance}/~/{path:path}",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    )
+    async def proxy_hosted_app(instance: str, path: str, request: Request) -> Response:
+        return await _proxy_hosted_app(instance, path, request)
+
+    @app.api_route(
+        "/assets/{path:path}",
+        methods=["GET", "HEAD", "OPTIONS"],
+    )
+    async def proxy_hosted_app_root_assets(path: str, request: Request) -> Response:
+        """Fallback for runtime-generated absolute asset URLs."""
+        instance = _instance_from_referer(request)
+        if not instance:
+            return Response(content="Not found", status_code=404)
+        return await _proxy_hosted_app(instance, f"assets/{path}", request)
+
+    @app.get("/favicon.ico")
+    async def proxy_hosted_app_root_favicon(request: Request) -> Response:
+        instance = _instance_from_referer(request)
+        if not instance:
+            return Response(content="Not found", status_code=404)
+        return await _proxy_hosted_app(instance, "favicon.ico", request)
+
+    @app.websocket("/app/{instance}/~/{path:path}")
+    async def proxy_hosted_app_ws(websocket: WebSocket, instance: str, path: str) -> None:
+        """WebSocket proxy to a hosted app container."""
+        if not hasattr(app.state, "plugin_registry"):
+            await websocket.close(code=1013)
+            return
+        plugin = app.state.plugin_registry.get_instance("hosted-apps")
+        if not plugin:
+            await websocket.close(code=1013)
+            return
+        container_url = plugin.get_container_url(instance)
+        if not container_url:
+            await websocket.close(code=1013)
+            return
+
+        import websockets as ws_lib  # type: ignore[import-untyped]
+
+        qs = '?' + str(websocket.query_params) if websocket.query_params else ''
+        ws_url = container_url.replace("http://", "ws://") + f"/{path}{qs}"
+
+        try:
+            subprotocols = websocket.headers.get("sec-websocket-protocol", "")
+            origin = websocket.headers.get("origin")
+            if origin:
+                remote = ws_lib.connect(
+                    ws_url,
+                    origin=origin,
+                    subprotocols=[p.strip() for p in subprotocols.split(",") if p.strip()] or None,
+                )
+            else:
+                remote = ws_lib.connect(
+                    ws_url,
+                    subprotocols=[p.strip() for p in subprotocols.split(",") if p.strip()] or None,
+                )
+            async with remote as remote_ws:
+                await websocket.accept(subprotocol=remote_ws.subprotocol)
+                async def forward_to_remote() -> None:
+                    try:
+                        while True:
+                            data = await websocket.receive()
+                            if "text" in data:
+                                await remote_ws.send(data["text"])
+                            elif "bytes" in data and data["bytes"]:
+                                await remote_ws.send(data["bytes"])
+                    except Exception:
+                        pass
+
+                async def forward_to_client() -> None:
+                    try:
+                        async for msg in remote_ws:
+                            if isinstance(msg, str):
+                                await websocket.send_text(msg)
+                            else:
+                                await websocket.send_bytes(msg)
+                    except Exception:
+                        pass
+
+                await asyncio.gather(forward_to_remote(), forward_to_client())
+        except Exception:
+            pass
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
     @app.websocket("/ws/control/{session_id}")
     async def control_ws(websocket: WebSocket, session_id: str) -> None:

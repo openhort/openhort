@@ -1,0 +1,24 @@
+{
+  "name": "hosted-apps",
+  "version": "0.1.0",
+  "description": "Run isolated web apps (n8n, OpenClaw, VS Code) as Docker containers",
+  "capabilities": ["mcp", "ui"],
+  "ui_script": "static/panel.js",
+  "entry_point": "provider:HostedAppsPlugin",
+  "icon": "ph ph-package",
+  "plugin_type": "tool",
+  "platforms": ["darwin", "linux"],
+  "config_schema": {
+    "network_name": "openhort-apps",
+    "default_memory": "512m",
+    "default_cpus": "1"
+  },
+  "jobs": [
+    {
+      "id": "poll-instances",
+      "method": "poll_instances",
+      "interval_seconds": 30,
+      "run_on_activate": false
+    }
+  ]
+}

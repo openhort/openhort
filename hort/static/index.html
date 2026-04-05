@@ -198,6 +198,7 @@
     _p2pLink: '',
     _p2pQr: '',
     _p2pTab: 'once',
+    _hostedApps: [],
     _p2pPairLink: '',
     _p2pDevices: [],
     sidebarOpen: false,
@@ -2462,6 +2463,22 @@
                   <div class="card-name">Spirit</div>
                 </div>
               </div>
+              <!-- Hosted app card -->
+              <div v-else-if="item.type === 'hosted-app'" class="grid-card"
+                   :style="{borderColor: isFavorite(item.key) ? 'var(--el-accent)' : ''}"
+                   @click="touch(item.key); openHostedApp(item.url)">
+                <div style="position:relative">
+                  <div class="card-thumb-icon"><i :class="item.icon" style="font-size:44px;color:#3b82f6"></i></div>
+                  <i class="ph fav-star" :class="[isFavorite(item.key) ? 'ph-fill ph-star is-fav' : 'ph-star']"
+                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;z-index:1"
+                     :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
+                     @click.stop="toggleFavorite(item.key)"></i>
+                </div>
+                <div class="grid-card-info">
+                  <div class="card-app" style="color:#3b82f6">{{ item.app }}</div>
+                  <div class="card-name">{{ item.name }}</div>
+                </div>
+              </div>
               <!-- Terminal card (PTY + tmux unified) -->
               <div v-else-if="item.type === 'terminal'" class="grid-card"
                    :style="{borderColor: item.border_color || (isFavorite(item.key) ? 'var(--el-accent)' : ''),
@@ -2956,6 +2973,10 @@
         }
       }
 
+      function openHostedApp(url) {
+        window.open(url, '_blank');
+      }
+
       async function generatePairingLink() {
         try {
           const resp = await fetch(apiUrl('/api/p2p/pair'), { method: 'POST' });
@@ -3317,6 +3338,20 @@
           });
         }
 
+        // Hosted apps — each running instance gets a card
+        if (state._hostedApps) {
+          for (const inst of state._hostedApps) {
+            if (inst.status === 'running') {
+              items.push({
+                type: 'hosted-app', key: 'app:' + inst.name, id: inst.name,
+                icon: inst.icon || 'ph ph-package',
+                app: inst.label || inst.name, name: inst.type || 'App',
+                url: _basePath + '/app/' + inst.name + '/~/',
+              });
+            }
+          }
+        }
+
         // Terminals (PTY + tmux unified)
         for (const t of terminalsForTarget(target)) {
           const isTmux = !!(t.tmux);
@@ -3488,7 +3523,7 @@
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
         onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal, openTmuxTerminal, closeTmuxSession, confirmCloseTerminal,
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
-        onCloudSave, generateP2pLink, generatePairingLink, loadDevices, revokeDevice, copyToClipboard,
+        onCloudSave, generateP2pLink, generatePairingLink, loadDevices, revokeDevice, copyToClipboard, openHostedApp,
         viewTab, spiritsList, spiritCount, allPlugins,
         configScreen, generalConfig, toggleGeneral,
         selectedSpirit, selectedPlugin, toggleSpiritFeature,
@@ -4105,6 +4140,11 @@
 
         // Push initial nav state to native shell
         pushNavState();
+
+        // Fetch hosted apps
+        fetch(apiUrl('/api/hosted-apps/instances')).then(r => r.json()).then(d => {
+          state._hostedApps = d.instances || [];
+        }).catch(() => {});
 
         // Start picker refresh
         startPickerRefresh();

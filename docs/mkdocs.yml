@@ -113,6 +113,7 @@ nav:
     - Docs Writing Guide: develop/docs-writing-guide.md
   - Internals:
     - Architecture: internals/architecture.md
+    - n8n Hosted App: internals/n8n-hosted-app.md
     - Hort Model: internals/hort-model.md
     - Tool System: internals/tool-system.md
     - Terminal Rendering: internals/terminal-rendering.md
