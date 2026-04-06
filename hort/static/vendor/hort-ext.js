@@ -404,6 +404,7 @@
         label: { type: String, default: 'Scan to open' },
         maxUrlLen: { type: Number, default: 200 },
       },
+      emits: ['link-click'],
       setup(props) {
         const qrImage = Vue.ref('');
 
@@ -427,6 +428,7 @@
           <div v-if="qrImage" class="qr-wrap"><img :src="qrImage" alt="QR Code"></div>
           <div v-if="label" style="color:var(--el-text-dim);font-size:11px;margin:4px 0">{{ label }}</div>
           <a :href="url" target="_blank" rel="noopener"
+             @click="$emit('link-click')"
              style="color:var(--el-primary);font-size:11px;word-break:break-all;text-decoration:none"
              :title="url">{{ displayUrl }}</a>
         </div>

@@ -508,6 +508,15 @@ Phone/Tablet                 Cloudflare Edge              Your Machine
 | Cold start | 10-30s | <1ms |
 | Persistence | Wiped on deploy | KV survives everything |
 
+### Critical: Stale Tunnel WebSocket in Durable Objects
+
+!!! danger "Silent proxy failures after host restart"
+    Cloudflare Durable Objects preserve hibernated WebSockets even after the remote end disconnects. When the openhort host restarts and reconnects, the DO may still hold the OLD dead WebSocket. Proxy requests sent to the dead socket silently drop — causing 500 timeouts with no error in logs.
+
+    **Fix:** The `HostTunnel` DO explicitly closes all existing `'tunnel'`-tagged WebSockets before accepting a new tunnel connection. This ensures only one live tunnel exists per host. Browser proxy WebSockets (`'browser:*'` tags) are never affected.
+
+    See [n8n Hosted App Internals](../internals/n8n-hosted-app.md#stale-websocket-bug-in-durable-objects) for the full debugging story.
+
 ### Deployment
 
 ```bash

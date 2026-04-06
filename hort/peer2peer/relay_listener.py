@@ -125,7 +125,8 @@ class TokenStore:
             logger.warning("invalid token (attempt %d)", self._failures)
             return False
 
-        # Don't consume — token stays valid until TTL expires
+        # Consume the token — one-time use only
+        del self._tokens[token]
         self._failures = 0
         return True
 

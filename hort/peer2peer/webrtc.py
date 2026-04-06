@@ -47,7 +47,12 @@ class WebRTCPeer:
     ) -> None:
         self._on_message = on_message
         self._on_state_change = on_state_change
-        ice_servers = [RTCIceServer(urls=s) for s in (stun_servers or ["stun:stun.l.google.com:19302"])]
+        default_stun = [
+            "stun:stun.l.google.com:19302",
+            "stun:stun1.l.google.com:19302",
+            "stun:stun2.l.google.com:19302",
+        ]
+        ice_servers = [RTCIceServer(urls=s) for s in (stun_servers or default_stun)]
         config = RTCConfiguration(iceServers=ice_servers)
         self._pc = RTCPeerConnection(configuration=config)
         self._channel: RTCDataChannel | None = None

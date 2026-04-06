@@ -41,7 +41,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger("hort.app")
 
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -64,6 +64,17 @@ if _ENV_FILE.exists():
 HTTP_PORT = int(os.environ.get("HORT_HTTP_PORT", "8940"))
 HTTPS_PORT = int(os.environ.get("HORT_HTTPS_PORT", "8950"))
 DEV_MODE = os.environ.get("LLMING_DEV", "0") == "1"
+
+
+def _is_remote(request: Request) -> bool:
+    """Check if a request comes through the cloud proxy or P2P tunnel."""
+    return request.headers.get("x-forwarded-via", "") in ("proxy", "p2p")
+
+
+async def _require_local(request: Request) -> None:
+    """FastAPI dependency — reject requests that come through proxy/P2P."""
+    if _is_remote(request):
+        raise HTTPException(status_code=403, detail="Not available via remote access")
 
 
 def _file_hash(path: Path) -> str:
@@ -176,9 +187,9 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
         if cloud.get("server") and cloud.get("host_id"):
             _create_startup_tokens(app)
 
-    @app.post("/api/connectors/cloud/token")
+    @app.post("/api/connectors/cloud/token", dependencies=[Depends(_require_local)])
     async def create_cloud_token(request: Request) -> Response:
-        """Create or regenerate a cloud access token."""
+        """Create or regenerate a cloud access token. Local only."""
         data = await request.json()
         permanent = data.get("permanent", False)
         from hort.access.tokens import TokenStore
@@ -404,9 +415,9 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(create_hortmap_router())
 
     @app.get("/", response_class=HTMLResponse)
-    async def root_page() -> HTMLResponse:
+    async def root_page(request: Request) -> HTMLResponse:
         """Serve the viewer as the root page."""
-        return await viewer_page()
+        return await viewer_page(request)
 
     @app.get("/p2p", response_class=HTMLResponse)
     async def p2p_viewer_page() -> HTMLResponse:
@@ -443,13 +454,16 @@ def _register_routes(app: FastAPI) -> None:
         return HTMLResponse(content=content)
 
     @app.get("/viewer", response_class=HTMLResponse)
-    async def viewer_page() -> HTMLResponse:
+    async def viewer_page(request: Request) -> HTMLResponse:
         index_path = STATIC_DIR / "index.html"
         content = index_path.read_text()
         h = _static_hash()
         dev_script = _dev_reload_script() if app.state.dev_mode else ""
         content = content.replace("</body>", f"{dev_script}</body>")
-        # Cache-bust CDN links won't change, but our own assets need hashing
+        # Inject <base> for proxy access so the SPA knows its prefix
+        proxy_base = request.headers.get("x-proxy-base", "")
+        if proxy_base:
+            content = content.replace("<head>", f'<head><base href="{proxy_base}/">', 1)
         resp = HTMLResponse(content=content)
         resp.headers["ETag"] = h
         resp.headers["Cache-Control"] = "no-cache"
@@ -537,9 +551,9 @@ def _register_routes(app: FastAPI) -> None:
             headers={"Cache-Control": "no-cache"},
         )
 
-    @app.get("/api/connectors")
+    @app.get("/api/connectors", dependencies=[Depends(_require_local)])
     async def get_connectors() -> Response:
-        """Return active connectors (LAN, cloud proxy). Only for local access."""
+        """Return active connectors (LAN, cloud proxy). Local only."""
         lan_ip = get_lan_ip()
         server_info = ServerInfo(
             lan_ip=lan_ip, http_port=HTTP_PORT, https_port=HTTPS_PORT
@@ -605,8 +619,10 @@ def _register_routes(app: FastAPI) -> None:
         )
 
     @app.get("/api/config/{plugin_id:path}")
-    async def get_config(plugin_id: str) -> Response:
-        """Get system config by ID (connectors, etc). NOT for plugin data — use /api/plugins/{id}/store."""
+    async def get_config(plugin_id: str, request: Request) -> Response:
+        """Get system config by ID. Sensitive keys blocked for remote access."""
+        if _is_remote(request) and plugin_id.startswith("connector."):
+            raise HTTPException(status_code=403, detail="Not available via remote access")
         from hort.config import get_store
 
         config = get_store().get(plugin_id)
@@ -614,7 +630,9 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/api/config/{plugin_id:path}")
     async def update_config(plugin_id: str, request: Request) -> Response:
-        """Update config for a plugin by its unique ID (merge)."""
+        """Update config for a plugin by its unique ID. Connector config local only."""
+        if _is_remote(request) and plugin_id.startswith("connector."):
+            raise HTTPException(status_code=403, detail="Not available via remote access")
         from hort.config import get_store
 
         data = await request.json()
@@ -642,13 +660,17 @@ def _register_routes(app: FastAPI) -> None:
         import secrets
 
         session_id = secrets.token_urlsafe(24)
-        # Detect if accessed locally or through the proxy
-        host_header = request.headers.get("host", "")
-        is_local = (
-            "localhost" in host_header
-            or host_header.startswith("127.")
-            or host_header.split(":")[0].count(".") == 3  # IP address
-        )
+        # Detect if accessed locally or through the proxy/P2P
+        forwarded_via = request.headers.get("x-forwarded-via", "")
+        if forwarded_via:
+            is_local = False
+        else:
+            host_header = request.headers.get("host", "")
+            is_local = (
+                "localhost" in host_header
+                or host_header.startswith("127.")
+                or host_header.split(":")[0].count(".") == 3  # IP address
+            )
         entry = HortSessionEntry(user_id="viewer")
         registry.register(session_id, entry)
         return {"session_id": session_id, "is_local": is_local}
@@ -700,19 +722,20 @@ def _register_routes(app: FastAPI) -> None:
     async def p2p_status() -> dict[str, Any]:
         """Get P2P connection status."""
         relay_sessions = 0
+        plugin = None
         if getattr(app.state, "plugin_registry", None):
             plugin = app.state.plugin_registry.get_instance("peer2peer")
-            if plugin and getattr(plugin, "_relay_listener", None):
-                relay_sessions = plugin._relay_listener.active_sessions
+            if plugin and getattr(plugin, "_relay_poller", None):
+                relay_sessions = plugin._relay_poller.active_sessions
         return {
             "http_sessions": len(_p2p_sessions),
             "relay_sessions": relay_sessions,
             "total": len(_p2p_sessions) + relay_sessions,
         }
 
-    @app.post("/api/p2p/connect")
+    @app.post("/api/p2p/connect", dependencies=[Depends(_require_local)])
     async def p2p_connect() -> dict[str, Any]:
-        """Generate a one-time P2P connection URL."""
+        """Generate a one-time P2P connection URL. Local only."""
         if not hasattr(app.state, "plugin_registry"):
             return {"error": "plugins not loaded"}
         plugin = app.state.plugin_registry.get_instance("peer2peer")
@@ -728,9 +751,9 @@ def _register_routes(app: FastAPI) -> None:
 
         return {"url": url, "token": token, "room": room, "expires_in": 60}
 
-    @app.post("/api/p2p/pair")
+    @app.post("/api/p2p/pair", dependencies=[Depends(_require_local)])
     async def p2p_pair(request: Request) -> dict[str, Any]:
-        """Generate a permanent device pairing link (deep link for mobile apps)."""
+        """Generate a permanent device pairing link. Local only."""
         if not hasattr(app.state, "plugin_registry"):
             return {"error": "plugins not loaded"}
         plugin = app.state.plugin_registry.get_instance("peer2peer")
@@ -750,9 +773,9 @@ def _register_routes(app: FastAPI) -> None:
         deep_link = f"openhort://pair?token={quote(token, safe='')}&room={quote(room, safe='')}&relay={quote(relay, safe='')}"
         return {"deep_link": deep_link, "token": token, "room": room, "relay": relay}
 
-    @app.get("/api/p2p/devices")
+    @app.get("/api/p2p/devices", dependencies=[Depends(_require_local)])
     async def p2p_devices_list() -> dict[str, Any]:
-        """List all paired devices."""
+        """List all paired devices. Local only."""
         if not hasattr(app.state, "plugin_registry"):
             return {"devices": []}
         plugin = app.state.plugin_registry.get_instance("peer2peer")
@@ -760,9 +783,9 @@ def _register_routes(app: FastAPI) -> None:
             return {"devices": []}
         return {"devices": plugin._device_store.list_devices()}
 
-    @app.delete("/api/p2p/devices")
+    @app.delete("/api/p2p/devices", dependencies=[Depends(_require_local)])
     async def p2p_device_revoke(request: Request) -> dict[str, Any]:
-        """Revoke a paired device by token_hash."""
+        """Revoke a paired device. Local only."""
         if not hasattr(app.state, "plugin_registry"):
             return {"error": "plugins not loaded"}
         plugin = app.state.plugin_registry.get_instance("peer2peer")
@@ -800,11 +823,30 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.get("/api/hosted-apps/instances")
     async def hosted_apps_list() -> dict[str, Any]:
-        """List all instances."""
+        """List all instances. Includes cloud proxy base URL for remote access."""
         plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
         if not plugin:
             return {"instances": []}
-        return {"instances": plugin.list_instances()}
+        # Include cloud proxy base + login URL for P2P/remote viewers
+        proxy_base = ""
+        proxy_login = ""
+        try:
+            active_file = Path("/tmp/hort-tunnel.active")
+            if active_file.exists():
+                lines = active_file.read_text().strip().split("\n")
+                server_url = lines[0] if lines else ""
+                host_id = lines[1] if len(lines) > 1 else ""
+                if server_url and host_id:
+                    proxy_base = f"{server_url}/proxy/{host_id}"
+                    # Include temp token for iframe auth
+                    token = ""
+                    if hasattr(app.state, "cloud_tokens"):
+                        token = app.state.cloud_tokens.get("temporary", "")
+                    if token:
+                        proxy_login = f"{server_url}/t/{host_id}/{token}"
+        except OSError:
+            pass
+        return {"instances": plugin.list_instances(), "proxy_base": proxy_base, "proxy_login": proxy_login}
 
     @app.post("/api/hosted-apps/instances/{name}/start")
     async def hosted_apps_start(name: str) -> dict[str, Any]:
@@ -834,16 +876,19 @@ def _register_routes(app: FastAPI) -> None:
     @app.get("/app/{instance}")
     async def hosted_app_redirect(instance: str, request: Request) -> Response:
         """Redirect to the proxy path where relative URLs resolve correctly."""
-        location = "./~/" if request.url.path.endswith("/") else f"{instance}/~/"
+        location = "./ui/" if request.url.path.endswith("/") else f"{instance}/ui/"
         return Response(status_code=302, headers={"Location": location})
 
     def _hosted_app_bootstrap() -> bytes:
-        """Rewrite rooted browser URLs relative to the visible /~/ page prefix."""
+        """Rewrite rooted browser URLs relative to the visible hosted-app prefix."""
         js = r"""
 <script>
 (function() {
   function getPrefix() {
     var p = window.location.pathname || '';
+    if (p.endsWith('/ui')) return p;
+    var j = p.indexOf('/ui/');
+    if (j >= 0) return p.slice(0, j + 3);
     if (p.endsWith('/~')) return p;
     var i = p.indexOf('/~/');
     return i >= 0 ? p.slice(0, i + 2) : '';
@@ -923,8 +968,18 @@ def _register_routes(app: FastAPI) -> None:
 """
         return js.encode("utf-8")
 
+    def _hosted_app_layout_style() -> bytes:
+        """Force hosted apps to receive the full viewport."""
+        return (
+            b"<style>"
+            b"html,body{height:100%;min-height:100vh;margin:0;}"
+            b"body{overflow:hidden;}"
+            b"#app{height:100%;min-height:100vh;}"
+            b"</style>"
+        )
+
     def _relative_to_app_root(path: str, rooted_location: str) -> str:
-        """Convert a rooted app redirect (/login) to a relative /~/ redirect."""
+        """Convert a rooted app redirect (/login) to a relative hosted-app redirect."""
         target = rooted_location.lstrip("/")
         if not path:
             return f"./{target}"
@@ -935,18 +990,15 @@ def _register_routes(app: FastAPI) -> None:
         """Extract hosted app instance name from Referer for root asset fallbacks."""
         referer = request.headers.get("referer", "")
         if not referer:
-            cookie_instance = request.cookies.get("ohapp_instance", "").strip()
-            return cookie_instance or None
+            return request.cookies.get("ohapp_instance", "").strip() or None
+        # Extract path from referer — use simple parsing to avoid httpx import issues
         try:
-            path = httpx.URL(referer).path
+            from urllib.parse import urlparse
+            ref_path = urlparse(referer).path
         except Exception:
-            cookie_instance = request.cookies.get("ohapp_instance", "").strip()
-            return cookie_instance or None
-        m = re.search(r"/app/([^/]+)/~(?:/|$)", path)
-        if m:
-            return m.group(1)
-        cookie_instance = request.cookies.get("ohapp_instance", "").strip()
-        return cookie_instance or None
+            return request.cookies.get("ohapp_instance", "").strip() or None
+        m = re.search(r"/app/([^/]+)/(?:ui|~)(?:/|$)", ref_path)
+        return m.group(1) if m else (request.cookies.get("ohapp_instance", "").strip() or None)
 
     def _rewrite_hosted_app_json(body: bytes, container_url: str, instance: str) -> bytes:
         """Rewrite absolute upstream self-URLs inside JSON payloads to hosted-app paths."""
@@ -955,7 +1007,7 @@ def _register_routes(app: FastAPI) -> None:
             upstream = httpx_client.URL(container_url)
         except Exception:
             return body
-        app_base = f"/app/{instance}/~"
+        app_base = f"/app/{instance}/ui"
         candidates = {
             container_url.rstrip("/"),
             f"{upstream.scheme}://{upstream.host}",
@@ -1016,13 +1068,27 @@ def _register_routes(app: FastAPI) -> None:
         return ""
 
     def _browser_app_base(request: Request) -> str:
-        """Return the visible hosted-app mount path with trailing slash."""
+        """Return the visible hosted-app mount path with trailing slash.
+
+        When accessed through the cloud proxy, X-Proxy-Base contains the
+        prefix (e.g. /proxy/{host_id}) that must be prepended so the browser
+        resolves absolute URLs correctly.
+        """
+        proxy_base = request.headers.get("x-proxy-base", "")
         path = request.url.path
+        if "/ui/" in path:
+            return proxy_base + path.split("/ui/", 1)[0] + "/ui/"
+        if path.endswith("/ui"):
+            return proxy_base + path + "/"
         if "/~/" in path:
-            return path.split("/~/", 1)[0] + "/~/"
+            return proxy_base + path.split("/~/", 1)[0] + "/~/"
         if path.endswith("/~"):
-            return path + "/"
-        return "/"
+            return proxy_base + path + "/"
+        return proxy_base + "/"
+
+    def _browser_app_root(request: Request) -> bytes:
+        """Return the visible hosted-app mount path as bytes."""
+        return _browser_app_base(request).encode()
 
     async def _proxy_hosted_app(instance: str, path: str, request: Request) -> Response:
         """Reverse proxy HTTP to a hosted app container."""
@@ -1045,7 +1111,7 @@ def _register_routes(app: FastAPI) -> None:
             headers.pop("Accept-Encoding", None)
             headers["accept-encoding"] = "identity"
             try:
-                # Forward to container — strip the /app/{instance}/~/ prefix
+                # Forward to container — strip the /app/{instance}/ui prefix
                 qs = '?' + str(request.query_params) if request.query_params else ''
                 upstream_path = _hosted_app_upstream_path(path, request)
                 resp = await client.request(
@@ -1092,53 +1158,55 @@ def _register_routes(app: FastAPI) -> None:
                 resp_headers["x-hosted-app-html"] = "1"
                 resp_headers["set-cookie"] = f"ohapp_instance={instance}; Path=/; SameSite=Lax"
                 body = b"<!-- hosted-app-html -->\n" + body
-                body = body.replace(b'href="/', b'href="./')
-                body = body.replace(b"href='/", b"href='./")
-                body = body.replace(b'src="/', b'src="./')
-                body = body.replace(b"src='/", b"src='./")
-                body = body.replace(b'action="/', b'action="./')
-                body = body.replace(b"action='/", b"action='./")
+                app_root = _browser_app_root(request)
+                body = body.replace(b'href="/', b'href="' + app_root)
+                body = body.replace(b"href='/", b"href='" + app_root)
+                body = body.replace(b'src="/', b'src="' + app_root)
+                body = body.replace(b"src='/", b"src='" + app_root)
+                body = body.replace(b'action="/', b'action="' + app_root)
+                body = body.replace(b"action='/", b"action='" + app_root)
                 if b"<head>" in body:
                     body = body.replace(
                         b"<head>",
-                        b'<head><base href="./">' + _hosted_app_bootstrap(),
+                        b'<head><base href="' + app_root + b'">' + _hosted_app_layout_style() + _hosted_app_bootstrap(),
                         1,
                     )
                 elif b"<html>" in body:
                     body = body.replace(
                         b"<html>",
-                        b"<html><head><base href=\"./\">" + _hosted_app_bootstrap() + b"</head>",
+                        b"<html><head><base href=\"" + app_root + b"\">" + _hosted_app_layout_style() + _hosted_app_bootstrap() + b"</head>",
                         1,
                     )
                 else:
-                    body = _hosted_app_bootstrap() + body
+                    body = _hosted_app_layout_style() + _hosted_app_bootstrap() + body
                 resp_headers.pop("content-length", None)
                 resp_headers.pop("Content-Length", None)
 
-            # Rewrite rooted URLs to page-relative URLs so they work both under
+            # Rewrite rooted URLs to app-root-relative URLs so they work under
             # /app/... and /proxy/{host}/app/... without container-specific config.
             if is_js:
+                app_root = _browser_app_root(request)
                 if path == "static/base-path.js":
                     body = f'window.BASE_PATH = "{_browser_app_base(request)}";'.encode()
-                body = body.replace(b'"/assets/', b'"./assets/')
-                body = body.replace(b"'/assets/", b"'./assets/")
-                body = body.replace(b'"/static/', b'"./static/')
-                body = body.replace(b"'/static/", b"'./static/")
-                body = body.replace(b'"/rest/', b'"./rest/')
-                body = body.replace(b"'/rest/", b"'./rest/")
-                body = body.replace(b'"/favicon', b'"./favicon')
-                body = body.replace(b"'/favicon", b"'./favicon")
-                body = body.replace(b'"/login', b'"./login')
-                body = body.replace(b"'/login", b"'./login")
-                body = body.replace(b'"/logout', b'"./logout')
-                body = body.replace(b"'/logout", b"'./logout")
+                body = body.replace(b'"/assets/', b'"' + app_root + b'assets/')
+                body = body.replace(b"'/assets/", b"'" + app_root + b"assets/")
+                body = body.replace(b'"/static/', b'"' + app_root + b'static/')
+                body = body.replace(b"'/static/", b"'" + app_root + b"static/")
+                body = body.replace(b'"/rest/', b'"' + app_root + b'rest/')
+                body = body.replace(b"'/rest/", b"'" + app_root + b"rest/")
+                body = body.replace(b'"/favicon', b'"' + app_root + b'favicon')
+                body = body.replace(b"'/favicon", b"'" + app_root + b"favicon")
+                body = body.replace(b'"/login', b'"' + app_root + b'login')
+                body = body.replace(b"'/login", b"'" + app_root + b"login")
+                body = body.replace(b'"/logout', b'"' + app_root + b'logout')
+                body = body.replace(b"'/logout", b"'" + app_root + b"logout")
                 body = body.replace(b"window.BASE_PATH = '/'", f'window.BASE_PATH = "{_browser_app_base(request)}"'.encode())
                 body = body.replace(b'window.BASE_PATH = "/"', f'window.BASE_PATH = "{_browser_app_base(request)}"'.encode())
                 resp_headers.pop("content-length", None)
                 resp_headers.pop("Content-Length", None)
 
             # Most hosted-app stylesheets live under ./assets/*.css, so ../assets
-            # keeps root URLs inside the same visible /~/ prefix.
+            # keeps root URLs inside the same visible hosted-app prefix.
             if is_css:
                 body = body.replace(b'url("/assets/', b'url("../assets/')
                 body = body.replace(b"url('/assets/", b"url('../assets/")
@@ -1162,6 +1230,24 @@ def _register_routes(app: FastAPI) -> None:
             )
 
     @app.api_route(
+        "/app/{instance}/ui/",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    )
+    @app.api_route(
+        "/app/{instance}/ui",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    )
+    async def proxy_hosted_app_root(instance: str, request: Request) -> Response:
+        return await _proxy_hosted_app(instance, "", request)
+
+    @app.api_route(
+        "/app/{instance}/ui/{path:path}",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    )
+    async def proxy_hosted_app(instance: str, path: str, request: Request) -> Response:
+        return await _proxy_hosted_app(instance, path, request)
+
+    @app.api_route(
         "/app/{instance}/~/",
         methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
     )
@@ -1169,34 +1255,80 @@ def _register_routes(app: FastAPI) -> None:
         "/app/{instance}/~",
         methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
     )
-    async def proxy_hosted_app_root(instance: str, request: Request) -> Response:
-        return await _proxy_hosted_app(instance, "", request)
+    async def redirect_hosted_app_root_legacy(instance: str, request: Request) -> Response:
+        qs = ("?" + str(request.query_params)) if request.query_params else ""
+        return Response(status_code=301, headers={"Location": f"/app/{instance}/ui/{qs}"})
 
     @app.api_route(
         "/app/{instance}/~/{path:path}",
         methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
     )
-    async def proxy_hosted_app(instance: str, path: str, request: Request) -> Response:
-        return await _proxy_hosted_app(instance, path, request)
+    async def redirect_hosted_app_legacy(instance: str, path: str, request: Request) -> Response:
+        qs = ("?" + str(request.query_params)) if request.query_params else ""
+        return Response(status_code=301, headers={"Location": f"/app/{instance}/ui/{path}{qs}"})
 
-    @app.api_route(
-        "/assets/{path:path}",
-        methods=["GET", "HEAD", "OPTIONS"],
-    )
-    async def proxy_hosted_app_root_assets(path: str, request: Request) -> Response:
-        """Fallback for runtime-generated absolute asset URLs."""
-        instance = _instance_from_referer(request)
-        if not instance:
-            return Response(content="Not found", status_code=404)
-        return await _proxy_hosted_app(instance, f"assets/{path}", request)
+    # Generic hosted app fallback — ASGI middleware.
+    # Hosted apps may emit requests at the origin root (dynamic imports, API
+    # calls, fonts) that miss the /app/{instance}/ui/ prefix. This middleware
+    # intercepts 404 responses and tries to proxy them to a hosted app.
+    # Uses raw ASGI (not BaseHTTPMiddleware) for reliability.
 
-    @app.get("/favicon.ico")
-    async def proxy_hosted_app_root_favicon(request: Request) -> Response:
-        instance = _instance_from_referer(request)
-        if not instance:
-            return Response(content="Not found", status_code=404)
-        return await _proxy_hosted_app(instance, "favicon.ico", request)
+    from starlette.types import ASGIApp, Receive, Scope, Send
 
+    class HostedAppFallbackMiddleware:
+        """Intercept 404s for root-level paths and try hosted app fallback."""
+        _SKIP = ("api/", "ws/", "ext/", "static/", "app/", "guide/", "hortmap/", "viewer", "_")
+
+        def __init__(self, app: ASGIApp) -> None:
+            self.app = app
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] != "http":
+                await self.app(scope, receive, send)
+                return
+
+            path = scope.get("path", "").lstrip("/")
+            # Skip known routes and empty path (root) — pass straight through
+            if not path or any(path.startswith(p) for p in self._SKIP):
+                await self.app(scope, receive, send)
+                return
+
+            # For unknown paths: run the app, intercept 404, try hosted app fallback
+            status_code = 0
+            held_headers: list[tuple[bytes, bytes]] = []
+            held_body = bytearray()
+            passed = False
+
+            async def send_wrapper(message: dict) -> None:
+                nonlocal status_code, held_headers, held_body, passed
+                if message["type"] == "http.response.start":
+                    status_code = message.get("status", 200)
+                    held_headers = list(message.get("headers", []))
+                    if status_code != 404:
+                        passed = True
+                        await send(message)
+                elif message["type"] == "http.response.body":
+                    if passed:
+                        await send(message)
+                    else:
+                        held_body.extend(message.get("body", b""))
+
+            await self.app(scope, receive, send_wrapper)
+
+            if not passed and status_code == 404:
+                request = Request(scope, receive)
+                instance = _instance_from_referer(request)
+                if instance:
+                    resp = await _proxy_hosted_app(instance, path, request)
+                    await resp(scope, receive, send)
+                    return
+                # No fallback — send original 404
+                await send({"type": "http.response.start", "status": 404, "headers": held_headers})
+                await send({"type": "http.response.body", "body": bytes(held_body)})
+
+    app.add_middleware(HostedAppFallbackMiddleware)
+
+    @app.websocket("/app/{instance}/ui/{path:path}")
     @app.websocket("/app/{instance}/~/{path:path}")
     async def proxy_hosted_app_ws(websocket: WebSocket, instance: str, path: str) -> None:
         """WebSocket proxy to a hosted app container."""
@@ -1219,18 +1351,19 @@ def _register_routes(app: FastAPI) -> None:
 
         try:
             subprotocols = websocket.headers.get("sec-websocket-protocol", "")
-            origin = websocket.headers.get("origin")
-            if origin:
-                remote = ws_lib.connect(
-                    ws_url,
-                    origin=origin,
-                    subprotocols=[p.strip() for p in subprotocols.split(",") if p.strip()] or None,
-                )
-            else:
-                remote = ws_lib.connect(
-                    ws_url,
-                    subprotocols=[p.strip() for p in subprotocols.split(",") if p.strip()] or None,
-                )
+            # Use the container's origin, not the browser's — n8n checks Origin
+            container_origin = container_url
+            forward_headers: list[tuple[str, str]] = []
+            for header_name in ("cookie", "user-agent"):
+                header_value = websocket.headers.get(header_name)
+                if header_value:
+                    forward_headers.append((header_name, header_value))
+            remote = ws_lib.connect(
+                ws_url,
+                origin=container_origin,
+                additional_headers=forward_headers or None,
+                subprotocols=[p.strip() for p in subprotocols.split(",") if p.strip()] or None,
+            )
             async with remote as remote_ws:
                 await websocket.accept(subprotocol=remote_ws.subprotocol)
                 async def forward_to_remote() -> None:

@@ -151,6 +151,7 @@ class DataChannelProxy:
         try:
             headers.pop("host", None)
             headers.pop("Host", None)
+            headers["X-Forwarded-Via"] = "p2p"
 
             resp = await self._http_client.request(
                 method=method,

@@ -223,6 +223,14 @@ class RelayPoller:
             return
         poll_url = f"{self.relay_http_url}/{self.room_id}/sdp-inbox"
         send_url = f"{self.relay_http_url}/{self.room_id}/sdp-send"
+
+        # Flush stale offers from the inbox — old offers from previously used
+        # links would be picked up and create zombie sessions.
+        try:
+            await self._http.get(poll_url)  # drain inbox
+        except Exception:
+            pass
+
         logger.info("polling for SDP offers via HTTP (timeout %.0fs)", timeout)
 
         deadline = asyncio.get_event_loop().time() + timeout
@@ -263,7 +271,11 @@ class RelayPoller:
 
     async def _create_session_http(self, offer_sdp: str) -> str | None:
         """Create a WebRTC peer session and return the SDP answer (no WebSocket needed)."""
-        await self._cleanup_dead_sessions()
+        # Aggressively kill ALL non-connected sessions before creating a new one.
+        # aiortc RTCPeerConnection objects congest the asyncio event loop when
+        # multiple are stuck in "new"/"checking"/"connecting" state, preventing
+        # new ICE negotiations from completing.
+        await self._kill_all_sessions()
 
         session_id = f"p2p-{secrets.token_hex(4)}"
         proxy = DataChannelProxy(peer=None)  # type: ignore[arg-type]
@@ -317,7 +329,33 @@ class RelayPoller:
             await asyncio.sleep(CLEANUP_INTERVAL)
             await self._cleanup_dead_sessions()
 
+    async def _kill_all_sessions(self) -> None:
+        """Kill ALL existing sessions before creating a new one.
+
+        aiortc's internal UDP sockets and STUN bindings linger after close,
+        interfering with ICE negotiation on subsequent connections. Only one
+        P2P viewer connects at a time, so we close everything — including
+        "connected" sessions from a previous viewer tab.
+
+        Closes are fire-and-forget to avoid blocking the event loop with
+        DTLS/ICE shutdown handshakes.
+        """
+        if not self._sessions:
+            return
+        sids = list(self._sessions.keys())
+        for sid in sids:
+            session = self._sessions.pop(sid)
+            state = session.peer.connection_state
+            logger.info("killing session %s (state=%s) before new session", sid, state)
+            asyncio.create_task(self._close_session(session))
+        logger.info("killed %d session(s)", len(sids))
+        # Yield to let the event loop process the close tasks and free
+        # UDP sockets before creating a new RTCPeerConnection
+        await asyncio.sleep(0.2)
+
     async def _cleanup_dead_sessions(self) -> None:
+        """Periodic cleanup — remove failed/closed/disconnected sessions and
+        force-kill sessions stuck in non-connected state for >30s."""
         dead = []
         for sid, session in self._sessions.items():
             state = session.peer.connection_state
@@ -325,7 +363,6 @@ class RelayPoller:
             if state in ("failed", "closed", "disconnected"):
                 dead.append(sid)
             elif age > 30 and state != "connected":
-                # Kill sessions stuck in non-connected state for >30s (ping timeout)
                 logger.info("force-killing stale session %s (state=%s, age=%.0fs)", sid, state, age)
                 dead.append(sid)
         for sid in dead:

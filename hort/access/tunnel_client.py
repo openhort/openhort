@@ -112,9 +112,11 @@ class TunnelClient:
                 self._http_client = httpx.AsyncClient(timeout=30.0)
             client = self._http_client
             async with asyncio.timeout(30):
+                fwd_headers = {k: v for k, v in headers.items() if k.lower() not in ("host", "transfer-encoding")}
+                fwd_headers["X-Forwarded-Via"] = "proxy"
                 resp = await client.request(
                     method, url,
-                    headers={k: v for k, v in headers.items() if k.lower() not in ("host", "transfer-encoding")},
+                    headers=fwd_headers,
                     content=body,
                 )
                 # Split large responses into small WS messages

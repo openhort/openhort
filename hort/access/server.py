@@ -22,6 +22,7 @@ import base64
 import json
 import logging
 import os
+import re
 import secrets
 import sys
 import time
@@ -227,6 +228,8 @@ def create_access_app(
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     _register_routes(app, store)
+
+
     return app
 
 
@@ -341,8 +344,8 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             raise HTTPException(401, "Host owner not found")
 
         request.session["username"] = owner_username
-        # Redirect to the host's home screen
-        return RedirectResponse(f"/proxy/{host_id}/", status_code=302)
+        request.session["host_id"] = host_id
+        return RedirectResponse("/viewer", status_code=302)
 
     # ===== Host management =====
 
@@ -362,6 +365,18 @@ def _register_routes(app: FastAPI, store: Store) -> None:
                 for h in hosts
             ]
         })
+
+    @app.post("/api/access/select-host")
+    async def select_host(request: Request) -> JSONResponse:
+        """Set the active host for this session."""
+        username = request.session.get("username")
+        if not username:
+            raise HTTPException(401, "Not authenticated")
+        data = await request.json()
+        host_id = data.get("host_id", "")
+        if host_id:
+            request.session["host_id"] = host_id
+        return JSONResponse({"ok": True})
 
     @app.post("/api/access/hosts")
     async def create_host(request: Request) -> JSONResponse:
@@ -421,12 +436,179 @@ def _register_routes(app: FastAPI, store: Store) -> None:
             _tunnels.pop(host_record.host_id, None)
             logger.info("Host disconnected: %s", host_record.display_name)
 
-    # ===== WebSocket proxy =====
+    # ===== Transparent proxy =====
+    # Once a host is selected (stored in session), ALL non-access-server
+    # requests are proxied through the tunnel. URLs identical to LAN.
+    # No /proxy/{host_id}/ prefix needed — host comes from session.
 
-    @app.websocket("/proxy/{host_id}/{path:path}")
-    async def ws_proxy(websocket: WebSocket, host_id: str, path: str) -> None:
+    def _get_tunnel(request_or_ws) -> tuple:
+        """Get tunnel from session host_id. Returns (host_id, tunnel) or raises."""
+        if isinstance(request_or_ws, WebSocket):
+            # Parse session cookie manually for WebSocket
+            from starlette.middleware.sessions import SessionMiddleware
+            host_id = ""
+            cookie = request_or_ws.cookies.get("session", "")
+            # WebSocket doesn't go through session middleware, use cookie directly
+            # Fall back to checking _tunnels for first available
+            for hid, t in _tunnels.items():
+                return hid, t
+            return "", None
+        host_id = request_or_ws.session.get("host_id", "")
+        if host_id:
+            tunnel = _tunnels.get(host_id)
+            if tunnel:
+                return host_id, tunnel
+        # Fall back to first available tunnel for this user
+        username = request_or_ws.session.get("username", "")
+        if username:
+            for h in store.get_hosts_for_user(username):
+                if h.host_id in _tunnels:
+                    request_or_ws.session["host_id"] = h.host_id
+                    return h.host_id, _tunnels[h.host_id]
+        return "", None
+
+    # ===== Transparent proxy routes =====
+    # Register all known openhort URL prefixes as proxy routes.
+    # These are the same URLs as on LAN — the proxy is fully transparent.
+    _PROXY_PREFIXES = [
+        "/viewer", "/api/{path:path}", "/app/{path:path}", "/ext/{path:path}",
+        "/static/{path:path}", "/guide/{path:path}", "/hortmap/{path:path}",
+        "/view/{path:path}", "/p2p/{path:path}", "/assets/{path:path}",
+        "/rest/{path:path}", "/types/{path:path}", "/favicon.ico",
+        "/manifest.json", "/sw.js",
+    ]
+
+    # ===== Transparent proxy helper =====
+
+    async def _proxy_path(request: Request, path: str) -> Response:
+        """Proxy a request through the tunnel. Host from session."""
+        username = request.session.get("username")
+        if not username:
+            raise HTTPException(404, "Not found")
+        host_id = request.session.get("host_id", "")
+        tunnel = _tunnels.get(host_id) if host_id else None
+        if not tunnel:
+            for h in store.get_hosts_for_user(username):
+                if h.host_id in _tunnels:
+                    tunnel = _tunnels[h.host_id]
+                    break
+        if not tunnel:
+            raise HTTPException(502, "No host connected")
+        headers = dict(request.headers)
+        headers.pop("host", None)
+        headers["X-Forwarded-Via"] = "proxy"
+        try:
+            resp = await tunnel.proxy_request(request.method, f"/{path}", headers, await request.body())
+        except (ConnectionError, asyncio.TimeoutError):
+            raise HTTPException(502, "Host not responding")
+        body_bytes = resp.get("body_bytes", b"")
+        resp_headers = resp.get("headers", {})
+        for h in ["content-length", "Content-Length", "transfer-encoding", "connection", "keep-alive"]:
+            resp_headers.pop(h, None)
+        return Response(content=body_bytes, status_code=resp.get("status", 200), headers=resp_headers)
+
+    # Register transparent proxy for all known openhort prefixes
+    # NOTE: Each must be an explicit function (not a loop) to avoid closure issues
+    @app.api_route("/viewer", methods=["GET"], name="proxy_viewer2")
+    async def pv(request: Request) -> Response:
+        return await _proxy_path(request, "viewer")
+
+    @app.api_route("/api/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"], name="proxy_api2")
+    async def pa(request: Request, p: str) -> Response:
+        return await _proxy_path(request, f"api/{p}")
+
+    @app.api_route("/app/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"], name="proxy_app2")
+    async def pap(request: Request, p: str) -> Response:
+        return await _proxy_path(request, f"app/{p}")
+
+    @app.api_route("/ext/{p:path}", methods=["GET", "HEAD"], name="proxy_ext2")
+    async def pe(request: Request, p: str) -> Response:
+        return await _proxy_path(request, f"ext/{p}")
+
+    @app.api_route("/static/{p:path}", methods=["GET", "HEAD"], name="proxy_static2")
+    async def ps(request: Request, p: str) -> Response:
+        return await _proxy_path(request, f"static/{p}")
+
+    @app.api_route("/assets/{p:path}", methods=["GET", "HEAD"], name="proxy_assets2")
+    async def pas(request: Request, p: str) -> Response:
+        return await _proxy_path(request, f"assets/{p}")
+
+    @app.api_route("/rest/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"], name="proxy_rest2")
+    async def pr(request: Request, p: str) -> Response:
+        return await _proxy_path(request, f"rest/{p}")
+
+    @app.api_route("/guide/{p:path}", methods=["GET", "HEAD"], name="proxy_guide2")
+    async def pg(request: Request, p: str) -> Response:
+        return await _proxy_path(request, f"guide/{p}")
+
+    @app.api_route("/hortmap/{p:path}", methods=["GET", "HEAD"], name="proxy_hortmap2")
+    async def ph(request: Request, p: str) -> Response:
+        return await _proxy_path(request, f"hortmap/{p}")
+
+    @app.api_route("/view/{p:path}", methods=["GET", "HEAD"], name="proxy_view2")
+    async def pvw(request: Request, p: str) -> Response:
+        return await _proxy_path(request, f"view/{p}")
+
+    @app.get("/manifest.json", name="proxy_manifest2")
+    async def pm(request: Request) -> Response:
+        return await _proxy_path(request, "manifest.json")
+
+    @app.get("/sw.js", name="proxy_sw2")
+    async def psw(request: Request) -> Response:
+        return await _proxy_path(request, "sw.js")
+
+    @app.get("/favicon.ico", name="proxy_favicon2")
+    async def pf(request: Request) -> Response:
+        return await _proxy_path(request, "favicon.ico")
+
+    # WebSocket proxy — transparent, same URLs as LAN
+    @app.websocket("/ws/{path:path}")
+    async def ws_transparent(websocket: WebSocket, path: str) -> None:
+        _, tunnel = _get_tunnel(websocket)
+        if tunnel is None:
+            await websocket.close(code=4004, reason="Host not connected")
+            return
+        await _ws_proxy_impl(websocket, tunnel, f"ws/{path}")
+
+    async def _ws_proxy_impl(websocket: WebSocket, tunnel: Any, path: str) -> None:
+        await websocket.accept()
+        ws_id = secrets.token_hex(8)
+        tunnel._ws_clients[ws_id] = websocket
+        await tunnel.send_raw(json.dumps({"type": "ws_open", "ws_id": ws_id, "path": f"/{path}"}))
+        try:
+            while True:
+                msg = await websocket.receive()
+                if msg["type"] == "websocket.receive":
+                    if "text" in msg and msg["text"]:
+                        await tunnel.send_raw(json.dumps({"type": "ws_data", "ws_id": ws_id, "text": msg["text"]}))
+                    elif "bytes" in msg and msg["bytes"]:
+                        import base64
+                        await tunnel.send_raw(json.dumps({"type": "ws_data", "ws_id": ws_id, "binary": base64.b64encode(msg["bytes"]).decode()}))
+                elif msg["type"] == "websocket.disconnect":
+                    break
+        except WebSocketDisconnect:
+            pass
+        finally:
+            tunnel._ws_clients.pop(ws_id, None)
+            await tunnel.send_raw(json.dumps({"type": "ws_close", "ws_id": ws_id}))
+
+    # Legacy /proxy/{host_id}/ URLs — set host in session and redirect
+    @app.get("/proxy/{host_id}")
+    @app.get("/proxy/{host_id}/")
+    async def proxy_legacy_root(request: Request, host_id: str) -> Response:
+        request.session["host_id"] = host_id
+        return Response(status_code=302, headers={"Location": "/viewer"})
+
+    @app.api_route("/proxy/{host_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+    async def proxy_legacy_path(request: Request, host_id: str, path: str) -> Response:
+        request.session["host_id"] = host_id
+        qs = ("?" + str(request.query_params)) if request.query_params else ""
+        return Response(status_code=302, headers={"Location": f"/{path}{qs}"})
+
+    @app.websocket("/ws/{path:path}")
+    async def ws_proxy(websocket: WebSocket, path: str) -> None:
         """Proxy WebSocket connections to the host."""
-        tunnel = _tunnels.get(host_id)
+        _, tunnel = _get_tunnel(websocket)
         if tunnel is None:
             await websocket.close(code=4004, reason="Host not connected")
             return
@@ -504,70 +686,57 @@ def _register_routes(app: FastAPI, store: Store) -> None:
         except Exception:
             pass
 
-    # ===== HTTP proxy =====
+    # ===== Transparent HTTP proxy =====
+    # ALL requests not handled by access server routes are proxied to
+    # the host. No /proxy/{host_id}/ prefix — host comes from session.
+    # URLs are identical to LAN access.
 
-    @app.api_route("/proxy/{host_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
-    async def http_proxy(request: Request, host_id: str, path: str) -> Response:
-        """Proxy HTTP requests to the host."""
-        # Check auth
+    async def _proxy_http(request: Request, path: str) -> Response:
+        """Proxy an HTTP request through the tunnel. Transparent — same URLs as LAN."""
         username = request.session.get("username")
         if not username:
-            raise HTTPException(401, "Not authenticated")
+            # Not logged in — show landing page
+            return HTMLResponse(_landing_html())
 
-        tunnel = _tunnels.get(host_id)
+        host_id, tunnel = _get_tunnel(request)
         if tunnel is None:
-            raise HTTPException(502, "Host not connected")
+            return HTMLResponse("<h2>No host connected</h2><p><a href='/_access'>Back</a></p>", status_code=502)
 
         body = await request.body()
         headers = dict(request.headers)
         headers.pop("host", None)
+        headers["X-Forwarded-Via"] = "proxy"
 
         try:
-            resp = await tunnel.proxy_request(
-                request.method, f"/{path}", headers, body
-            )
-        except (ConnectionError, asyncio.TimeoutError) as e:
-            logger.error("Proxy error for /%s: %s", path, e)
+            resp = await tunnel.proxy_request(request.method, f"/{path}", headers, body)
+        except (ConnectionError, asyncio.TimeoutError):
             raise HTTPException(502, "Host not responding")
 
-        # Body as raw bytes (binary-safe)
         body_bytes = resp.get("body_bytes", b"")
         resp_headers = resp.get("headers", {})
-        content_type = resp_headers.get("content-type", "")
+        # Strip hop-by-hop headers
+        for h in ["content-length", "Content-Length", "transfer-encoding", "connection", "keep-alive"]:
+            resp_headers.pop(h, None)
 
-        # Inject <base> tag into HTML (text only — binary is untouched)
-        if "text/html" in content_type:
-            html = body_bytes.decode("utf-8", errors="replace")
-            base_tag = f'<base href="/proxy/{host_id}/">'
-            html = html.replace("<head>", f"<head>{base_tag}", 1)
-            body_bytes = html.encode("utf-8")
-            resp_headers["content-type"] = "text/html; charset=utf-8"
-        # Remove content-length — body may have been modified
-        resp_headers.pop("content-length", None)
-        resp_headers.pop("Content-Length", None)
-
-        return Response(
-            content=body_bytes,
-            status_code=resp.get("status", 200),
-            headers=resp_headers,
-        )
+        return Response(content=body_bytes, status_code=resp.get("status", 200), headers=resp_headers)
 
     # ===== Build version =====
 
     @app.get("/cfversion")
     async def cfversion() -> JSONResponse:
-        """Return embedded build version info."""
         try:
             build_info = json.loads(Path("/app/build_info.json").read_text())
         except (FileNotFoundError, json.JSONDecodeError):
             build_info = {"version": "dev", "build_time": "unknown"}
         return JSONResponse(build_info)
 
-    # ===== Landing page =====
+    # ===== Landing / host selection =====
 
-    @app.get("/")
-    async def landing() -> HTMLResponse:
+    @app.get("/_access")
+    async def access_landing() -> HTMLResponse:
         return HTMLResponse(_landing_html())
+
+    # Catch-all middleware is registered in create_access_app() after this function.
 
 
 def _landing_html() -> str:
@@ -652,7 +821,12 @@ const app = createApp({
 
     function connectHost(h) {
       if (!h.online) return;
-      window.location.href = '/proxy/' + h.host_id + '/viewer';
+      // Select host via API, then redirect to /viewer
+      fetch('/api/access/select-host', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host_id: h.host_id }),
+      }).then(() => { window.location.href = '/viewer'; });
     }
 
     // Check if already logged in
@@ -723,6 +897,10 @@ def main() -> None:  # pragma: no cover
         sys.exit(1)
 
     app = create_access_app(db_store)
+    for r in app.routes:
+        p = getattr(r, 'path', '?')
+        n = getattr(r, 'name', type(r).__name__)
+        print(f"ROUTE: {p} -> {n}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 

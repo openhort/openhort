@@ -186,6 +186,7 @@ class HostedAppsPlugin(PluginBase, ScheduledMixin, MCPMixin):
             "--cap-add", "CHOWN",
             "--cap-add", "SETUID",
             "--cap-add", "SETGID",
+            "--cap-add", "KILL",
             "--security-opt", "no-new-privileges:true",
             "--memory", template.memory,
             "--cpus", template.cpus,

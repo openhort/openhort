@@ -36,12 +36,12 @@ CATALOG: dict[str, AppTemplate] = {
         app_type="n8n",
         label="n8n",
         description="Workflow automation — connect APIs, schedule tasks, build AI chains",
-        image="n8nio/n8n:2.14.2",
+        image="openhort/n8n-python:latest",
         port=5678,
         icon="ph ph-flow-arrow",
         data_path="/home/node/.n8n",
-        memory="512m",
-        cpus="1",
+        memory="1g",
+        cpus="2",
         env={
             "N8N_SECURE_COOKIE": "false",
             "N8N_DIAGNOSTICS_ENABLED": "false",
@@ -51,9 +51,8 @@ CATALOG: dict[str, AppTemplate] = {
             "N8N_HIRING_BANNER_ENABLED": "false",
             "N8N_TEMPLATES_ENABLED": "true",
             "N8N_EDITOR_BASE_URL": "",
+            "N8N_ENCRYPTION_KEY": "openhort-n8n-stable-encryption-key",
         },
-        # N8N_EDITOR_BASE_URL is set dynamically at container creation
-        # to match the proxy prefix path
     ),
     "code-server": AppTemplate(
         app_type="code-server",
