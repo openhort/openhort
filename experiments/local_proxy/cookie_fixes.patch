@@ -1,0 +1,211 @@
+diff --git a/hort/access/server.py b/hort/access/server.py
+index 06c7fdf..30a466a 100644
+--- a/hort/access/server.py
++++ b/hort/access/server.py
+@@ -277,6 +277,63 @@ def _register_routes(app: FastAPI, store: Store) -> None:
+             raise HTTPException(401, "Not authenticated")
+         return JSONResponse({"username": username})
+ 
++    # ===== Auto-login: single URL that sets proxy + hosted app cookies =====
++
++    @app.get("/_auto")
++    async def auto_login(request: Request) -> Response:
++        """One-click login: sets proxy session + hosted app auth, then redirects.
++
++        Usage: /_auto?user=admin&pass=OpenHort2026!&host=<id>&app_email=admin@openhort.local&app_pass=OpenHort2026!&redirect=/app/workflows/ui/
++        All params are in the URL — bookmarkable for dev/testing.
++        """
++        params = request.query_params
++        username = params.get("user", "")
++        password = params.get("pass", "")
++        host_id = params.get("host", "")
++        app_email = params.get("app_email", "")
++        app_pass = params.get("app_pass", "")
++        redirect_to = params.get("redirect", "/viewer")
++
++        # 1. Proxy login
++        if username and password:
++            user = store.get_user(username)
++            if user and verify_password(password, user.password_hash):
++                request.session["username"] = username
++
++        # 2. Select host (or auto-select first online)
++        logged_in_user = request.session.get("username", "")
++        if host_id:
++            request.session["host_id"] = host_id
++        elif logged_in_user:
++            for h in store.get_hosts_for_user(logged_in_user):
++                if h.host_id in _tunnels:
++                    request.session["host_id"] = h.host_id
++                    host_id = h.host_id
++                    break
++
++        # 3. Login to hosted app (if credentials provided and tunnel available)
++        tunnel = _tunnels.get(request.session.get("host_id", ""))
++        app_cookie = ""
++        if tunnel and app_email and app_pass:
++            try:
++                resp = await tunnel.proxy_request(
++                    "POST", redirect_to.rstrip("/") + "/rest/login",
++                    {"content-type": "application/json"},
++                    json.dumps({"emailOrLdapLoginId": app_email, "password": app_pass}).encode(),
++                )
++                # Extract Set-Cookie from hosted app response
++                raw_headers = resp.get("headers", {})
++                for k, v in raw_headers.items():
++                    if k.lower() == "set-cookie" and "n8n-auth" in v.lower():
++                        app_cookie = v
++            except Exception:
++                pass
++
++        response = Response(status_code=302, headers={"Location": redirect_to})
++        if app_cookie:
++            response.headers.append("Set-Cookie", app_cookie)
++        return response
++
+     # ===== Token login (host-verified) =====
+ 
+     @app.get("/t/{host_id}/{token}")
+@@ -497,15 +554,24 @@ def _register_routes(app: FastAPI, store: Store) -> None:
+         headers = dict(request.headers)
+         headers.pop("host", None)
+         headers["X-Forwarded-Via"] = "proxy"
++        # Include query string
++        qs = str(request.query_params)
++        full_path = f"/{path}?{qs}" if qs else f"/{path}"
+         try:
+-            resp = await tunnel.proxy_request(request.method, f"/{path}", headers, await request.body())
++            resp = await tunnel.proxy_request(request.method, full_path, headers, await request.body())
+         except (ConnectionError, asyncio.TimeoutError):
+             raise HTTPException(502, "Host not responding")
+         body_bytes = resp.get("body_bytes", b"")
+         resp_headers = resp.get("headers", {})
++        # Extract multi-value Set-Cookie list (tunnel client sends as "set-cookie-list")
++        cookie_list = resp_headers.pop("set-cookie-list", [])
+         for h in ["content-length", "Content-Length", "transfer-encoding", "connection", "keep-alive"]:
+             resp_headers.pop(h, None)
+-        return Response(content=body_bytes, status_code=resp.get("status", 200), headers=resp_headers)
++        response = Response(content=body_bytes, status_code=resp.get("status", 200), headers=resp_headers)
++        # Append each Set-Cookie individually (Response.headers only keeps last for same key)
++        for cookie in cookie_list:
++            response.headers.append("set-cookie", cookie)
++        return response
+ 
+     # Register transparent proxy for all known openhort prefixes
+     # NOTE: Each must be an explicit function (not a loop) to avoid closure issues
+@@ -563,18 +629,28 @@ def _register_routes(app: FastAPI, store: Store) -> None:
+ 
+     # WebSocket proxy — transparent, same URLs as LAN
+     @app.websocket("/ws/{path:path}")
++    @app.websocket("/app/{path:path}")
+     async def ws_transparent(websocket: WebSocket, path: str) -> None:
+         _, tunnel = _get_tunnel(websocket)
+         if tunnel is None:
+             await websocket.close(code=4004, reason="Host not connected")
+             return
+-        await _ws_proxy_impl(websocket, tunnel, f"ws/{path}")
++        actual_path = websocket.url.path.lstrip("/")
++        qs = str(websocket.query_params)
++        if qs:
++            actual_path = f"{actual_path}?{qs}"
++        await _ws_proxy_impl(websocket, tunnel, actual_path)
+ 
+     async def _ws_proxy_impl(websocket: WebSocket, tunnel: Any, path: str) -> None:
+         await websocket.accept()
+         ws_id = secrets.token_hex(8)
+         tunnel._ws_clients[ws_id] = websocket
+-        await tunnel.send_raw(json.dumps({"type": "ws_open", "ws_id": ws_id, "path": f"/{path}"}))
++        # Forward browser headers (especially cookies) so hosted apps can authenticate the WS
++        ws_headers = {}
++        for k, v in websocket.headers.items():
++            if k.lower() in ("cookie", "authorization", "origin", "user-agent"):
++                ws_headers[k] = v
++        await tunnel.send_raw(json.dumps({"type": "ws_open", "ws_id": ws_id, "path": f"/{path}", "headers": ws_headers}))
+         try:
+             while True:
+                 msg = await websocket.receive()
+diff --git a/hort/access/tunnel_client.py b/hort/access/tunnel_client.py
+index dfc0f0f..5ca8273 100644
+--- a/hort/access/tunnel_client.py
++++ b/hort/access/tunnel_client.py
+@@ -123,12 +123,19 @@ class TunnelClient:
+                 # Azure's WS proxy silently drops messages > ~64KB
+                 body_b64 = base64.b64encode(resp.content).decode("ascii")
+                 CHUNK = 32000
++                # Preserve multiple values for Set-Cookie (dict() loses duplicates)
++                resp_headers: dict[str, Any] = {}
++                for k, v in resp.headers.multi_items():
++                    if k.lower() == "set-cookie":
++                        resp_headers.setdefault("set-cookie-list", []).append(v)
++                    elif k not in resp_headers:
++                        resp_headers[k] = v
+                 if len(body_b64) <= CHUNK:
+                     await ws.send(json.dumps({
+                         "type": "http_response",
+                         "req_id": req_id,
+                         "status": resp.status_code,
+-                        "headers": dict(resp.headers),
++                        "headers": resp_headers,
+                         "body_b64": body_b64,
+                     }))
+                 else:
+@@ -156,10 +163,14 @@ class TunnelClient:
+ 
+         ws_id = msg.get("ws_id", "")
+         path = msg.get("path", "/")
++        extra_headers = msg.get("headers", {})
+         local_ws_url = self._local_url.replace("http://", "ws://").replace("https://", "wss://")
+ 
+         try:
+-            local_ws = await websockets.connect(f"{local_ws_url}{path}")
++            local_ws = await websockets.connect(
++                f"{local_ws_url}{path}",
++                additional_headers=extra_headers if extra_headers else None,
++            )
+             self._local_ws_connections[ws_id] = local_ws
+ 
+             # Forward local WS messages back through the tunnel.
+diff --git a/hort/app.py b/hort/app.py
+index 478bb9d..23544bb 100644
+--- a/hort/app.py
++++ b/hort/app.py
+@@ -1124,6 +1124,13 @@ def _register_routes(app: FastAPI) -> None:
+                 return Response(content=f"Container unreachable: {exc}", status_code=502)
+ 
+             resp_headers = dict(resp.headers)
++            # Preserve ALL Set-Cookie headers (dict() loses duplicates)
++            _extra_cookies: list[str] = []
++            for k, v in resp.headers.multi_items():
++                if k.lower() == "set-cookie":
++                    _extra_cookies.append(v)
++            resp_headers.pop("set-cookie", None)
++            resp_headers.pop("Set-Cookie", None)
+             resp_headers["x-hosted-app-proxy"] = "1"
+             for h in ["x-frame-options", "X-Frame-Options", "content-security-policy",
+                        "Content-Security-Policy", "transfer-encoding", "connection"]:
+@@ -1156,7 +1163,7 @@ def _register_routes(app: FastAPI) -> None:
+ 
+             if is_html:
+                 resp_headers["x-hosted-app-html"] = "1"
+-                resp_headers["set-cookie"] = f"ohapp_instance={instance}; Path=/; SameSite=Lax"
++                _extra_cookies.append(f"ohapp_instance={instance}; Path=/; SameSite=Lax")
+                 body = b"<!-- hosted-app-html -->\n" + body
+                 app_root = _browser_app_root(request)
+                 body = body.replace(b'href="/', b'href="' + app_root)
+@@ -1223,11 +1230,15 @@ def _register_routes(app: FastAPI) -> None:
+                 resp_headers.pop("content-length", None)
+                 resp_headers.pop("Content-Length", None)
+ 
+-            return Response(
++            response = Response(
+                 content=body,
+                 status_code=resp.status_code,
+                 headers=resp_headers,
+             )
++            # Append all Set-Cookie headers individually (preserved from container)
++            for cookie in _extra_cookies:
++                response.headers.append("set-cookie", cookie)
++            return response
+ 
+     @app.api_route(
+         "/app/{instance}/ui/",
