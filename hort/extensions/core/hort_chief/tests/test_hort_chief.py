@@ -88,19 +88,12 @@ def test_admin_check_denies_non_admin_group(mock_cfg, chief):
 @patch("hort.extensions.core.hort_chief.provider.HortChief._get_sessions")
 @patch("hort.hort_config.get_hort_config")
 def test_build_overview_content(mock_cfg, mock_sessions, mock_containers, chief):
-    from hort.hort_config import HortConfig, LlmingConfig, GroupConfig, UserConfig
+    from hort.hort_config import HortConfig
     cfg = HortConfig(name="Test Mac")
-    cfg.llmings["claude"] = LlmingConfig(
-        name="claude", type="openhort/claude-code",
-        envoy={"container": {"image": "test"}}
-    )
-    cfg.llmings["lens"] = LlmingConfig(name="lens", type="openhort/lens")
-    cfg.groups["owner"] = GroupConfig(name="owner", session="shared", wire={"allow_admin": True})
-    cfg.users["michael"] = UserConfig(name="michael", groups=["owner"])
     mock_cfg.return_value = cfg
 
     mock_containers.return_value = [
-        {"name": "ohsb-abc123", "status": "Up 5 minutes", "image": "openhort-claude-code"}
+        {"name": "ohsb-abc123def456", "status": "Up 5 minutes", "image": "openhort-claude-code"}
     ]
     mock_sessions.return_value = [
         {"id": "abc12345...", "type": "lan", "ip": "127.0.0.1"}
@@ -108,14 +101,10 @@ def test_build_overview_content(mock_cfg, mock_sessions, mock_containers, chief)
 
     text = chief._build_overview()
     assert "Test Mac" in text
-    assert "claude" in text
-    assert "openhort/claude-code" in text
-    assert "[envoy]" in text
-    assert "lens" in text
-    assert "owner" in text
-    assert "michael" in text
-    assert "ohsb-abc123" in text
+    assert "abc123def456" in text
+    assert "openhort-claude-code" in text
     assert "lan" in text
+    assert "/horts" in text  # hint for subcommand
 
 
 @pytest.mark.asyncio
