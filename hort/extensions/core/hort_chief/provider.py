@@ -47,8 +47,10 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
                 # Check for subcommand: /horts <name>
                 args = getattr(message, "command_args", "") or ""
                 if args.strip():
-                    text = self._build_detail(args.strip())
-                    return ConnectorResponse.simple(text)
+                    result = self._build_detail(args.strip())
+                    if isinstance(result, ConnectorResponse):
+                        return result
+                    return ConnectorResponse.simple(result)
 
                 # Overview with clickable buttons
                 containers = self._get_containers()
@@ -127,11 +129,13 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
 
                 if action == "detail":
                     try:
-                        text = self._build_detail(arg)
+                        result = self._build_detail(arg)
+                        if isinstance(result, ConnectorResponse):
+                            return result
+                        return ConnectorResponse.simple(result)
                     except Exception:
                         logger.exception("Failed to build detail")
-                        text = "Something went wrong."
-                    return ConnectorResponse.simple(text)
+                        return ConnectorResponse.simple("Something went wrong.")
 
         return None
 
@@ -243,12 +247,17 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
         if not match:
             return f"Sub-hort '{name}' not found. Use /horts to list."
 
-        lines = [f"Sub-hort: {match['name']}"]
-        lines.append("")
-        lines.append(f"  Image:   {match['image']}")
-        lines.append(f"  Status:  {match['status']}")
+        # Build as ConnectorResponse with HTML to avoid /path being parsed as commands
+        from hort.ext.connectors import ConnectorResponse
 
-        # Get detailed Docker inspect
+        text_lines = [f"Sub-hort: {match['name']}", ""]
+        html_lines = [f"<b>Sub-hort: {match['name']}</b>", ""]
+
+        text_lines.append(f"Image:   {match['image']}")
+        html_lines.append(f"Image:   <code>{match['image']}</code>")
+        text_lines.append(f"Status:  {match['status']}")
+        html_lines.append(f"Status:  {match['status']}")
+
         try:
             result = subprocess.run(
                 ["docker", "inspect", "--format",
@@ -268,28 +277,38 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
                     cpus = cpus_nano / 1e9 if cpus_nano else 0
                     mounts = parts[4].strip() if len(parts) > 4 else ""
 
-                    lines.append(f"  Started: {started}")
+                    text_lines.append(f"Started: {started}")
+                    html_lines.append(f"Started: {started}")
                     if mem_mb:
-                        lines.append(f"  Memory:  {mem_mb}MB")
+                        text_lines.append(f"Memory:  {mem_mb}MB")
+                        html_lines.append(f"Memory:  {mem_mb}MB")
                     if cpus:
-                        lines.append(f"  CPUs:    {cpus:.1f}")
+                        text_lines.append(f"CPUs:    {cpus:.1f}")
+                        html_lines.append(f"CPUs:    {cpus:.1f}")
                     if mounts:
-                        lines.append(f"  Volumes: {mounts}")
+                        text_lines.append(f"Volumes: {mounts}")
+                        html_lines.append(f"Volumes: <code>{mounts}</code>")
         except Exception:
             pass
 
-        # Health check
         try:
             result = subprocess.run(
                 ["docker", "exec", match["name"], "echo", "ok"],
                 capture_output=True, text=True, timeout=5,
             )
             healthy = result.returncode == 0
-            lines.append(f"  Health:  {'ok' if healthy else 'unhealthy'}")
+            status = "ok" if healthy else "unhealthy"
         except Exception:
-            lines.append(f"  Health:  unknown")
+            status = "unknown"
+        text_lines.append(f"Health:  {status}")
+        html_lines.append(f"Health:  {status}")
 
-        return "\n".join(lines)
+        # Return as ConnectorResponse so HTML is used when available
+        self._last_detail_response = ConnectorResponse(
+            text="\n".join(text_lines),
+            html="\n".join(html_lines),
+        )
+        return self._last_detail_response
 
     def _get_containers(self) -> list[dict[str, str]]:
         """Get running sandbox containers."""
