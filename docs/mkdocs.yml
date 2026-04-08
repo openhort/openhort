@@ -111,9 +111,11 @@ nav:
     - Code Watch Extension: develop/code-watch-extension.md
     - Wire Chat Extension: develop/wire-chat-extension.md
     - Docs Writing Guide: develop/docs-writing-guide.md
+    - Claude Code Integration: develop/claude-code-integration.md
   - Internals:
     - Architecture: internals/architecture.md
     - n8n Hosted App: internals/n8n-hosted-app.md
+    - Llming Anatomy: internals/llming-anatomy.md
     - Hort Model: internals/hort-model.md
     - Tool System: internals/tool-system.md
     - Terminal Rendering: internals/terminal-rendering.md
@@ -136,5 +138,9 @@ nav:
       - Flow Policies & Zones: internals/security/flow-policies.md
       - Boundary Filters: internals/security/boundary-filters.md
       - Safety Rails: internals/security/safety-rails.md
+      - Group Isolation: internals/security/group-isolation.md
+      - Unified Access: internals/security/unified-access.md
+      - Credential Provisioning: internals/security/credential-provisioning.md
+      - Error Handling: internals/security/error-handling.md
       - Device Tokens: internals/security/device-tokens.md
     - Roadmap: internals/roadmap.md
