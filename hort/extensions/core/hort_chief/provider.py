@@ -38,22 +38,88 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
     async def handle_connector_command(
         self, command: str, message: Any, capabilities: Any,
     ) -> Any:
-        from hort.ext.connectors import ConnectorResponse
+        from hort.ext.connectors import ConnectorResponse, ResponseButton
 
         if command == "horts":
             if not self._is_admin(message):
                 return ConnectorResponse.simple("Permission denied. Admin access required.")
             try:
-                args = (message.text or "").strip().split(maxsplit=1)
-                sub_name = args[1].strip() if len(args) > 1 else ""
-                if sub_name:
-                    text = self._build_detail(sub_name)
+                # Check for subcommand: /horts <name>
+                args = getattr(message, "command_args", "") or ""
+                if args.strip():
+                    text = self._build_detail(args.strip())
+                    return ConnectorResponse.simple(text)
+
+                # Overview with clickable buttons
+                containers = self._get_containers()
+                sessions = self._get_sessions()
+
+                from hort.hort_config import get_hort_config
+                hort_cfg = get_hort_config()
+                name = hort_cfg.name or "openhort"
+
+                # Plain text fallback
+                text_lines = [name, ""]
+                # HTML version
+                html_lines = [f"<b>{name}</b>", ""]
+
+                if not containers:
+                    text_lines.append("No sub-horts running.")
+                    html_lines.append("No sub-horts running.")
                 else:
-                    text = self._build_overview()
+                    text_lines.append(f"Sub-horts ({len(containers)}):")
+                    html_lines.append(f"<b>Sub-horts ({len(containers)}):</b>")
+                    for c in containers:
+                        short_id = c["name"].replace("ohsb-", "")[:12]
+                        status = (c["status"]
+                                  .replace(" minutes", "m")
+                                  .replace(" hours", "h")
+                                  .replace(" seconds", "s")
+                                  .replace("About a ", "~")
+                                  .replace("About an ", "~"))
+                        text_lines.append(f"  {short_id}  {c['image']}  {status}")
+                        html_lines.append(
+                            f"  <code>{short_id}</code>  {c['image']}  {status}"
+                        )
+
+                if sessions:
+                    text_lines.append("")
+                    html_lines.append("")
+                    text_lines.append(f"Sessions ({len(sessions)}):")
+                    html_lines.append(f"<b>Sessions ({len(sessions)}):</b>")
+                    for s in sessions:
+                        text_lines.append(f"  {s['type']:<6} {s['ip']}")
+                        html_lines.append(f"  {s['type']}  {s['ip']}")
+
+                # Buttons for each container (clickable detail view)
+                buttons = []
+                for c in containers:
+                    short_id = c["name"].replace("ohsb-", "")[:12]
+                    buttons.append([ResponseButton(
+                        label=f"{short_id} ({c['image']})",
+                        callback_data=f"hort-chief:detail:{short_id}",
+                    )])
+
+                return ConnectorResponse(
+                    text="\n".join(text_lines),
+                    html="\n".join(html_lines),
+                    buttons=buttons if buttons else None,
+                )
             except Exception:
                 logger.exception("Failed to build hort overview")
-                text = "Something went wrong."
-            return ConnectorResponse.simple(text)
+                return ConnectorResponse.simple("Something went wrong.")
+
+        # Handle button callbacks
+        if command == "_callback":
+            data = getattr(message, "callback_data", "") or ""
+            if data.startswith("detail:"):
+                container_id = data.split(":", 1)[1]
+                try:
+                    text = self._build_detail(container_id)
+                except Exception:
+                    logger.exception("Failed to build detail")
+                    text = "Something went wrong."
+                return ConnectorResponse.simple(text)
 
         return None
 

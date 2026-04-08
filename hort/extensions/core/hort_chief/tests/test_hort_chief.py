@@ -122,11 +122,20 @@ async def test_handle_horts_command_denied(chief):
 async def test_handle_horts_command_allowed(chief):
     msg = MagicMock()
     msg.username = "alice_dev"
+    msg.command_args = ""  # no subcommand — show overview
 
     with patch.object(chief, "_is_admin", return_value=True), \
-         patch.object(chief, "_build_overview", return_value="Hort: Test"):
+         patch.object(chief, "_get_containers", return_value=[
+             {"name": "ohsb-test123", "status": "Up 5m", "image": "test-img"}
+         ]), \
+         patch.object(chief, "_get_sessions", return_value=[]), \
+         patch("hort.hort_config.get_hort_config") as mock_cfg:
+        from hort.hort_config import HortConfig
+        mock_cfg.return_value = HortConfig(name="Test Hort")
         result = await chief.handle_connector_command("horts", msg, MagicMock())
-    assert "Test" in result.text
+    assert "Test Hort" in result.text
+    assert "test123" in result.text
+    assert result.buttons is not None
 
 
 @pytest.mark.asyncio
