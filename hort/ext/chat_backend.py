@@ -229,7 +229,7 @@ def _build_claude_cmd(
         cmd.append("--bare")
         # --bare disables keychain reads, so auth goes through apiKeyHelper
         # in settings.json (written by _get_or_create_container)
-        cmd.extend(["--settings", "/home/sandbox/.claude/settings.json"])
+        cmd.extend(["--settings", "/workspace/.claude/settings.json"])
 
     if agent_cfg.model:
         cmd.extend(["--model", agent_cfg.model])
@@ -492,7 +492,7 @@ class ChatBackendManager:
             image=self._agent_cfg.image,
             memory=self._agent_cfg.memory,
             cpus=self._agent_cfg.cpus,
-            secret_env={},
+            secret_env={"HOME": "/workspace"},  # writable home for Claude config files
             security=SecurityProfile(),
         )
         session = self._session_manager.create(cfg)
@@ -517,13 +517,18 @@ class ChatBackendManager:
         # ANTHROPIC_API_KEY and OAuth tokens from the OS credential store.
         api_key = _get_claude_api_key()
         if api_key:
-            session.exec(["mkdir", "-p", "/home/sandbox/.claude"])
-            session.write_file("/home/sandbox/.claude/api_key", api_key)
+            # /home/sandbox is read-only (container security layer 7).
+            # Write auth files to /workspace which is the writable volume.
+            # --settings flag points Claude CLI to the right location.
+            session.exec(["mkdir", "-p", "/workspace/.claude"])
+            session.write_file("/workspace/.claude/api_key", api_key)
             session.write_file(
-                "/home/sandbox/.claude/settings.json",
-                json.dumps({"apiKeyHelper": "cat /home/sandbox/.claude/api_key"}),
+                "/workspace/.claude/settings.json",
+                json.dumps({"apiKeyHelper": "cat /workspace/.claude/api_key"}),
             )
-            session.write_file("/home/sandbox/.claude.json", "{}")
+            # Claude Code expects ~/.claude.json — write to /workspace
+            # so it's found when HOME=/workspace (set via exec env)
+            session.write_file("/workspace/.claude.json", "{}")
 
         self._container_sessions[user_id] = session
         logger.info("Created container session for user %s: %s", user_id, session.id)
