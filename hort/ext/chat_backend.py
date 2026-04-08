@@ -475,30 +475,72 @@ class ChatBackendManager:
         return self._bridge.alive
 
     def _get_or_create_container(self, user_id: str) -> Any:
-        """Get or create a sandbox container session for a user."""
+        """Get or create a sandbox container session for a user.
+
+        Reuses existing containers across server restarts: looks up by
+        user label first, then by image match, only creates new if needed.
+        """
         from hort.sandbox import SessionConfig, SecurityProfile
 
-        if user_id in self._container_sessions:
-            session = self._container_sessions[user_id]
-            # Verify container is still alive (may have been cleaned up on restart)
+        # 1. Check in-memory cache (one container shared across all sessions)
+        cache_key = f"envoy:{self._agent_cfg.image}"
+        if cache_key in self._container_sessions:
+            session = self._container_sessions[cache_key]
             try:
-                session.exec(["true"])  # no-op health check
+                session.exec(["true"])  # health check
                 return session
             except Exception:
-                logger.info("Stale container for user %s, recreating", user_id)
-                del self._container_sessions[user_id]
+                logger.info("Stale container, recreating")
+                del self._container_sessions[cache_key]
 
+        # 2. Try to find an existing running container (survives server restart)
+        # Use image as label — one container per image, shared across all sessions
+        label = f"claude:{self._agent_cfg.image}"
+        session = self._session_manager.find_running_by_label(label)
+        if session:
+            logger.info("Reusing existing container %s", session.container_name)
+            session.meta.config.secret_env = {"HOME": "/workspace"}
+            self._container_sessions[cache_key] = session
+            # Re-provision credentials (may have been refreshed)
+            self._provision_container(session)
+            return session
+
+        # 3. Try to find any running container with the same image (reuse regardless of label)
+        session = self._session_manager.find_running(image=self._agent_cfg.image)
+        if session:
+            logger.info("Reusing container %s by image match", session.container_name)
+            session.meta.user_data["label"] = label
+            session.meta.config.secret_env = {"HOME": "/workspace"}
+            session._save()
+            self._container_sessions[cache_key] = session
+            self._provision_container(session)
+            return session
+
+        # 4. Create new container
         cfg = SessionConfig(
             image=self._agent_cfg.image,
             memory=self._agent_cfg.memory,
             cpus=self._agent_cfg.cpus,
-            secret_env={"HOME": "/workspace"},  # writable home for Claude config files
+            secret_env={"HOME": "/workspace"},
             security=SecurityProfile(),
         )
         session = self._session_manager.create(cfg)
+        session.meta.user_data["label"] = label
+        session._save()
         session.start()
 
-        # Write MCP config inside container pointing to host bridge
+        self._provision_container(session)
+        self._container_sessions[cache_key] = session
+        logger.info("Created container session: %s (image=%s)", session.id, self._agent_cfg.image)
+        return session
+
+    def _provision_container(self, session: Any) -> None:
+        """Write MCP config and credentials into a container.
+
+        Called on both new containers and reused ones (credentials may
+        have been refreshed since the container was created).
+        """
+        # MCP config pointing to host bridge
         mcp_config = {
             "mcpServers": {
                 "openhort": {
@@ -512,27 +554,18 @@ class ChatBackendManager:
             json.dumps(mcp_config),
         )
 
-        # Write API key + settings for Claude Code auth inside container.
-        # Uses apiKeyHelper (reads key from file) — works with both
-        # ANTHROPIC_API_KEY and OAuth tokens from the OS credential store.
+        # API key + settings for Claude Code auth.
+        # /home/sandbox is read-only (security layer 7).
+        # Write to /workspace, HOME=/workspace set via exec env.
         api_key = _get_claude_api_key()
         if api_key:
-            # /home/sandbox is read-only (container security layer 7).
-            # Write auth files to /workspace which is the writable volume.
-            # --settings flag points Claude CLI to the right location.
             session.exec(["mkdir", "-p", "/workspace/.claude"])
             session.write_file("/workspace/.claude/api_key", api_key)
             session.write_file(
                 "/workspace/.claude/settings.json",
                 json.dumps({"apiKeyHelper": "cat /workspace/.claude/api_key"}),
             )
-            # Claude Code expects ~/.claude.json — write to /workspace
-            # so it's found when HOME=/workspace (set via exec env)
             session.write_file("/workspace/.claude.json", "{}")
-
-        self._container_sessions[user_id] = session
-        logger.info("Created container session for user %s: %s", user_id, session.id)
-        return session
 
     def get_session(self, user_id: str) -> ChatSession:
         """Get or create a chat session for a user."""

@@ -386,6 +386,33 @@ class SessionManager:
         sessions.sort(key=lambda s: s.meta.last_active, reverse=True)
         return sessions
 
+    def find_running(self, *, image: str | None = None) -> Session | None:
+        """Find a running session, optionally matching an image.
+
+        Used to reuse existing containers across server restarts.
+        Returns the most recently active matching session, or None.
+        """
+        for session in self.list_sessions():
+            if not session.is_running():
+                continue
+            if image and session.meta.config.image != image:
+                continue
+            return session
+        return None
+
+    def find_running_by_label(self, label: str) -> Session | None:
+        """Find a running session by user_data label.
+
+        Containers are labeled with their purpose (e.g., user_id)
+        in user_data so they can be found after server restart.
+        """
+        for session in self.list_sessions():
+            if not session.is_running():
+                continue
+            if session.meta.user_data.get("label") == label:
+                return session
+        return None
+
     def destroy(self, session_id: str) -> bool:
         """Destroy a session by ID.  Returns True if it existed."""
         session = self.get(session_id)
