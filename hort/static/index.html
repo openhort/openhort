@@ -186,7 +186,10 @@
     activeTerminalId: null,
 
     // Session
-    isLocal: true,  // true = direct access, false = through proxy
+    isLocal: true,  // true = LAN access, false = remote (cloud/p2p)
+    accessSource: 'lan',  // 'lan', 'cloud', 'p2p'
+    connections: { total: 0, active: 0, viewers: [] },  // individual connections
+    showViewerInfo: false,
 
     // Connectors (only shown when local)
     connectors: {
@@ -198,7 +201,6 @@
     _p2pLink: '',
     _p2pQr: '',
     _p2pTab: 'once',
-    _hostedApps: [],
     _p2pPairLink: '',
     _p2pDevices: [],
     sidebarOpen: false,
@@ -389,8 +391,9 @@
       const data = await resp.json();
       state.sessionId = data.session_id;
       state.isLocal = data.is_local !== false;
+      state.accessSource = data.access_source || (state.isLocal ? 'lan' : 'cloud');
       connectControlWs();
-      // Fetch connectors if local
+      // Fetch connectors only for LAN users
       if (state.isLocal) fetchConnectors();
     } catch (e) {
       console.error('Failed to create session:', e);
@@ -415,16 +418,22 @@
     } catch {}
   }
 
+  let _wsFailCount = 0;
+  let _wsEverOpened = false;
+
   function connectControlWs() {
     if (state.controlWs) {
-      state.controlWs.close();
+      try { state.controlWs.close(); } catch {}
       state.controlWs = null;
     }
+    _wsEverOpened = false;
     const ws = new WebSocket(wsUrl(`/ws/control/${state.sessionId}`));
     state.controlWs = ws;
 
     ws.onopen = () => {
       state.connected = true;
+      _wsFailCount = 0;
+      _wsEverOpened = true;
       startHeartbeat();
     };
 
@@ -438,11 +447,17 @@
     ws.onclose = () => {
       state.connected = false;
       stopHeartbeat();
-      // Reconnect
       clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(() => {
-        if (state.sessionId) connectControlWs();
-      }, 1000);
+      if (_wsEverOpened) {
+        // Was connected, server likely restarted — get fresh session
+        _wsFailCount = 0;
+        reconnectTimer = setTimeout(initSession, 2000);
+      } else {
+        // Never opened — server not ready yet, back off
+        _wsFailCount++;
+        const delay = Math.min(2000 * _wsFailCount, 10000);
+        reconnectTimer = setTimeout(initSession, delay);
+      }
     };
 
     ws.onerror = () => {};
@@ -459,6 +474,7 @@
     switch (msg.type) {
       case 'connected':
         state.serverVersion = msg.version || '';
+        if (msg.connections) state.connections = msg.connections;
         requestTargets();
         requestTerminalList();
         sendControl({ type: 'tunnel_status' });
@@ -520,7 +536,10 @@
         break;
       case 'terminal_list':
         state.terminals = msg.terminals || [];
-        /* tmux debug logging removed */
+        if (msg.connections) state.connections = msg.connections;
+        break;
+      case 'connections_update':
+        if (msg.connections) state.connections = msg.connections;
         break;
       case 'terminal_closed':
         state.terminals = state.terminals.filter(t => t.terminal_id !== msg.terminal_id);
@@ -541,6 +560,9 @@
       case 'tokens_revoked':
         // Handled by extension/plugin that requested them
         break;
+      case 'pong':
+        if (msg.connections) state.connections = msg.connections;
+        break;
       case 'heartbeat_ack':
         break;
     }
@@ -549,8 +571,8 @@
   function startHeartbeat() {
     stopHeartbeat();
     heartbeatTimer = setInterval(() => {
-      sendControl({ type: 'heartbeat' });
-    }, 15000);
+      sendControl({ type: 'ping' });
+    }, 3000);
   }
 
   function stopHeartbeat() {
@@ -1529,6 +1551,14 @@
         return state.observerCount + (state.observerCount === 1 ? ' viewer' : ' viewers');
       });
 
+      // Lemming icon color: gold=nobody, blue=LAN only, red=external access
+      const lemmingColor = computed(() => {
+        const v = state.connections.viewers || [];
+        if (v.length === 0) return '#d4a017';
+        const hasExternal = v.some(c => !c.is_you && c.source !== 'lan');
+        return hasExternal ? '#ef5350' : '#42a5f5';
+      });
+
       // Navigator computations (use reactive state.vp* for Vue reactivity)
       const minimapViewportStyle = computed(() => {
         const srcW = state.srcNatW || 5120;
@@ -2145,7 +2175,7 @@
 
       // Expose doSwitchWindow so hort-app can call it on restore
       return {
-        state, groups, curWindow, viewerTitle, navCounterText, observerText,
+        state, groups, curWindow, viewerTitle, navCounterText, observerText, lemmingColor,
         minimapViewportStyle, onNavDragStart,
         viewerEl, streamContainer, streamImg, remoteCursor, clickRipple,
         minimapEl, minimapWrap, minimapImg, mobileKeyInput,
@@ -2194,10 +2224,12 @@
             <i class="ph ph-list"></i>
           </div>
 
-          <!-- Lemming icon -->
-          <svg viewBox="0 0 24 24" style="width:28px;height:28px;flex-shrink:0;opacity:0.5;margin-left:4px" fill="none" stroke="#d4a017" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <!-- Lemming icon — color reflects connection security -->
+          <svg viewBox="0 0 24 24" style="width:28px;height:28px;flex-shrink:0;margin-left:4px;transition:opacity 0.3s"
+               :style="{opacity: state.connections.total > 0 ? 0.9 : 0.5}"
+               fill="none" :stroke="lemmingColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 4c-2 0-3.5 1-4 2.5C7.5 8 7 9.5 7 11c0 2 .5 3.5 1 4.5l-.5 3c0 .5.3 1 .8 1.2l1.2.3c.3 0 .5-.2.5-.5v-2c.3.2.8.5 2 .5s1.7-.3 2-.5v2c0 .3.2.5.5.5l1.2-.3c.5-.2.8-.7.8-1.2l-.5-3c.5-1 1-2.5 1-4.5 0-1.5-.5-3-1-4.5C14.5 5 13 4 12 4z"/>
-            <circle cx="10" cy="9" r="1" fill="#d4a017"/>
+            <circle cx="10" cy="9" r="1" :fill="lemmingColor"/>
             <path d="M8 6.5C7 5.5 6 5 5 5M16 6.5C17 5.5 18 5 19 5"/>
           </svg>
 
@@ -2255,23 +2287,43 @@
             <span v-if="state.p2pTotalSessions > 1" style="font-size:11px;opacity:0.6">#{{ state.p2pSessionNum }}/{{ state.p2pTotalSessions }}</span>
           </div>
 
-          <!-- Connectors -->
-          <div v-if="state.isLocal && !state.nativeApp" style="display:flex;gap:4px">
-            <div class="header-btn" @click="state.connectorPanelOpen = 'lan'">
-              <span class="dot on" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-              <i class="ph ph-wifi-high"></i> <span class="hide-mobile">LAN</span>
+          <!-- Click-outside overlay for viewer dropdown -->
+          <div v-if="state.showViewerInfo" style="position:fixed;inset:0;z-index:99" @click="state.showViewerInfo = false"></div>
+          <!-- Viewer count — click shows breakdown -->
+          <div v-if="state.connections.total > 0" class="conn-viewers" @click.stop="state.showViewerInfo = !state.showViewerInfo">
+            <i class="ph ph-users"></i>
+            <span>{{ state.connections.total }}</span>
+            <!-- Individual connections dropdown -->
+            <div v-if="state.showViewerInfo" class="conn-viewer-dropdown" @click.stop>
+              <div v-for="v in (state.connections.viewers || [])" :key="v.sid"
+                   class="conn-viewer-row" :class="{ stale: v.stale }">
+                <span class="conn-dot" :class="v.stale ? 'off' : 'on'" style="width:6px;height:6px;flex-shrink:0"></span>
+                <i :class="v.source === 'lan' ? 'ph ph-wifi-high' : v.source === 'cloud' ? 'ph ph-cloud' : v.source === 'p2p' ? 'ph ph-arrows-left-right' : 'ph ph-broadcast'"></i>
+                <span>{{ v.source.toUpperCase() }}</span>
+                <span style="opacity:0.4;font-size:10px">{{ v.sid }}</span>
+                <span v-if="v.is_you" style="opacity:0.5;font-size:10px;margin-left:auto">(you)</span>
+              </div>
             </div>
-            <div class="header-btn" @click="state.connectorPanelOpen = 'cloud'">
-              <span class="dot" :class="state.connectors.cloud.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-              <i class="ph ph-cloud"></i> <span class="hide-mobile">Cloud</span>
+          </div>
+          <!-- Connector grid — LAN only (remote users can't modify connections) -->
+          <div v-if="state.isLocal && !state.nativeApp"
+               style="display:grid;grid-template-columns:1fr 1fr;gap:2px 4px;max-width:180px">
+            <div class="conn-chip" :class="{active: true}" @click="state.connectorPanelOpen = 'lan'">
+              <span class="conn-dot on"></span>
+              <i class="ph ph-wifi-high"></i> LAN
             </div>
-            <div v-if="state.connectors.messaging.telegram" class="header-btn" @click="state.connectorPanelOpen = 'telegram'">
-              <span class="dot" :class="state.connectors.messaging.telegram.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-              <i class="ph ph-telegram-logo"></i> <span class="hide-mobile">Telegram</span>
+            <div class="conn-chip" :class="{active: state.connectors.cloud.active}" @click="state.connectorPanelOpen = 'cloud'">
+              <span class="conn-dot" :class="state.connectors.cloud.active ? 'on' : state.connectors.cloud.connecting ? 'connecting' : ''"></span>
+              <i class="ph ph-cloud"></i> Cloud
             </div>
-            <div class="header-btn" @click="state.connectorPanelOpen = 'p2p'">
-              <span class="dot on" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-              <i class="ph ph-arrows-left-right"></i> <span class="hide-mobile">P2P</span>
+            <div v-if="state.connectors.messaging.telegram" class="conn-chip"
+                 :class="{active: state.connectors.messaging.telegram.active}" @click="state.connectorPanelOpen = 'telegram'">
+              <span class="conn-dot" :class="state.connectors.messaging.telegram.active ? 'on' : state.connectors.messaging.telegram.error ? 'error' : ''"></span>
+              <i class="ph ph-telegram-logo"></i> TG
+            </div>
+            <div class="conn-chip" :class="{active: true}" @click="state.connectorPanelOpen = 'p2p'">
+              <span class="conn-dot on"></span>
+              <i class="ph ph-arrows-left-right"></i> P2P
             </div>
           </div>
         </div>
@@ -2461,22 +2513,6 @@
                 <div class="grid-card-info">
                   <div class="card-app" style="color:var(--el-accent)">{{ item.app }}</div>
                   <div class="card-name">Spirit</div>
-                </div>
-              </div>
-              <!-- Hosted app card -->
-              <div v-else-if="item.type === 'hosted-app'" class="grid-card"
-                   :style="{borderColor: isFavorite(item.key) ? 'var(--el-accent)' : ''}"
-                   @click="touch(item.key); openHostedApp(item.url)">
-                <div style="position:relative">
-                  <div class="card-thumb-icon"><i :class="item.icon" style="font-size:44px;color:#3b82f6"></i></div>
-                  <i class="ph fav-star" :class="[isFavorite(item.key) ? 'ph-fill ph-star is-fav' : 'ph-star']"
-                     style="position:absolute;top:6px;right:6px;font-size:16px;cursor:pointer;z-index:1"
-                     :style="{color: isFavorite(item.key) ? '#fbbf24' : 'var(--el-text-dim)'}"
-                     @click.stop="toggleFavorite(item.key)"></i>
-                </div>
-                <div class="grid-card-info">
-                  <div class="card-app" style="color:#3b82f6">{{ item.app }}</div>
-                  <div class="card-name">{{ item.name }}</div>
                 </div>
               </div>
               <!-- Terminal card (PTY + tmux unified) -->
@@ -2973,10 +3009,6 @@
         }
       }
 
-      function openHostedApp(url) {
-        window.open(url, '_blank');
-      }
-
       async function generatePairingLink() {
         try {
           const resp = await fetch(apiUrl('/api/p2p/pair'), { method: 'POST' });
@@ -3338,20 +3370,6 @@
           });
         }
 
-        // Hosted apps — each running instance gets a card
-        if (state._hostedApps) {
-          for (const inst of state._hostedApps) {
-            if (inst.status === 'running') {
-              items.push({
-                type: 'hosted-app', key: 'app:' + inst.name, id: inst.name,
-                icon: inst.icon || 'ph ph-package',
-                app: inst.label || inst.name, name: inst.type || 'App',
-                url: _basePath + '/app/' + inst.name + '/~/',
-              });
-            }
-          }
-        }
-
         // Terminals (PTY + tmux unified)
         for (const t of terminalsForTarget(target)) {
           const isTmux = !!(t.tmux);
@@ -3523,7 +3541,7 @@
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
         onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal, openTmuxTerminal, closeTmuxSession, confirmCloseTerminal,
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
-        onCloudSave, generateP2pLink, generatePairingLink, loadDevices, revokeDevice, copyToClipboard, openHostedApp,
+        onCloudSave, generateP2pLink, generatePairingLink, loadDevices, revokeDevice, copyToClipboard,
         viewTab, spiritsList, spiritCount, allPlugins,
         configScreen, generalConfig, toggleGeneral,
         selectedSpirit, selectedPlugin, toggleSpiritFeature,
@@ -4140,11 +4158,6 @@
 
         // Push initial nav state to native shell
         pushNavState();
-
-        // Fetch hosted apps
-        fetch(apiUrl('/api/hosted-apps/instances')).then(r => r.json()).then(d => {
-          state._hostedApps = d.instances || [];
-        }).catch(() => {});
 
         // Start picker refresh
         startPickerRefresh();

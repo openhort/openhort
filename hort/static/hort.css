@@ -76,6 +76,48 @@ body {
 }
 .dot.on { background: var(--el-success); box-shadow: 0 0 6px var(--el-success); }
 .dot.off { background: var(--el-text-dim); }
+/* Connector chips — compact 2x2 grid */
+.conn-chip {
+    display: flex; align-items: center; gap: 3px;
+    padding: 2px 6px; border-radius: 4px;
+    font-size: 11px; color: var(--el-text-dim);
+    cursor: pointer; white-space: nowrap;
+    transition: color 0.15s, background 0.15s;
+}
+.conn-chip:hover { background: rgba(255,255,255,0.06); }
+.conn-chip.active { color: var(--el-text); }
+.conn-chip i { font-size: 13px; }
+.conn-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    background: var(--el-text-dim);
+}
+.conn-dot.on { background: var(--el-success); box-shadow: 0 0 4px var(--el-success); }
+.conn-dot.connecting { background: #f59e0b; box-shadow: 0 0 4px #f59e0b; animation: conn-pulse 1.5s infinite; }
+.conn-dot.error { background: #ef4444; box-shadow: 0 0 4px #ef4444; }
+@keyframes conn-pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+/* Viewer count + dropdown */
+.conn-viewers {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 6px;
+    font-size: 12px; color: var(--el-text);
+    cursor: pointer; position: relative;
+    background: rgba(255,255,255,0.05);
+    transition: background 0.15s;
+}
+.conn-viewers:hover { background: rgba(255,255,255,0.1); }
+.conn-viewers i { font-size: 14px; }
+.conn-viewer-dropdown {
+    position: absolute; top: 100%; right: 0; margin-top: 6px;
+    background: var(--el-surface); border: 1px solid var(--el-border);
+    border-radius: 8px; padding: 8px 0; min-width: 180px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 100;
+}
+.conn-viewer-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; font-size: 12px; color: var(--el-text);
+}
+.conn-viewer-row i { font-size: 14px; opacity: 0.6; }
+.conn-viewer-row.stale { opacity: 0.4; color: #ef5350; }
 /* Connector panel overlay */
 .connector-panel-overlay {
     position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.6);

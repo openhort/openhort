@@ -1,0 +1,2038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>OpenHORT Widget Mockup</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0e1a;--surface:#111827;--s2:#1a2332;--border:#1e3a5f;
+  --primary:#3b82f6;--accent:#60a5fa;--text:#f0f4ff;--dim:#94a3b8;
+  --danger:#ef4444;--success:#22c55e;--purple:#a78bfa;
+  --cols:2;--row-h:180px;--gap:10px;--pad:10px;--max-w:1200px;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);-webkit-user-select:none;user-select:none}
+#app{height:100%;display:flex;flex-direction:column}
+/* Row height adjustments only — cols computed dynamically in JS */
+@media(min-width:640px){:root{--row-h:190px;--gap:14px;--pad:16px}}
+@media(min-width:1024px){:root{--row-h:190px;--gap:14px;--pad:20px}}
+
+.navbar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;min-height:48px;z-index:10}
+.nav-btn{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;color:var(--dim);background:none;border:none;font-size:18px}
+.nav-btn:hover{background:rgba(255,255,255,.08);color:var(--text)}
+.nav-logo{font-size:17px;font-weight:700;font-style:italic;color:#e8b930;letter-spacing:.5px}
+.nav-name{font-size:13px;color:var(--dim);font-weight:500;cursor:pointer;margin-left:4px}
+.nav-name:hover{color:var(--text)}
+
+.viewport{flex:1;overflow:hidden;position:relative;transition:background-color 0.4s ease}
+/* Plasma background — 3 independent blobs with different speeds, tinted by desktop */
+.viewport::before,.viewport::after{content:'';position:absolute;inset:-30%;z-index:0;pointer-events:none;border-radius:50%;filter:blur(60px)}
+.viewport::before{
+  background:radial-gradient(ellipse at center, var(--plasma1, rgba(50,110,180,.3)) 0%, transparent 70%);
+  width:70%;height:70%;top:-10%;left:-5%;
+  animation:plasma1 12s ease-in-out infinite alternate;
+}
+.viewport::after{
+  background:radial-gradient(ellipse at center, var(--plasma2, rgba(40,90,150,.25)) 0%, transparent 70%);
+  width:60%;height:60%;bottom:-10%;right:-5%;
+  animation:plasma2 16s ease-in-out infinite alternate;
+}
+.plasma-blob{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.plasma-blob::before{content:'';position:absolute;width:50%;height:50%;top:20%;left:30%;border-radius:50%;filter:blur(50px);
+  background:radial-gradient(ellipse at center, var(--plasma3, rgba(60,100,160,.2)) 0%, transparent 70%);
+  animation:plasma3 20s ease-in-out infinite alternate;
+}
+@keyframes plasma1{
+  0%{transform:translate(0,0) scale(1)}
+  33%{transform:translate(8%,5%) scale(1.1)}
+  66%{transform:translate(-5%,10%) scale(0.9)}
+  100%{transform:translate(5%,-5%) scale(1.05)}
+}
+@keyframes plasma2{
+  0%{transform:translate(0,0) scale(1)}
+  33%{transform:translate(-6%,-8%) scale(0.95)}
+  66%{transform:translate(8%,-3%) scale(1.08)}
+  100%{transform:translate(-3%,6%) scale(0.97)}
+}
+@keyframes plasma3{
+  0%{transform:translate(0,0) scale(1) rotate(0deg)}
+  33%{transform:translate(10%,-8%) scale(1.15) rotate(5deg)}
+  66%{transform:translate(-8%,6%) scale(0.85) rotate(-3deg)}
+  100%{transform:translate(5%,8%) scale(1.1) rotate(2deg)}
+}
+.track{display:flex;height:100%;will-change:transform;position:relative;z-index:1}
+.page{flex-shrink:0;height:100%;overflow-y:auto;overflow-x:clip;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior-y:none;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.15) transparent}
+.page::-webkit-scrollbar{width:4px}
+.page::-webkit-scrollbar-track{background:transparent}
+.page::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:2px}
+
+/* Pull-down indicator */
+.pull-indicator{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;padding-bottom:8px;overflow:hidden;flex-shrink:0}
+.pull-arrow{width:32px;height:32px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--dim);transition:all .2s}
+.pull-arrow.ready{background:var(--primary);border-color:var(--primary);color:#fff}
+
+/* Fullscreen device view */
+.device-fullscreen{position:fixed;inset:0;z-index:60;background:var(--bg);display:flex;flex-direction:column;animation:devSlideIn .25s ease-out}
+@keyframes devSlideIn{from{transform:translateY(-30px);opacity:0}to{transform:translateY(0);opacity:1}}
+.device-fs-head{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border)}
+.device-fs-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(var(--cols),1fr);grid-auto-rows:var(--row-h);gap:var(--gap);padding:var(--pad);max-width:var(--max-w);margin:0 auto;width:100%;align-content:start}
+.device-fs-card{background:var(--surface);border-radius:14px;border:2px solid var(--border);cursor:pointer;transition:all .15s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:16px}
+.device-fs-card:hover{border-color:var(--accent);box-shadow:0 0 16px rgba(59,130,246,.15)}
+.device-fs-card.active{border-color:var(--primary);box-shadow:0 0 20px rgba(59,130,246,.2)}
+.device-fs-icon{width:56px;height:56px;border-radius:14px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--dim)}
+.device-fs-card.active .device-fs-icon{color:var(--primary);background:rgba(59,130,246,.1)}
+.device-fs-name{font-size:14px;font-weight:600}
+.device-fs-status{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px}
+.device-fs-status.connected{color:var(--success)}
+.device-fs-card.offline{opacity:.45;cursor:default}
+.device-fs-card.offline:hover{border-color:var(--border);box-shadow:none}
+.grid{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,var(--cell-max,320px)));grid-auto-rows:var(--row-h);gap:var(--gap);padding:var(--pad);padding-bottom:60px;justify-content:center;align-content:start;min-height:100%}
+
+.w-1x1{grid-column:span 1;grid-row:span 1}.w-2x1{grid-column:span 2;grid-row:span 1}.w-1x2{grid-column:span 1;grid-row:span 2}.w-2x2{grid-column:span 2;grid-row:span 2}
+
+.widget{background:var(--surface);border-radius:14px;border:1px solid #243d5c;overflow:hidden;cursor:pointer;transition:box-shadow .3s,transform .1s;display:flex;flex-direction:column;position:relative;animation:widget-pulse 6s ease-in-out infinite}
+@keyframes widget-pulse{0%,100%{box-shadow:var(--rest-glow,0 0 0 transparent)}50%{box-shadow:var(--rest-glow,0 0 6px rgba(47,85,128,.15))}}
+.widget:hover{animation:none;box-shadow:0 0 25px color-mix(in srgb, var(--hover-glow,#3b82f6) 55%, transparent),0 0 50px color-mix(in srgb, var(--hover-glow,#3b82f6) 25%, transparent);border-color:var(--hover-glow,#3a6a9a)}
+
+/* Page positioning */
+.page{position:relative;transition:background 0.3s ease}
+.hort-field{position:absolute;top:0;left:0;width:100%;z-index:0;pointer-events:none;image-rendering:auto}
+.page .grid{position:relative;z-index:1}
+
+/* Hort connection dots — in title bar */
+.hort-dots{display:flex;gap:3px}
+.hort-dot{width:8px;height:8px;border-radius:50%;border:1.5px solid rgba(0,0,0,.3)}
+
+/* Hort section — wraps a group of widgets */
+/* Hort section — border lives in the gap space, widgets keep their size */
+.hort-section{grid-column:1/-1;border:1.5px solid;border-radius:16px;padding:6px;display:grid;grid-template-columns:repeat(var(--cols),1fr);grid-auto-rows:var(--row-h);gap:var(--gap);position:relative;overflow:visible}
+/* Shrink to content width + match internal columns */
+.hort-section.cols-1{grid-column:span 1;grid-template-columns:1fr}
+.hort-section.cols-2{grid-column:span 2;grid-template-columns:repeat(2,1fr)}
+.hort-section.cols-3{grid-column:span 3;grid-template-columns:repeat(3,1fr)}
+.hort-label{position:absolute;top:-9px;left:16px;padding:0 8px;font-size:10px;font-weight:600;display:flex;align-items:center;gap:4px;background:var(--bg);z-index:2}
+.hort-label i{font-size:12px}
+/* Round + button in bottom-right corner of hort border */
+.hort-add-corner{position:absolute;bottom:-11px;right:-11px;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;background:var(--bg);border:1.5px solid;z-index:2;font-size:12px;opacity:.5;transition:opacity .15s}
+.hort-add-corner:hover{opacity:1}
+/* Empty hort — card-like placeholder */
+.hort-empty{grid-column:1/-1;border:1.5px dashed;border-radius:16px;padding:24px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;opacity:.35;transition:opacity .15s;min-height:80px}
+.hort-empty:hover{opacity:.6}
+.hort-empty i{font-size:18px}
+
+.widget:active{transform:scale(.97)}
+.widget-thumb{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg);position:relative;padding:12px;flex-direction:column;gap:4px}
+.widget-label{padding:7px 10px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
+.widget-label i{font-size:15px;color:var(--primary)}
+.widget-badge{position:absolute;top:6px;right:6px;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700}
+.badge-live{background:rgba(34,197,94,.2);color:var(--success)}
+
+.widget .del-badge{display:none;position:absolute;top:-2px;left:-2px;width:22px;height:22px;border-radius:50%;background:var(--danger);color:#fff;font-size:12px;align-items:center;justify-content:center;z-index:5;cursor:pointer;border:2px solid var(--bg)}
+.edit-mode .widget .del-badge{display:flex}
+.edit-mode .widget{animation:wiggle .25s ease-in-out infinite alternate;cursor:grab}
+.edit-mode .widget:active{cursor:grabbing}
+@keyframes wiggle{from{transform:rotate(-.4deg)}to{transform:rotate(.4deg)}}
+.widget.drag-over{border-color:var(--accent)!important;box-shadow:0 0 20px rgba(59,130,246,.3)!important}
+.widget[draggable=true]{-webkit-user-drag:element}
+
+/* Resize edge handles — edit mode only */
+.resize-edge{position:absolute;z-index:5;opacity:0;transition:opacity .15s;touch-action:none}
+.edit-mode .widget .resize-edge{opacity:1}
+/* Grid cell hints — shown in edit mode */
+.grid-cell-hint{border:1px dashed rgba(59,130,246,.12);border-radius:10px;pointer-events:none;z-index:0}
+/* Drag ghost — grid-placed to align perfectly with widgets */
+.drag-ghost{border:2px dashed var(--primary);border-radius:14px;background:rgba(59,130,246,.06);z-index:2;pointer-events:none;transition:all .1s}
+.widget.dragging{opacity:.4}
+.resize-edge-r{right:-3px;top:10%;height:80%;width:14px;cursor:ew-resize;display:flex;align-items:center;justify-content:center}
+.resize-edge-b{bottom:-3px;left:10%;width:80%;height:14px;cursor:ns-resize;display:flex;align-items:center;justify-content:center}
+.resize-edge-r::after{content:'';width:3px;height:24px;border-radius:2px;background:var(--primary);opacity:.6;transition:all .15s}
+.resize-edge-b::after{content:'';height:3px;width:24px;border-radius:2px;background:var(--primary);opacity:.6;transition:all .15s}
+.resize-edge:hover::after{opacity:1}
+
+/* Selected state */
+.widget.selected{border-color:var(--primary)!important}
+
+/* Size label — edit mode only */
+.widget .size-label{display:none}
+.edit-mode .widget .size-label{display:flex;position:absolute;bottom:4px;right:4px;padding:2px 7px;background:rgba(0,0,0,.6);border-radius:6px;font-size:9px;color:var(--dim);z-index:4;pointer-events:none}
+
+.term-output{font-family:'SF Mono','Fira Code',monospace;font-size:10px;color:#c8d0dc;padding:8px;line-height:1.4;white-space:pre-wrap;word-break:break-all;flex:1;overflow:hidden;background:rgba(0,0,0,.3);border-radius:6px;text-align:left;width:100%}
+.term-state{display:flex;align-items:center;gap:6px;padding:4px 8px;font-size:10px;font-weight:600}
+.pdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.pdot.thinking{background:var(--purple);animation:pulse 1s infinite}
+.pdot.idle{background:var(--dim)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+.chat-body{flex:1;display:flex;flex-direction:column;justify-content:flex-end;padding:8px;gap:4px;overflow:hidden}
+.bub{max-width:85%;padding:7px 11px;border-radius:14px;font-size:11px;line-height:1.4}
+.bub.u{background:var(--primary);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+.bub.a{background:var(--s2);color:var(--text);align-self:flex-start;border-bottom-left-radius:4px}
+.chat-inp{display:flex;gap:6px;padding:6px;background:var(--bg);border-radius:10px;margin-top:4px}
+.chat-inp input{flex:1;background:none;border:none;color:var(--text);font-size:12px;outline:none}
+.chat-inp button{width:28px;height:28px;border-radius:50%;background:var(--primary);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center}
+
+
+/* Drawer */
+.dov{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;display:flex;opacity:0;pointer-events:none;transition:opacity .2s}
+.dov.open{opacity:1;pointer-events:all}
+.dw{width:300px;max-width:85vw;background:var(--surface);height:100%;overflow-y:auto;border-right:1px solid var(--border);transform:translateX(-100%);transition:transform .25s cubic-bezier(.25,.1,.25,1)}
+.dov.open .dw{transform:translateX(0)}
+.dw-head{padding:16px;border-bottom:1px solid var(--border)}
+.dw-head h3{font-size:16px;color:#d4a017;margin-bottom:2px}
+.dw-head small{font-size:11px;color:var(--dim)}
+.dw-search{margin:12px;position:relative}
+.dw-search input{width:100%;padding:8px 12px 8px 34px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:13px;outline:none}
+.dw-search input:focus{border-color:var(--primary)}
+.dw-search .ph{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--dim)}
+.dsec{padding:4px 0;border-bottom:1px solid var(--border)}
+.dsec-t{padding:8px 16px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--dim)}
+.di{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;font-size:13px;color:var(--text);transition:background .1s}
+.di:hover{background:var(--s2)}
+.di i{font-size:18px;color:var(--dim);width:24px;text-align:center}
+.di.act{color:var(--primary)}.di.act i{color:var(--primary)}
+.di .st{width:8px;height:8px;border-radius:50%;margin-left:auto;flex-shrink:0}
+.di .st.on{background:var(--success);box-shadow:0 0 6px var(--success)}
+.di .st.off{background:var(--dim);opacity:.3}
+.di .tgl{margin-left:auto;width:36px;height:20px;border-radius:10px;background:var(--border);position:relative;cursor:pointer;transition:background .2s}
+.di .tgl.on{background:var(--primary)}
+.di .tgl::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s}
+.di .tgl.on::after{transform:translateX(16px)}
+
+/* Widget picker (replaces context menu) */
+.picker-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:640px){.picker-overlay{align-items:center}}
+.picker{background:var(--surface);border:1px solid var(--border);border-radius:20px 20px 0 0;width:100%;max-width:480px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+@media(min-width:640px){.picker{border-radius:20px;max-height:70vh}}
+.picker-head{display:flex;align-items:center;padding:16px;border-bottom:1px solid var(--border);gap:10px}
+.picker-head h3{flex:1;font-size:15px;margin:0}
+.picker-head button{background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer}
+.picker-search{margin:10px 16px;position:relative}
+.picker-search input{width:100%;padding:8px 12px 8px 34px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:13px;outline:none}
+.picker-search input:focus{border-color:var(--primary)}
+.picker-search i{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--dim)}
+.picker-body{flex:1;overflow-y:auto;padding:0 12px 16px}
+.picker-cat{padding:10px 4px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--dim)}
+.picker-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;transition:background .1s}
+.picker-item:hover{background:var(--s2)}
+.picker-item i{font-size:20px;color:var(--primary);width:28px;text-align:center}
+.picker-item .pi-info{flex:1;min-width:0}
+.picker-item .pi-name{font-size:13px;font-weight:500}
+.picker-item .pi-desc{font-size:10px;color:var(--dim)}
+.picker-item .pi-arrow{color:var(--dim);font-size:14px}
+.picker-item .pi-size{font-size:10px;color:var(--dim);background:var(--bg);padding:2px 8px;border-radius:6px}
+
+/* Resize context menu (small) */
+.ctx{position:fixed;z-index:250;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:6px 0;min-width:180px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+.ctx-i{display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:13px;cursor:pointer;color:var(--text);transition:background .1s}
+.ctx-i:hover{background:var(--s2)}
+.ctx-i i{font-size:16px;color:var(--dim)}
+.ctx-i.dng{color:var(--danger)}.ctx-i.dng i{color:var(--danger)}
+.ctx-i.act{color:var(--primary);font-weight:600}
+.ctx-sep{height:1px;background:var(--border);margin:4px 0}
+.ctx-hd{padding:6px 16px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--dim)}
+
+/* Bottom bar */
+.bottom-bar{display:flex;align-items:center;justify-content:center;position:fixed;bottom:0;left:0;right:0;z-index:8;-webkit-tap-highlight-color:transparent;padding-top:50px;pointer-events:none;background:linear-gradient(to top,var(--bg) 20%,rgba(10,14,26,.7) 50%,rgba(10,14,26,.3) 75%,transparent)}
+.bottom-bar>*{pointer-events:auto}
+.dot-track{display:flex;justify-content:center;align-items:center;gap:12px;padding:10px 20px;margin:0 auto 8px;touch-action:pan-x;position:relative;cursor:pointer;background:rgba(255,255,255,.06);border-radius:20px;border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border);cursor:pointer;transition:all .2s;position:relative}
+.dot::before{content:'';position:absolute;inset:-12px;border-radius:50%} /* 44px tap target */
+.dot.active{background:var(--primary);transform:scale(1.3)}
+.dot.home{border-radius:3px}
+
+/* Long-press circle feedback */
+.lp-circle{position:absolute;width:60px;height:60px;border-radius:50%;border:2px solid var(--accent);transform:translate(-50%,-50%);pointer-events:none;animation:lp-fill .35s ease-out forwards;z-index:3}
+@keyframes lp-fill{
+  0%{width:20px;height:20px;opacity:.3;background:transparent;border-width:2px}
+  60%{width:50px;height:50px;opacity:.6;background:rgba(59,130,246,.08);border-width:2px}
+  100%{width:56px;height:56px;opacity:.8;background:rgba(59,130,246,.15);border-width:3px;border-color:var(--primary)}
+}
+
+/* Edit mode: blue gradient on left, red on trash corner */
+.bottom-bar.edit-active{background:linear-gradient(to top,rgba(59,130,246,.12),transparent)}
+.desk-drop-zone{position:absolute;inset:0;right:20%;z-index:1}
+.trash-corner{position:absolute;right:0;top:0;bottom:0;width:20%;display:flex;align-items:center;justify-content:center;background:linear-gradient(to top,rgba(239,68,68,.25),transparent);color:var(--danger);font-size:18px;z-index:2;transition:background .15s;border-left:1px solid rgba(239,68,68,.2)}
+.trash-corner:hover{background:linear-gradient(to top,rgba(239,68,68,.4),transparent)}
+
+/* Desktop overview */
+.overview-overlay{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.8);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(6px)}
+.overview-strip{display:flex;gap:20px;overflow-x:auto;overflow-y:visible;padding:16px;max-width:100%;align-items:flex-start;scrollbar-width:none}
+.overview-strip::-webkit-scrollbar{display:none}
+.overview-card{flex-shrink:0;cursor:pointer;transition:all .2s}
+.overview-card-inner{background:var(--surface);border:2px solid var(--border);border-radius:12px;overflow:hidden;transition:all .2s}
+.overview-card:hover .overview-card-inner{border-color:var(--accent);box-shadow:0 0 20px rgba(59,130,246,.2);transform:scale(1.03)}
+.overview-card.active .overview-card-inner{border-color:var(--primary);box-shadow:0 0 16px rgba(59,130,246,.3)}
+.overview-card-label{text-align:center;padding:8px 0;font-size:12px;color:var(--dim);display:flex;align-items:center;justify-content:center;gap:4px}
+.overview-card.active .overview-card-label{color:var(--primary);font-weight:600}
+.overview-card.new-desk .overview-card-inner{border-style:dashed;background:transparent;display:flex;align-items:center;justify-content:center}
+.overview-card.new-desk:hover .overview-card-inner{border-color:var(--success)}
+
+/* Real shrunken content — rendered at viewport size, scaled to fit card */
+.overview-real{transform-origin:top left;overflow:hidden;pointer-events:none}
+.overview-real .grid{--gap:8px;--pad:8px;--row-h:180px}
+.overview-real .widget{animation:none!important;border-width:1px}
+.overview-real .resize-edge,.overview-real .del-badge,.overview-real .size-label{display:none!important}
+
+/* Green drop highlight — always droppable (desktops scroll vertically) */
+.overview-card.drop-ok .overview-card-inner{border-color:var(--success)!important;box-shadow:0 0 24px rgba(34,197,94,.35)!important}
+.overview-card.new-desk.drop-ok .overview-card-inner{border-color:var(--success)!important}
+
+/* Compact connector row in drawer */
+.conn-row{display:flex;gap:8px;padding:8px 16px}
+.conn-pill{display:flex;align-items:center;gap:4px;padding:6px 10px;background:var(--bg);border-radius:8px;font-size:14px;color:var(--dim);cursor:pointer;transition:all .15s}
+.conn-pill:hover{color:var(--text);background:var(--s2)}
+/* Compact link row */
+.link-row{display:flex;gap:4px;padding:8px 12px}
+.link-item{display:flex;align-items:center;gap:4px;padding:6px 10px;font-size:11px;color:var(--dim);cursor:pointer;border-radius:6px;transition:all .15s}
+.link-item:hover{color:var(--text);background:var(--s2)}
+.link-item i{font-size:14px}
+
+
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;min-width:280px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.modal input{width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;margin:10px 0}
+.modal input:focus{border-color:var(--primary)}
+.modal .btns{display:flex;gap:8px;justify-content:flex-end}
+.modal .btn-p{padding:8px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;background:var(--primary);color:#fff}
+.modal .btn-g{padding:8px 16px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:13px;background:none;color:var(--dim)}
+
+.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 20px;font-size:13px;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,.5);pointer-events:none}
+.sparkline{width:100%;height:28px}
+
+/* Navbar add button */
+.nav-add{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--dim);border:1px dashed var(--border);transition:all .15s}
+.nav-add:hover{border-color:var(--primary);color:var(--primary);border-style:solid}
+.add-popover{z-index:45;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:6px 0;min-width:190px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.add-pop-item{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:13px;cursor:pointer;transition:background .1s}
+.add-pop-item:hover{background:var(--s2)}
+.add-pop-item i{font-size:18px;color:var(--dim);width:22px;text-align:center}
+.add-pop-sep{height:1px;background:var(--border);margin:4px 0}
+
+/* Ghost card at end of grid */
+.ghost-card{position:fixed;bottom:60px;right:20px;width:40px;height:40px;border:1.5px dashed var(--border);border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.2;transition:all .15s;z-index:4}
+.ghost-card:hover{opacity:.5;border-color:var(--primary);transform:scale(1.1)}
+.ghost-card i{font-size:18px;color:var(--dim)}
+.edit-mode~.ghost-card,.edit-mode .ghost-card{display:none}
+
+/* Window checkboxes */
+.wcheck{width:20px;height:20px;border-radius:6px;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
+.wcheck.on{background:var(--primary);border-color:var(--primary);color:#fff}
+
+/* Lens add button */
+.lens-add-btn{display:flex;align-items:center;gap:6px;width:100%;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;justify-content:center;transition:background .15s}
+.lens-add-btn:hover{background:#2563eb}
+
+/* Filter tags */
+.filter-tag{display:flex;align-items:center;gap:4px;padding:4px 10px;background:var(--primary);color:#fff;border-radius:8px;font-size:12px;font-weight:500}
+.filter-tag-x{cursor:pointer;opacity:.7;font-size:14px;margin-left:2px}
+.filter-tag-x:hover{opacity:1}
+
+/* Size option pills */
+.size-opt{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:var(--bg);border:1px solid var(--border);color:var(--dim);transition:all .15s}
+.size-opt:hover{border-color:var(--primary);color:var(--text)}
+.size-opt.active{background:var(--primary);border-color:var(--primary);color:#fff}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="toast" v-if="toast">{{ toast }}</div>
+
+  <!-- Navbar -->
+  <div class="navbar">
+    <button class="nav-btn" @click="drawer=true"><i class="ph ph-list"></i></button>
+    <span class="nav-logo">OpenHORT</span>
+    <span class="nav-name" @click="editDesktopName">{{ activeDesktop?.name }}</span>
+    <div style="flex:1"></div>
+    <svg viewBox="0 0 24 24" style="width:22px;height:22px;opacity:.8" fill="none" :stroke="lemmingColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 4c-2 0-3.5 1-4 2.5C7.5 8 7 9.5 7 11c0 2 .5 3.5 1 4.5l-.5 3c0 .5.3 1 .8 1.2l1.2.3c.3 0 .5-.2.5-.5v-2c.3.2.8.5 2 .5s1.7-.3 2-.5v2c0 .3.2.5.5.5l1.2-.3c.5-.2.8-.7.8-1.2l-.5-3c.5-1 1-2.5 1-4.5 0-1.5-.5-3-1-4.5C14.5 5 13 4 12 4z"/>
+      <circle cx="10" cy="9" r="1" :fill="lemmingColor"/>
+    </svg>
+    <!-- Add button -->
+    <div class="nav-add" @click.stop="fabOpen=!fabOpen">
+      <i class="ph ph-plus" style="font-size:16px"></i>
+    </div>
+    <!-- Add popover -->
+    <template v-if="fabOpen">
+      <div style="position:fixed;inset:0;z-index:44" @click="fabOpen=false"></div>
+      <div class="add-popover" style="position:absolute;top:100%;right:40px;bottom:auto;margin-top:6px">
+        <div class="add-pop-item" @click="spawnClaude();fabOpen=false"><i class="ph ph-terminal-window" style="color:var(--purple)"></i><span>Spawn Claude</span></div>
+        <div class="add-pop-item" @click="spawnTerm();fabOpen=false"><i class="ph ph-terminal"></i><span>New Terminal</span></div>
+        <div class="add-pop-item" @click="fabOpen=false;openScreenPicker()"><i class="ph ph-app-window"></i><span>Add Screen</span></div>
+        <div class="add-pop-sep"></div>
+        <div class="add-pop-item" @click="fabOpen=false;openPicker()" style="color:var(--primary)"><i class="ph ph-squares-four" style="color:var(--primary)"></i><span>Widget Catalog</span></div>
+      </div>
+    </template>
+    <div style="display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:12px;background:rgba(255,255,255,.05)">
+      <i class="ph ph-users" style="font-size:14px"></i> {{ viewers }}
+    </div>
+  </div>
+
+
+  <!-- Fullscreen device view -->
+  <template v-if="deviceView">
+    <div class="device-fullscreen">
+      <div class="device-fs-head">
+        <button class="nav-btn" @click="deviceView=false"><i class="ph ph-arrow-left"></i></button>
+        <span style="font-size:16px;font-weight:600">Devices</span>
+        <div style="flex:1"></div>
+        <span style="font-size:12px;color:var(--dim)">{{ devices.length }} targets</span>
+      </div>
+      <div class="device-fs-grid">
+        <div v-for="(dev,dvi) in devices" :key="dev.id"
+             class="device-fs-card" :class="{active:dvi===activeDevice, offline:dev.status==='offline'}"
+             @click="dev.status!=='offline'&&(activeDevice=dvi,deviceView=false,showT('Switched to '+dev.name))">
+          <div class="device-fs-icon">
+            <i :class="dev.iconClass"></i>
+          </div>
+          <div class="device-fs-name">{{ dev.name }}</div>
+          <div class="device-fs-status" :class="{connected:dvi===activeDevice}">
+            <span class="st" :class="dev.status==='online'?'on':'off'"></span>
+            <template v-if="dvi===activeDevice">Connected</template>
+            <template v-else-if="dev.status==='offline'">Offline</template>
+            <template v-else>{{ dev.desktopCount }} desktop{{ dev.desktopCount>1?'s':'' }}</template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Viewport -->
+  <div v-show="!deviceView" class="viewport" ref="vpEl" @contextmenu.prevent="onGridCtx($event)" @wheel="mSwWheel($event)" :style="viewportStyle">
+    <div class="plasma-blob"></div>
+    <div class="track" :style="trackStyle" ref="trackEl">
+      <div class="page" v-for="(desk,di) in desktops" :key="desk.id" :style="{width:(100/desktops.length)+'%'}" ref="pageEls">
+        <canvas class="hort-field" :data-desk="desk.id"></canvas>
+        <div class="grid" :class="{'edit-mode':editMode}" @click.self="editMode?(editMode=false):selectedWidget=null"
+             @pointerdown.self="gridLpS($event)" @pointerup.self="gridLpE" @pointerleave.self="gridLpE"
+             @dragover.prevent="editMode&&onGridDragOver($event,desk)" @drop.prevent="editMode&&onGridDrop($event,desk)"
+             @dragleave="dragGhost=null"
+             style="position:relative">
+          <!-- Edit mode: show all grid cells as subtle dashed outlines -->
+          <template v-if="editMode">
+            <div v-for="cell in gridCells" :key="cell.k" class="grid-cell-hint" :style="{gridColumn:cell.c,gridRow:cell.r}"></div>
+          </template>
+          <!-- Drag ghost — uses CSS grid placement to align perfectly -->
+          <div v-if="dragGhost" class="drag-ghost" :style="dragGhost"></div>
+          <!-- All widgets with explicit or auto positioning -->
+          <template v-for="(w,wi) in getWidgets(desk)" :key="w.id">
+                <div class="widget" :class="['w-'+w.size,{selected:selectedWidget===w.id,dragging:dragW===w}]"
+                     :style="widgetGridStyle(w,desk)"
+                     :draggable="editMode" @dragstart="onDragStart($event,w,desk)" @dragover.prevent @drop="onDrop($event,w,desk)"
+                     @click="!editMode&&onWidgetClick(w)" @contextmenu.prevent.stop="onWCtx($event,w,desk)"
+                     @pointerdown="lpS($event,w)" @pointerup="lpE" @pointerleave="lpE">
+                  <div class="del-badge" @click.stop="rmW(w,desk)">&times;</div>
+                  <div class="resize-edge resize-edge-r" @pointerdown.stop="resizeStart($event,w,'w')"></div>
+                  <div class="resize-edge resize-edge-b" @pointerdown.stop="resizeStart($event,w,'h')"></div>
+                  <div class="size-label">{{ w.size.replace('x','\u00d7') }}</div>
+
+            <!-- Terminal -->
+            <template v-if="w.type==='terminal'">
+              <div class="term-output">{{ w.c.output }}</div>
+              <div class="term-state" v-if="w.c.state">
+                <span class="pdot" :class="w.c.state"></span>
+                <span :style="{color:w.c.state==='thinking'?'var(--purple)':'var(--dim)'}">{{ w.c.state.toUpperCase() }}</span>
+                <span v-if="w.c.idle" style="margin-left:auto;opacity:.5;font-size:9px">{{ w.c.idle }}s</span>
+              </div>
+            </template>
+
+            <!-- Extension -->
+            <template v-else-if="w.type==='extension'">
+              <div class="widget-thumb">
+                <template v-if="w.extId==='system-monitor'">
+                  <div style="text-align:left;width:100%">
+                    <div style="display:flex;align-items:baseline;gap:6px"><span style="font-size:26px;font-weight:700;color:var(--accent)">{{ Math.round(cpu) }}%</span><span style="font-size:10px;color:var(--dim)">CPU</span></div>
+                    <svg class="sparkline" viewBox="0 0 100 28" preserveAspectRatio="none"><polyline :points="spark" fill="none" stroke="var(--primary)" stroke-width="1.5"/></svg>
+                    <div style="display:flex;gap:10px;font-size:10px;color:var(--dim)"><span>RAM 68%</span><span>SSD 45%</span></div>
+                  </div>
+                </template>
+                <template v-else-if="w.extId==='network-monitor'">
+                  <div style="text-align:left;width:100%">
+                    <div style="font-size:10px;color:var(--dim);margin-bottom:4px">Network</div>
+                    <div style="font-size:20px;font-weight:700;color:var(--success)">&darr; 24 MB/s</div>
+                    <div style="font-size:13px;color:var(--dim)">&uarr; 3.2 MB/s</div>
+                  </div>
+                </template>
+                <template v-else-if="w.extId==='clipboard-history'">
+                  <div style="text-align:left;width:100%">
+                    <div style="font-size:10px;color:var(--dim)">Last copied</div>
+                    <div style="font-size:11px;color:var(--text);opacity:.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">const result = await fetch(...);</div>
+                    <div style="font-size:24px;font-weight:700;color:var(--accent);margin-top:8px">12</div>
+                    <div style="font-size:10px;color:var(--dim)">entries</div>
+                  </div>
+                </template>
+                <template v-else-if="w.extId==='llming-lens'">
+                  <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:6px;background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);border-radius:6px;padding:6px">
+                    <div v-for="wn in ['VS Code','Chrome','Terminal']" :key="wn" style="width:30%;height:85%;background:#111;border-radius:4px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--dim)">{{ wn }}</div>
+                  </div>
+                </template>
+                <template v-else-if="w.extId==='process-manager'">
+                  <div style="text-align:left;width:100%;font-size:10px;color:var(--dim)">
+                    <div style="display:flex;justify-content:space-between;padding:2px 0"><span>node</span><span>2.1%</span></div>
+                    <div style="display:flex;justify-content:space-between;padding:2px 0"><span>python</span><span>1.8%</span></div>
+                    <div style="display:flex;justify-content:space-between;padding:2px 0"><span>chrome</span><span>4.2%</span></div>
+                    <div style="font-size:18px;font-weight:700;color:var(--accent);margin-top:8px">142</div>
+                    <div>processes</div>
+                  </div>
+                </template>
+                <template v-else>
+                  <i :class="w.c.iconClass||'ph ph-puzzle-piece'" style="font-size:32px;color:var(--primary);opacity:.5"></i>
+                </template>
+              </div>
+              <span v-if="w.extId==='llming-lens'" class="widget-badge badge-live">LIVE</span>
+            </template>
+
+            <!-- Extension sub-widget (individual screen) -->
+            <template v-else-if="w.type==='extension-sub'">
+              <div class="widget-thumb" style="background:linear-gradient(135deg,#1a1a2e,#0f3460);padding:4px">
+                <div style="width:100%;height:100%;background:#111;border-radius:4px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--dim)">{{ w.c.screenName || w.subId }}</div>
+              </div>
+            </template>
+
+            <!-- Chat -->
+            <template v-else-if="w.type==='quick-chat'">
+              <div class="chat-body">
+                <div class="bub u">Turn on living room lights</div>
+                <div class="bub a">Done! Lights on at 80%.</div>
+              </div>
+              <div class="chat-inp"><input placeholder="Message..."><button><i class="ph ph-paper-plane-tilt" style="font-size:14px"></i></button></div>
+            </template>
+
+            <!-- Clock -->
+            <template v-else-if="w.type==='clock'">
+              <div class="widget-thumb" style="align-items:center">
+                <div style="font-size:36px;font-weight:200;color:var(--accent)">{{ timeStr }}</div>
+                <div style="font-size:11px;color:var(--dim)">Uptime: 3d 14h</div>
+              </div>
+            </template>
+
+            <div class="widget-label" v-if="w.type!=='quick-chat'">
+              <i :class="w.c.iconClass||'ph ph-gear'" :style="{color:w.c.iconColor||''}"></i>
+              {{ w.c.title }}
+              <div v-if="w.hortConnections&&w.hortConnections.length" class="hort-dots" style="position:static;margin-left:auto">
+                <template v-for="hc in w.hortConnections" :key="hc">
+                  <div class="hort-dot" :style="{background:getHortGroup(hc).color}" :title="getHortGroup(hc).name"></div>
+                </template>
+              </div>
+            </div>
+                </div><!-- /widget -->
+          </template>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating + button (not in grid, hidden in edit mode) -->
+  <div v-if="!editMode" class="ghost-card" @click="openPicker()"><i class="ph ph-plus"></i></div>
+
+  <!-- Bottom bar -->
+  <div class="bottom-bar" :class="{'edit-active':editMode}">
+    <div class="dot-track"
+         @pointerdown="dotLpS($event)" @pointerup="dotLpE" @pointerleave="dotLpE"
+         @click="dotTrackClick($event)">
+      <!-- Long-press circle feedback -->
+      <div v-if="lpCircle" class="lp-circle" :style="{left:lpCircle.x+'px',top:lpCircle.y+'px'}"></div>
+      <div v-for="(d,i) in desktops" :key="d.id" class="dot" :class="{active:i===deskIdx,home:d.isHome}" ref="dotEls"></div>
+    </div>
+    <!-- Trash corner in edit mode -->
+    <div v-if="editMode" class="trash-corner" @dragover.prevent @drop.prevent="dropToTrash($event)">
+      <i class="ph ph-trash"></i>
+    </div>
+    <!-- Desktop drop zone (rest of bar) in edit mode -->
+    <div v-if="editMode" class="desk-drop-zone" @dragover.prevent @dragenter="zoomedOut=true">
+    </div>
+  </div>
+
+  <!-- Desktop overview (zoomed out) -->
+  <div v-if="zoomedOut" class="overview-overlay" @click.self="zoomedOut=false">
+    <div class="overview-strip">
+      <div v-for="(d,i) in desktops" :key="d.id" class="overview-card" :class="{active:i===deskIdx,'drop-ok':overviewDrop===i}"
+           @dragover.prevent="overviewDrop=i" @dragenter.prevent="overviewDrop=i" @dragleave="overviewDrop==i&&(overviewDrop=-1)"
+           @drop.prevent="dropToDesktop($event,i);zoomedOut=false;overviewDrop=-1"
+           @click="deskIdx=i;zoomedOut=false">
+        <div class="overview-card-inner" :style="{width:ovCardW+'px',height:ovCardH+'px'}">
+          <div class="overview-real" :style="{width:ovContentW+'px',height:ovContentH+'px',transform:'scale('+ovScale+')'}">
+            <div class="grid" style="pointer-events:none;min-height:0;padding:8px;gap:8px">
+              <div v-for="w in getWidgets(d)" :key="w.id" class="widget" :class="'w-'+w.size" :style="[w.borderStyle||{},{animation:'none',cursor:'default'}]">
+                <template v-if="w.type==='terminal'">
+                  <div class="term-output" style="font-size:9px">{{ w.c.output }}</div>
+                  <div class="term-state" v-if="w.c.state"><span class="pdot" :class="w.c.state"></span><span style="font-size:9px">{{ w.c.state.toUpperCase() }}</span></div>
+                </template>
+                <template v-else-if="w.type==='extension'">
+                  <div class="widget-thumb" style="padding:8px">
+                    <template v-if="w.extId==='system-monitor'"><div style="text-align:left;width:100%"><span style="font-size:20px;font-weight:700;color:var(--accent)">{{ Math.round(cpu) }}%</span><div style="font-size:9px;color:var(--dim)">CPU</div></div></template>
+                    <template v-else-if="w.extId==='llming-lens'"><div style="width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e,#0f3460);border-radius:4px;display:flex;gap:4px;align-items:center;justify-content:center"><div v-for="n in ['VS','Ch','Te']" :key="n" style="width:28%;height:70%;background:#111;border-radius:3px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:7px;color:var(--dim)">{{n}}</div></div></template>
+                    <template v-else-if="w.extId==='network-monitor'"><div style="text-align:left;width:100%"><div style="font-size:14px;font-weight:700;color:var(--success)">&darr;24</div><div style="font-size:10px;color:var(--dim)">&uarr;3.2 MB/s</div></div></template>
+                    <template v-else-if="w.extId==='clipboard-history'"><div style="text-align:left;width:100%"><div style="font-size:20px;font-weight:700;color:var(--accent)">12</div><div style="font-size:9px;color:var(--dim)">entries</div></div></template>
+                    <template v-else><i :class="w.c.iconClass||'ph ph-puzzle-piece'" style="font-size:20px;opacity:.5;color:var(--primary)"></i></template>
+                  </div>
+                </template>
+                <template v-else-if="w.type==='quick-chat'">
+                  <div class="chat-body" style="padding:4px;gap:3px"><div class="bub u" style="font-size:8px;padding:4px 8px">Lights on?</div><div class="bub a" style="font-size:8px;padding:4px 8px">Done!</div></div>
+                  <div class="chat-inp" style="padding:3px;margin:3px"><input style="font-size:9px" disabled placeholder="Message..."></div>
+                </template>
+                <template v-else-if="w.type==='extension-sub'">
+                  <div class="widget-thumb" style="background:linear-gradient(135deg,#1a1a2e,#0f3460);font-size:9px;color:var(--dim)">{{ w.c.title }}</div>
+                </template>
+                <template v-else>
+                  <div class="widget-thumb"><i :class="w.c.iconClass||'ph ph-gear'" style="font-size:18px;opacity:.4"></i></div>
+                </template>
+                <div class="widget-label" style="padding:4px 6px;font-size:9px"><i :class="w.c.iconClass||'ph ph-gear'" style="font-size:10px"></i>{{ w.c.title }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="overview-card-label">
+          <i :class="d.isHome?'ph ph-house':'ph ph-layout'" style="font-size:12px"></i>
+          {{ d.name }}
+          <span style="font-size:10px;opacity:.5;margin-left:4px">{{ d.widgets.length }}</span>
+        </div>
+      </div>
+      <!-- New desktop card -->
+      <div class="overview-card new-desk" :class="{'drop-ok':overviewDrop==='new'}"
+           @dragover.prevent="overviewDrop='new'" @dragenter.prevent="overviewDrop='new'" @dragleave="overviewDrop==='new'&&(overviewDrop=-1)"
+           @drop.prevent="dropToNewDesktop($event);zoomedOut=false;overviewDrop=-1"
+           @click="addDesk();zoomedOut=false">
+        <div class="overview-card-inner" :style="{width:ovCardW+'px',height:ovCardH+'px'}" style="display:flex;align-items:center;justify-content:center">
+          <i class="ph ph-plus" style="font-size:28px;opacity:.3"></i>
+        </div>
+        <div class="overview-card-label"><i class="ph ph-plus" style="font-size:12px"></i> New Desktop</div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:16px">
+      <span style="font-size:12px;color:var(--dim);cursor:pointer" @click="zoomedOut=false;deviceView=true">
+        <i class="ph ph-arrow-square-out" style="font-size:14px"></i> All devices ({{ devices.length }})
+      </span>
+    </div>
+  </div>
+
+
+  <!-- Grid context menu (right-click on empty area) -->
+  <template v-if="gridCtx.open">
+    <div style="position:fixed;inset:0;z-index:199" @click="gridCtx.open=false" @contextmenu.prevent="gridCtx.open=false"></div>
+    <div class="ctx" :style="{left:gridCtx.x+'px',top:gridCtx.y+'px',minWidth:'220px'}">
+      <!-- Widget catalog first -->
+      <div class="ctx-i" @click="gridCtx.open=false;openPicker()" style="color:var(--primary);font-weight:600">
+        <i class="ph ph-squares-four" style="color:var(--primary)"></i> Widget Catalog
+      </div>
+      <div class="ctx-sep"></div>
+
+      <!-- Quick spawn -->
+      <div class="ctx-i" @click="spawnClaude();gridCtx.open=false"><i class="ph ph-terminal-window" style="color:var(--purple)"></i> Spawn Claude</div>
+      <div class="ctx-i" @click="spawnTerm();gridCtx.open=false"><i class="ph ph-terminal"></i> New Terminal</div>
+      <div class="ctx-i" @click="gridCtx.open=false;openScreenPicker()"><i class="ph ph-app-window"></i> Add Screen</div>
+
+      <!-- Recent -->
+      <template v-if="recentWidgets.length">
+        <div class="ctx-sep"></div>
+        <div class="ctx-hd">Recent</div>
+        <div class="ctx-i" v-for="r in recentWidgets" :key="r.key" @click="addFromRecent(r);gridCtx.open=false">
+          <i :class="r.iconClass"></i> {{ r.name }}
+        </div>
+      </template>
+
+      <div class="ctx-sep"></div>
+      <div class="ctx-hd">Desktop Color</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 12px 8px">
+        <div v-for="(t,ti) in desktopTints" :key="t.id"
+             style="width:20px;height:20px;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .15s"
+             :style="{background:'rgb('+t.rgb.map(v=>Math.min(255,v*5)).join(',')+')', borderColor:activeDesktop?.tint===ti?'#fff':'transparent'}"
+             @click="activeDesktop.tint=ti;gridCtx.open=false"></div>
+      </div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-i" @click="gridCtx.open=false;editMode=true">
+        <i class="ph ph-pencil-simple"></i> Edit layout
+      </div>
+    </div>
+  </template>
+
+  <!-- Screen picker (quick window list) -->
+  <template v-if="screenPicker">
+    <div class="picker-overlay" @click.self="screenPicker=false">
+      <div class="picker">
+        <div class="picker-head">
+          <h3>Add Screen Widget</h3>
+          <button @click="screenPicker=false"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="picker-body" style="padding-top:8px">
+          <div class="picker-item" v-for="scr in screens" :key="scr.id" @click="addScreenWidget(scr);screenPicker=false">
+            <i :class="scr.iconClass" :style="{color:scr.color||''}"></i>
+            <div class="pi-info">
+              <div class="pi-name">{{ scr.app }}</div>
+              <div class="pi-desc">{{ scr.title }}</div>
+            </div>
+            <span class="pi-size">1&times;1</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Widget Picker (bottom sheet / modal) -->
+  <template v-if="picker">
+    <div class="picker-overlay" @click.self="picker=false">
+      <div class="picker">
+        <div class="picker-head">
+          <h3>Add Widget</h3>
+          <button @click="picker=false"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="picker-search" v-if="!(pickerCat==='llming-lens' && lensMode)">
+          <i class="ph ph-magnifying-glass"></i>
+          <input v-model="pickerSearch" placeholder="Search widgets..." ref="psInput">
+        </div>
+        <div class="picker-body">
+          <!-- Back button when in sub-category -->
+          <div v-if="pickerCat && (pickerCat!=='llming-lens' || !lensMode)" class="picker-item" @click="pickerCat=null;lensMode=null" style="color:var(--primary)">
+            <i class="ph ph-arrow-left"></i>
+            <div class="pi-info"><div class="pi-name">Back</div></div>
+          </div>
+
+          <template v-if="!pickerCat">
+            <!-- Quick actions -->
+            <div class="picker-cat">Quick Actions</div>
+            <div class="picker-item" @click="spawnClaude();picker=false">
+              <i class="ph ph-terminal-window" style="color:var(--purple)"></i>
+              <div class="pi-info"><div class="pi-name">Spawn Claude</div><div class="pi-desc">New Claude Code terminal session</div></div>
+              <span class="pi-size">1&times;2</span>
+            </div>
+            <div class="picker-item" @click="spawnTerm();picker=false">
+              <i class="ph ph-terminal"></i>
+              <div class="pi-info"><div class="pi-name">New Terminal</div><div class="pi-desc">Shell session</div></div>
+              <span class="pi-size">1&times;1</span>
+            </div>
+
+            <!-- Llmings with sub-widgets -->
+            <div class="picker-cat">Llmings</div>
+            <template v-for="cat in filteredCatalog" :key="cat.id">
+              <div class="picker-item" @click="cat.children ? (pickerCat=cat.id) : (addFromCat(cat), picker=false)">
+                <i :class="cat.iconClass" :style="{color:cat.iconColor||''}"></i>
+                <div class="pi-info"><div class="pi-name">{{ cat.name }}</div><div class="pi-desc">{{ cat.desc }}</div></div>
+                <i v-if="cat.children" class="ph ph-caret-right pi-arrow"></i>
+                <span v-else class="pi-size">{{ cat.defaultSize }}</span>
+              </div>
+            </template>
+
+            <!-- Built-in widgets -->
+            <div class="picker-cat">Built-in</div>
+            <div class="picker-item" @click="addW('quick-chat','llming-wire',null,'2x1',{title:'Chat',iconClass:'ph ph-chat-dots'});picker=false">
+              <i class="ph ph-chat-dots"></i>
+              <div class="pi-info"><div class="pi-name">Quick Chat</div><div class="pi-desc">Inline chat widget</div></div>
+              <span class="pi-size">2&times;1</span>
+            </div>
+            <div class="picker-item" @click="addW('clock',null,null,'1x1',{title:'Clock',iconClass:'ph ph-clock'});picker=false">
+              <i class="ph ph-clock"></i>
+              <div class="pi-info"><div class="pi-name">Clock</div><div class="pi-desc">Time & uptime</div></div>
+              <span class="pi-size">1&times;1</span>
+            </div>
+          </template>
+
+          <!-- Sub-items when a category is selected -->
+          <template v-if="pickerCat && pickerCat!=='llming-lens'">
+            <div class="picker-cat">{{ activeCatData?.name }} &mdash; Widgets</div>
+            <div class="picker-item" @click="addFromCat(activeCatData);picker=false" v-if="activeCatData">
+              <i :class="activeCatData.iconClass"></i>
+              <div class="pi-info"><div class="pi-name">{{ activeCatData.name }} (Full)</div><div class="pi-desc">Complete dashboard view</div></div>
+              <span class="pi-size">{{ activeCatData.defaultSize }}</span>
+            </div>
+            <template v-for="child in activeCatData?.children||[]" :key="child.id">
+              <div class="picker-item" @click="addSubWidget(activeCatData, child);picker=false">
+                <i :class="child.iconClass||activeCatData.iconClass" style="opacity:.7"></i>
+                <div class="pi-info"><div class="pi-name">{{ child.name }}</div><div class="pi-desc">{{ child.desc }}</div></div>
+                <span class="pi-size">{{ child.size || '1&times;1' }}</span>
+              </div>
+            </template>
+          </template>
+
+          <!-- Llming Lens custom flow -->
+          <template v-if="pickerCat==='llming-lens'">
+            <!-- Level 1: choose type -->
+            <template v-if="!lensMode">
+              <div class="picker-cat">Llming Lens</div>
+              <div class="picker-item" @click="addW('extension','llming-lens',null,'2x1',{title:'Full Desktop',iconClass:'ph ph-monitor'});picker=false">
+                <i class="ph ph-monitor" style="color:var(--accent)"></i>
+                <div class="pi-info"><div class="pi-name">Full Desktop</div><div class="pi-desc">All windows, live preview</div></div>
+                <span class="pi-size">2&times;1</span>
+              </div>
+              <div class="picker-item" v-if="lensScreens.length>1" @click="lensMode='screens'">
+                <i class="ph ph-desktop"></i>
+                <div class="pi-info"><div class="pi-name">Screen</div><div class="pi-desc">{{ lensScreens.length }} displays available</div></div>
+                <i class="ph ph-caret-right pi-arrow"></i>
+              </div>
+              <div class="picker-item" @click="lensMode='windows';lensWinSearch=''">
+                <i class="ph ph-app-window"></i>
+                <div class="pi-info"><div class="pi-name">Select Windows</div><div class="pi-desc">Pick specific windows to watch</div></div>
+                <i class="ph ph-caret-right pi-arrow"></i>
+              </div>
+              <div class="picker-item" @click="lensMode='filter';lensFilterText='';lensFilters.length=0;lensFilterSize='2x1'">
+                <i class="ph ph-funnel"></i>
+                <div class="pi-info"><div class="pi-name">Window Filter</div><div class="pi-desc">Auto-match by name (e.g. &ldquo;Teams&rdquo;)</div></div>
+                <i class="ph ph-caret-right pi-arrow"></i>
+              </div>
+            </template>
+
+            <!-- Level 2a: Screens -->
+            <template v-if="lensMode==='screens'">
+              <div class="picker-item" @click="lensMode=null" style="color:var(--primary)">
+                <i class="ph ph-arrow-left"></i><div class="pi-info"><div class="pi-name">Back</div></div>
+              </div>
+              <div class="picker-cat">Select Display</div>
+              <div class="picker-item" v-for="scr in lensScreens" :key="scr.id" @click="addW('extension-sub','llming-lens','display:'+scr.id,'2x1',{title:scr.name,iconClass:'ph ph-desktop',screenName:scr.name});picker=false">
+                <i class="ph ph-desktop"></i>
+                <div class="pi-info"><div class="pi-name">{{ scr.name }}</div><div class="pi-desc">{{ scr.res }}</div></div>
+                <span class="pi-size">2&times;1</span>
+              </div>
+            </template>
+
+            <!-- Level 2b: Select Windows (checkboxes + search) -->
+            <template v-if="lensMode==='windows'">
+              <div class="picker-item" @click="lensMode=null" style="color:var(--primary)">
+                <i class="ph ph-arrow-left"></i><div class="pi-info"><div class="pi-name">Back</div></div>
+              </div>
+              <div class="picker-cat">Select Windows</div>
+              <div class="picker-search" style="margin:0 4px 8px">
+                <i class="ph ph-magnifying-glass"></i>
+                <input v-model="lensWinSearch" placeholder="Search windows...">
+              </div>
+              <div v-for="w in filteredLensWindows" :key="w.id" class="picker-item" @click="w.checked=!w.checked" style="padding:8px 12px">
+                <div class="wcheck" :class="{on:w.checked}"><i v-if="w.checked" class="ph ph-check" style="font-size:12px"></i></div>
+                <i :class="w.iconClass" :style="{color:w.color||'',fontSize:'16px'}"></i>
+                <div class="pi-info" style="min-width:0">
+                  <div class="pi-name" style="font-size:12px">{{ w.app }}</div>
+                  <div class="pi-desc">{{ w.title }}</div>
+                </div>
+              </div>
+              <div v-if="selectedLensWindows.length" style="padding:8px 12px;border-top:1px solid var(--border);margin-top:4px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <span style="font-size:11px;color:var(--dim)">{{ selectedLensWindows.length }} selected</span>
+                  <div style="display:flex;gap:4px">
+                    <div v-for="s in ['1x1','2x1','1x2']" :key="s" class="size-opt" :class="{active:lensWinSize===s}" @click="lensWinSize=s">{{ s.replace('x','\u00d7') }}</div>
+                  </div>
+                </div>
+                <button class="lens-add-btn" @click="addSelectedWindows();picker=false">
+                  <i class="ph ph-plus"></i> Add {{ selectedLensWindows.length }} widget{{ selectedLensWindows.length>1?'s':'' }}
+                </button>
+              </div>
+            </template>
+
+            <!-- Level 2c: Window Filter (multi-tag) -->
+            <template v-if="lensMode==='filter'">
+              <div class="picker-item" @click="lensMode=null" style="color:var(--primary)">
+                <i class="ph ph-arrow-left"></i><div class="pi-info"><div class="pi-name">Back</div></div>
+              </div>
+              <div class="picker-cat">Window Filter</div>
+              <div style="padding:8px 16px">
+                <div style="font-size:12px;color:var(--dim);margin-bottom:8px">Auto-show windows matching any of these terms:</div>
+                <!-- Tags -->
+                <div v-if="lensFilters.length" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+                  <span v-for="(f,fi) in lensFilters" :key="fi" class="filter-tag">
+                    {{ f }} <span class="filter-tag-x" @click="lensFilters.splice(fi,1)">&times;</span>
+                  </span>
+                </div>
+                <!-- Input -->
+                <div style="display:flex;gap:6px">
+                  <input v-model="lensFilterText" placeholder="e.g. Teams" @keyup.enter="addFilterTag"
+                    style="flex:1;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;outline:none">
+                  <button @click="addFilterTag" style="padding:0 14px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:18px;cursor:pointer" :disabled="!lensFilterText.trim()">+</button>
+                </div>
+                <!-- Preview -->
+                <div v-if="lensAllFilterMatches.length" style="margin-top:10px">
+                  <div style="font-size:11px;color:var(--dim);margin-bottom:6px">Preview: {{ lensAllFilterMatches.length }} matching window{{ lensAllFilterMatches.length!==1?'s':'' }}</div>
+                  <div v-for="m in lensAllFilterMatches" :key="m.id" style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;color:var(--text)">
+                    <i :class="m.iconClass" :style="{color:m.color,fontSize:'14px'}"></i>
+                    <span>{{ m.app }}</span>
+                    <span style="color:var(--dim)">&mdash; {{ m.title }}</span>
+                  </div>
+                </div>
+                <!-- Size selector -->
+                <div v-if="lensFilters.length" style="margin-top:12px">
+                  <div style="font-size:11px;color:var(--dim);margin-bottom:6px">Widget size</div>
+                  <div style="display:flex;gap:6px">
+                    <div v-for="s in ['1x1','2x1','1x2','2x2']" :key="s" class="size-opt" :class="{active:lensFilterSize===s}" @click="lensFilterSize=s">{{ s.replace('x','\u00d7') }}</div>
+                  </div>
+                </div>
+                <button v-if="lensFilters.length" class="lens-add-btn" style="margin-top:12px" @click="addMultiFilterWidget();picker=false">
+                  <i class="ph ph-funnel"></i> Add filter widget ({{ lensFilters.join(', ') }})
+                </button>
+              </div>
+            </template>
+          </template>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Widget context menu (resize/remove) -->
+  <template v-if="wctx.open">
+    <div style="position:fixed;inset:0;z-index:249" @click="wctx.open=false" @contextmenu.prevent="wctx.open=false"></div>
+    <div class="ctx" :style="{left:wctx.x+'px',top:wctx.y+'px'}">
+      <div class="ctx-hd">Hort</div>
+      <div class="ctx-i" :class="{act:!wctx.w?.hpiort}" @click="wctx.w.hpiort=null;wctx.open=false">
+        <i class="ph ph-prohibit"></i> None
+      </div>
+      <div v-for="hg in hortGroups" :key="hg.id" class="ctx-i" :style="wctx.w?.hpiort===hg.id?{color:hg.color,fontWeight:600}:{}" @click="wctx.w.hpiort=hg.id;wctx.open=false">
+        <span class="hort-dot" :style="{background:hg.color}" style="width:10px;height:10px"></span> {{ hg.name }}
+      </div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-i dng" @click="rmW(wctx.w,wctx.desk);wctx.open=false"><i class="ph ph-trash"></i> Remove</div>
+    </div>
+  </template>
+
+  <!-- Drawer — minimal: search + settings -->
+  <div class="dov" :class="{open:drawer}" @click.self="drawer=false">
+    <div class="dw">
+      <div class="dw-head">
+        <h3>openhort</h3>
+        <small>v0.1.0 &mdash; 192.168.178.74</small>
+      </div>
+
+      <!-- Universal search -->
+      <div class="dw-search">
+        <i class="ph ph-magnifying-glass"></i>
+        <input placeholder="Search llmings, windows, actions..." v-model="dwSearch" @keyup.enter="showT('Search: '+dwSearch);drawer=false">
+      </div>
+      <div v-if="dwSearch" class="dsec" style="border:none">
+        <div class="di" v-for="r in dwResults" :key="r.id" @click="showT('Opening '+r.name+'...');drawer=false">
+          <i :class="r.iconClass"></i>{{ r.name }}
+          <span style="margin-left:auto;font-size:10px;color:var(--dim)">{{ r.type }}</span>
+        </div>
+        <div v-if="!dwResults.length" style="padding:12px 16px;font-size:12px;color:var(--dim)">No results</div>
+      </div>
+
+      <template v-if="!dwSearch">
+        <div class="dsec">
+          <div class="di" @click="deskIdx=0;drawer=false" style="font-weight:600"><i class="ph ph-house" style="color:var(--primary)"></i>Horts</div>
+        </div>
+        <div class="dsec">
+          <div class="di" @click="showT('Settings...');drawer=false"><i class="ph ph-gear"></i>Settings</div>
+          <div class="di" @click="showT('Help & Docs...');drawer=false"><i class="ph ph-question"></i>Help</div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+
+  <!-- Name editor modal -->
+  <template v-if="nameEd">
+    <div class="modal-bg" @click.self="nameEd=null">
+      <div class="modal">
+        <div style="font-weight:600;font-size:15px">{{ nameEd.title }}</div>
+        <input v-model="nameEd.value" @keyup.enter="nameEd.save()" autofocus>
+        <div class="btns"><button class="btn-g" @click="nameEd=null">Cancel</button><button class="btn-p" @click="nameEd.save()">{{ nameEd.btn }}</button></div>
+      </div>
+    </div>
+  </template>
+</div>
+
+<script>
+const{createApp,ref,reactive,computed,watch,nextTick,onMounted,onUnmounted}=Vue;
+createApp({
+  setup(){
+    const drawer=ref(false),picker=ref(false),pickerSearch=ref(''),pickerCat=ref(null),dwSearch=ref('');
+    const editMode=ref(false),deskIdx=ref(0),toast=ref(''),nameEd=ref(null),viewers=ref(1);
+    const selectedWidget=ref(null);
+    const zoomedOut=ref(false);
+    const overviewDrop=ref(-1);
+    const pressing=ref(false);
+    const deviceView=ref(false);
+    const activeDevice=ref(0);
+    const pullDown=ref(0);
+    const deviceHeaderH=ref(90);
+    const pageEls=ref([]);
+    const devices=reactive([
+      {id:'mac',name:'MacBook Pro',iconClass:'ph ph-laptop',desktopCount:2,status:'online'},
+      {id:'linux',name:'Docker Linux',iconClass:'ph ph-linux-logo',desktopCount:1,status:'online'},
+      {id:'pi',name:'Raspberry Pi',iconClass:'ph ph-cpu',desktopCount:1,status:'online'},
+      {id:'mini',name:'Mac Mini Server',iconClass:'ph ph-desktop-tower',desktopCount:3,status:'offline'},
+      {id:'nas',name:'NAS',iconClass:'ph ph-hard-drives',desktopCount:1,status:'offline'},
+    ]);
+
+    // Overview card sizing — match real viewport aspect ratio
+    const vpW=ref(window.innerWidth);
+    const vpH=ref(window.innerHeight);
+    function updateVp(){vpW.value=window.innerWidth;vpH.value=window.innerHeight}
+    window.addEventListener('resize',updateVp);
+
+    // Card width in the overview strip
+    const ovCardW=computed(()=>Math.min(vpW.value*.35, 320));
+    const ovCardH=computed(()=>ovCardW.value * (vpH.value-60) / vpW.value);
+    const ovScale=computed(()=>ovCardW.value/vpW.value);
+    const ovContentW=computed(()=>vpW.value);
+    const ovContentH=computed(()=>vpH.value-60);
+    const wctx=reactive({open:false,x:0,y:0,w:null,desk:null});
+    const gridCtx=reactive({open:false,x:0,y:0});
+    const recentAdds=reactive([]);
+    const fabOpen=ref(false);
+    const screenPicker=ref(false);
+    const lensMode=ref(null); // null | 'screens' | 'windows' | 'filter'
+    const lensWinSearch=ref('');
+    const lensFilterText=ref('');
+    const lensFilters=reactive([]);  // multi-tag filters
+    const lensFilterSize=ref('2x1');
+    const lensWinSize=ref('1x1');
+
+    // Desktop tint colors — 16 dark hues with RGB for canvas blending
+    const desktopTints=[
+      {id:'blue',    rgb:[20,40,70],  accent:'#1e3a5f', border:'#1a3050'},
+      {id:'crimson', rgb:[50,16,20],  accent:'#5f2025', border:'#4a1a1e'},
+      {id:'green',   rgb:[16,42,24],  accent:'#1e5f2a', border:'#1a4020'},
+      {id:'purple',  rgb:[35,18,50],  accent:'#4a1e5f', border:'#3a1a4a'},
+      {id:'amber',   rgb:[45,35,16],  accent:'#5f4a1e', border:'#4a3a18'},
+      {id:'teal',    rgb:[16,42,42],  accent:'#1e5f5f', border:'#1a4545'},
+      {id:'pink',    rgb:[45,18,32],  accent:'#5f1e45', border:'#4a1a35'},
+      {id:'orange',  rgb:[45,28,16],  accent:'#5f351e', border:'#4a2a18'},
+      {id:'indigo',  rgb:[22,18,50],  accent:'#2e1e5f', border:'#241a4a'},
+      {id:'cyan',    rgb:[16,36,45],  accent:'#1e4f5f', border:'#1a3a4a'},
+      {id:'emerald', rgb:[16,42,32],  accent:'#1e5f45', border:'#1a4535'},
+      {id:'rose',    rgb:[45,18,28],  accent:'#5f1e35', border:'#4a1a28'},
+      {id:'violet',  rgb:[30,18,50],  accent:'#3e1e5f', border:'#301a4a'},
+      {id:'slate',   rgb:[24,28,38],  accent:'#2e3545', border:'#242a35'},
+      {id:'lime',    rgb:[28,42,16],  accent:'#3f5f1e', border:'#304a18'},
+      {id:'sky',     rgb:[16,32,45],  accent:'#1e455f', border:'#1a354a'},
+    ];
+    const BORDER_RGB=[4,6,12]; // screen edge color (near-black)
+
+    // Simulated screens (displays)
+    const lensScreens=reactive([
+      {id:'main',name:'Built-in Retina Display',res:'2560 × 1600'},
+      {id:'ext',name:'LG UltraWide',res:'3440 × 1440'},
+    ]);
+
+    // Simulated window list (in real app comes from server)
+    const screens=reactive([
+      {id:'w:1',app:'VS Code',title:'index.html — yayHort',iconClass:'ph ph-code',color:'#007acc',checked:false},
+      {id:'w:2',app:'Chrome',title:'localhost:8942 — OpenHORT',iconClass:'ph ph-globe',color:'#4285f4',checked:false},
+      {id:'w:3',app:'Terminal',title:'zsh — ~/projects/yayHort',iconClass:'ph ph-terminal-window',color:'var(--success)',checked:false},
+      {id:'w:4',app:'Slack',title:'#engineering',iconClass:'ph ph-chat-teardrop',color:'#e01e5a',checked:false},
+      {id:'w:5',app:'Finder',title:'~/projects',iconClass:'ph ph-folder-open',color:'#3b82f6',checked:false},
+      {id:'w:6',app:'Safari',title:'Apple Developer Docs',iconClass:'ph ph-compass',color:'#0071e3',checked:false},
+      {id:'w:7',app:'Notes',title:'Meeting notes',iconClass:'ph ph-note',color:'#f59e0b',checked:false},
+      {id:'w:8',app:'Preview',title:'architecture.pdf',iconClass:'ph ph-file-pdf',color:'#ef4444',checked:false},
+      {id:'w:9',app:'Docker Desktop',title:'Containers',iconClass:'ph ph-cube',color:'#2496ed',checked:false},
+      {id:'w:10',app:'Activity Monitor',title:'All Processes',iconClass:'ph ph-chart-bar',color:'var(--success)',checked:false},
+      {id:'w:11',app:'Teams',title:'General — Engineering',iconClass:'ph ph-microsoft-teams-logo',color:'#6264a7',checked:false},
+      {id:'w:12',app:'Teams',title:'Standup — Product',iconClass:'ph ph-microsoft-teams-logo',color:'#6264a7',checked:false},
+    ]);
+
+    // Lens window picker computed
+    const filteredLensWindows=computed(()=>{
+      const q=lensWinSearch.value.toLowerCase();
+      if(!q)return screens;
+      return screens.filter(s=>s.app.toLowerCase().includes(q)||s.title.toLowerCase().includes(q));
+    });
+    const selectedLensWindows=computed(()=>screens.filter(s=>s.checked));
+    // Preview matches for current filter input + existing tags
+    const lensAllFilterMatches=computed(()=>{
+      const terms=[...lensFilters];
+      const cur=lensFilterText.value.trim().toLowerCase();
+      if(cur)terms.push(cur);
+      if(!terms.length)return[];
+      return screens.filter(s=>{
+        const hay=(s.app+' '+s.title).toLowerCase();
+        return terms.some(t=>hay.includes(t.toLowerCase()));
+      });
+    });
+
+    function addFilterTag(){
+      const t=lensFilterText.value.trim();
+      if(t&&!lensFilters.includes(t)){lensFilters.push(t)}
+      lensFilterText.value='';
+    }
+
+    function addSelectedWindows(){
+      for(const w of selectedLensWindows.value){
+        addW('extension-sub','llming-lens',w.id,lensWinSize.value,{title:w.app,iconClass:w.iconClass,iconColor:w.color,screenName:w.title});
+        w.checked=false;
+      }
+    }
+    function addMultiFilterWidget(){
+      const label=lensFilters.join(', ');
+      addW('extension-sub','llming-lens','filter:'+label,lensFilterSize.value,{title:'Filter: '+label,iconClass:'ph ph-funnel',screenName:'Windows matching: '+label});
+      lensFilters.length=0;
+    }
+    let _lp=null,_tt=null;
+
+    const cpu=ref(23),cpuH=reactive([20,22,18,20,15,22,12,18,10,14,8,23]);
+    setInterval(()=>{const v=Math.max(5,Math.min(95,cpu.value+(Math.random()-.5)*15));cpu.value=v;cpuH.push(v);if(cpuH.length>12)cpuH.shift()},2000);
+    const spark=computed(()=>cpuH.map((v,i)=>`${i*(100/(cpuH.length-1))},${28-v*.28}`).join(' '));
+
+    const timeStr=ref('');
+    function uTime(){const d=new Date();timeStr.value=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+    uTime();setInterval(uTime,1000);
+
+    const llmings=reactive([
+      {id:'system-monitor',name:'System Monitor',desc:'CPU, RAM, disk metrics',iconClass:'ph ph-chart-line-up',active:true},
+      {id:'llming-lens',name:'Llming Lens',desc:'Desktop capture & streaming',iconClass:'ph ph-monitor',active:true},
+      {id:'llming-wire',name:'Llming Wire',desc:'Chat interface',iconClass:'ph ph-chat-dots',active:true},
+      {id:'code-watch',name:'Code Watch',desc:'Claude session monitor',iconClass:'ph ph-eye',active:true},
+      {id:'clipboard-history',name:'Clipboard History',desc:'Track clipboard entries',iconClass:'ph ph-clipboard-text',active:true},
+      {id:'network-monitor',name:'Network Monitor',desc:'Bandwidth & connections',iconClass:'ph ph-wifi-high',active:true},
+      {id:'process-manager',name:'Process Manager',desc:'Running processes',iconClass:'ph ph-gear-six',active:false},
+      {id:'n8n',name:'n8n',desc:'Workflow automation',iconClass:'ph ph-lightning',active:false},
+      {id:'openclaw',name:'OpenClaw',desc:'Home automation',iconClass:'ph ph-house-line',active:false},
+    ]);
+
+    // Widget catalog with sub-widgets
+    const catalog=reactive([
+      {id:'system-monitor',name:'System Monitor',desc:'CPU, RAM, disk, temp',iconClass:'ph ph-chart-line-up',defaultSize:'1\u00d71',
+       extId:'system-monitor',c:{title:'System',iconClass:'ph ph-chart-line-up'},
+       children:[
+         {id:'cpu',name:'CPU Chart',desc:'CPU usage over time',size:'2\u00d71',iconClass:'ph ph-cpu'},
+         {id:'memory',name:'Memory',desc:'RAM usage gauge',size:'1\u00d71',iconClass:'ph ph-memory'},
+         {id:'disk',name:'Disk Usage',desc:'Storage breakdown',size:'1\u00d71',iconClass:'ph ph-hard-drives'},
+         {id:'temperature',name:'Temperature',desc:'CPU/GPU temps',size:'1\u00d71',iconClass:'ph ph-thermometer-simple'},
+       ]},
+      {id:'llming-lens',name:'Llming Lens',desc:'Desktop & window capture',iconClass:'ph ph-monitor',defaultSize:'2\u00d71',iconColor:'var(--accent)',
+       extId:'llming-lens',c:{title:'Desktop',iconClass:'ph ph-monitor'},
+       children:[
+         {id:'screen:vs-code',name:'VS Code',desc:'Window preview',size:'1\u00d71',iconClass:'ph ph-code'},
+         {id:'screen:chrome',name:'Chrome',desc:'Window preview',size:'1\u00d71',iconClass:'ph ph-globe'},
+         {id:'screen:terminal',name:'Terminal',desc:'Window preview',size:'1\u00d71',iconClass:'ph ph-terminal-window'},
+         {id:'screen:slack',name:'Slack',desc:'Window preview',size:'1\u00d71',iconClass:'ph ph-chat-teardrop'},
+         {id:'screen:finder',name:'Finder',desc:'Window preview',size:'1\u00d71',iconClass:'ph ph-folder-open'},
+         {id:'screen:safari',name:'Safari',desc:'Window preview',size:'1\u00d71',iconClass:'ph ph-compass'},
+       ]},
+      {id:'code-watch',name:'Code Watch',desc:'Claude session tracker',iconClass:'ph ph-eye',defaultSize:'1\u00d72',
+       extId:'code-watch',c:{title:'Code Watch',iconClass:'ph ph-eye'},
+       children:[
+         {id:'session:claude_dev',name:'claude_dev',desc:'Active session',size:'1\u00d72',iconClass:'ph ph-terminal-window'},
+         {id:'session:claude_test',name:'claude_test',desc:'Active session',size:'1\u00d72',iconClass:'ph ph-terminal-window'},
+       ]},
+      {id:'network-monitor',name:'Network Monitor',desc:'Bandwidth & connections',iconClass:'ph ph-wifi-high',defaultSize:'1\u00d71',
+       extId:'network-monitor',c:{title:'Network',iconClass:'ph ph-wifi-high'}},
+      {id:'clipboard-history',name:'Clipboard History',desc:'Track clipboard entries',iconClass:'ph ph-clipboard-text',defaultSize:'1\u00d71',
+       extId:'clipboard-history',c:{title:'Clipboard',iconClass:'ph ph-clipboard-text'}},
+      {id:'process-manager',name:'Process Manager',desc:'Running processes',iconClass:'ph ph-gear-six',defaultSize:'1\u00d71',
+       extId:'process-manager',c:{title:'Processes',iconClass:'ph ph-gear-six'}},
+      {id:'n8n',name:'n8n',desc:'Workflow automation',iconClass:'ph ph-lightning',defaultSize:'2\u00d71',
+       extId:'n8n',c:{title:'n8n',iconClass:'ph ph-lightning'}},
+      {id:'openclaw',name:'OpenClaw',desc:'Home automation',iconClass:'ph ph-house-line',defaultSize:'2\u00d71',
+       extId:'openclaw',c:{title:'OpenClaw',iconClass:'ph ph-house-line'},
+       children:[
+         {id:'room:living',name:'Living Room',desc:'Lights, thermostat',size:'1\u00d71',iconClass:'ph ph-lamp'},
+         {id:'room:bedroom',name:'Bedroom',desc:'Lights, blinds',size:'1\u00d71',iconClass:'ph ph-bed'},
+         {id:'room:kitchen',name:'Kitchen',desc:'Appliances',size:'1\u00d71',iconClass:'ph ph-cooking-pot'},
+         {id:'sensors',name:'All Sensors',desc:'Temperature, humidity, motion',size:'2\u00d71',iconClass:'ph ph-thermometer'},
+       ]},
+    ]);
+
+    // Drawer universal search — llmings + windows + actions
+    const dwResults=computed(()=>{
+      const q=dwSearch.value.toLowerCase().trim();
+      if(!q)return[];
+      const r=[];
+      for(const ll of llmings){if((ll.name+' '+ll.desc).toLowerCase().includes(q))r.push({id:'ll:'+ll.id,name:ll.name,iconClass:ll.iconClass,type:'llming'})}
+      for(const s of screens){if((s.app+' '+s.title).toLowerCase().includes(q))r.push({id:'sc:'+s.id,name:s.app+' — '+s.title,iconClass:s.iconClass,type:'window'})}
+      if('spawn claude'.includes(q))r.push({id:'a:claude',name:'Spawn Claude',iconClass:'ph ph-terminal-window',type:'action'});
+      if('terminal'.includes(q))r.push({id:'a:term',name:'New Terminal',iconClass:'ph ph-terminal',type:'action'});
+      if('desktop'.includes(q))r.push({id:'a:desk',name:'New Desktop',iconClass:'ph ph-plus-circle',type:'action'});
+      return r.slice(0,10);
+    });
+
+    const filteredCatalog=computed(()=>{
+      const q=pickerSearch.value.toLowerCase();
+      if(!q)return catalog;
+      return catalog.filter(c=>c.name.toLowerCase().includes(q)||c.desc.toLowerCase().includes(q)||(c.children||[]).some(ch=>ch.name.toLowerCase().includes(q)));
+    });
+    const activeCatData=computed(()=>catalog.find(c=>c.id===pickerCat.value));
+
+    // Hort groups — security boundaries visualized as colored borders
+    const hortGroups=reactive([
+      {id:'default',   name:'Local',       color:'#3b82f6', tint:0,  icon:'ph ph-house',          desc:'Local machine, no restrictions'},
+      {id:'sandboxed', name:'Sandboxed',   color:'#f59e0b', tint:4,  icon:'ph ph-shield-warning', desc:'Container-isolated, limited network'},
+      {id:'sap',       name:'SAP Finance', color:'#ef4444', tint:1,  icon:'ph ph-lock',           desc:'Confidential — no network out, no email'},
+      {id:'public',    name:'Public',      color:'#22c55e', tint:2,  icon:'ph ph-globe',          desc:'Public data only, unrestricted output'},
+      {id:'hr',        name:'HR Systems',  color:'#a855f7', tint:3,  icon:'ph ph-users',          desc:'PII — no logging, no external sharing'},
+    ]);
+    function getHortGroup(id){return hortGroups.find(h=>h.id===id)||hortGroups[0]}
+
+    let _wid=100;
+    const wid=()=>'w_'+(++_wid);
+
+    const desktops=reactive([
+      {id:'home',name:'Home',isHome:true,hpiort:null,tint:0,widgets:[
+        {id:wid(),type:'terminal',extId:null,subId:'claude_dev',size:'1x2',order:0,hpiort:'sandboxed',
+         pos:{c:-2,r:0,w:1,h:2},
+         c:{title:'claude_dev',iconClass:'ph ph-terminal-window',iconColor:'var(--purple)',state:'thinking',idle:12,output:'$ claude --dangerously-skip\n\nAnalyzing codebase...\n\nReading hort/app.py\nReading hort/controller.py\n\nI\'ll refactor the session...'},
+         borderStyle:{}},
+        {id:wid(),type:'extension',extId:'system-monitor',subId:null,size:'1x1',order:1,hpiort:'sandboxed',
+         pos:{c:-1,r:0,w:1,h:1},c:{title:'System',iconClass:'ph ph-chart-line-up'}},
+        {id:wid(),type:'extension',extId:'llming-lens',subId:null,size:'2x1',order:2,hpiort:null,
+         pos:{c:0,r:0,w:2,h:1},c:{title:'Desktop',iconClass:'ph ph-monitor'}},
+        {id:wid(),type:'quick-chat',extId:'llming-wire',subId:null,size:'2x1',order:3,hpiort:null,
+         pos:{c:-1,r:1,w:2,h:1},c:{title:'Chat',iconClass:'ph ph-chat-dots'},
+         hortConnections:['sandboxed','sap']},
+        {id:wid(),type:'extension',extId:'network-monitor',subId:null,size:'1x1',order:4,hpiort:'public',
+         pos:{c:1,r:1,w:1,h:1},c:{title:'Network',iconClass:'ph ph-wifi-high'}},
+        {id:wid(),type:'extension',extId:'clipboard-history',subId:null,size:'1x1',order:5,hpiort:'public',
+         pos:{c:-2,r:2,w:1,h:1},c:{title:'Clipboard',iconClass:'ph ph-clipboard-text'}},
+      ]},
+      {id:'d1',name:'SAP Finance',isHome:false,hpiort:'sap',tint:1,widgets:[
+        {id:wid(),type:'terminal',extId:null,subId:'sap_agent',size:'1x2',order:0,hpiort:'sap',
+         c:{title:'sap_agent',iconClass:'ph ph-terminal-window',state:'idle',output:'$ claude --allowedTools "mcp__sap__*"\n\nSAP Finance agent ready.\nRestricted: no network, no email.'},borderStyle:{}},
+        {id:wid(),type:'extension',extId:'system-monitor',subId:null,size:'1x1',order:1,hpiort:'sap',c:{title:'SAP Metrics',iconClass:'ph ph-chart-line-up'}},
+        {id:wid(),type:'quick-chat',extId:'llming-wire',subId:null,size:'2x1',order:2,hpiort:'sap',c:{title:'SAP Chat',iconClass:'ph ph-chat-dots'},
+         hortConnections:['sap']},
+      ]},
+      {id:'d2',name:'HR Dashboard',isHome:false,hpiort:'hr',tint:3,widgets:[]}
+    ]);
+
+    const activeDesktop=computed(()=>desktops[deskIdx.value]);
+    const lemmingColor=computed(()=>viewers.value>1?'#ef5350':viewers.value>0?'#42a5f5':'#d4a017');
+    const getWidgets=d=>[...d.widgets].sort((a,b)=>a.order-b.order);
+
+    // Group widgets by hort — consecutive same-hort widgets form a section
+    function getGroupedWidgets(desk){
+      const widgets=getWidgets(desk);
+      const maxCols=window.innerWidth>=1024?4:window.innerWidth>=640?3:2;
+      const sections=[];
+      let curHort=undefined;
+      for(const w of widgets){
+        const h=w.hpiort||desk.hpiort||null;
+        if(h!==curHort||sections.length===0){
+          sections.push({hortId:h,widgets:[],colsNeeded:0});
+          curHort=h;
+        }
+        const sec=sections[sections.length-1];
+        sec.widgets.push(w);
+      }
+      // Compute columns needed per section
+      for(const sec of sections){
+        if(!sec.hortId){continue}
+        let row=0,col=0;let maxCol=0;
+        for(const w of sec.widgets){
+          const [wc]=w.size.split('x').map(Number);
+          if(col+wc>maxCols){col=0;row++}
+          col+=wc;maxCol=Math.max(maxCol,col);
+        }
+        sec.colsNeeded=Math.min(maxCol,maxCols);
+      }
+      return sections;
+    }
+
+    // Dynamic column count — fit as many whole columns as the viewport allows
+    // Centered coordinate system: x=0 is screen center
+    // Grid expands to fit viewport, widget positions stay absolute
+    const CELL_W=280, GAP=14, PAD=20;
+    function calcCols(){return Math.max(2,Math.floor((window.innerWidth-2*PAD+GAP)/(CELL_W+GAP)))}
+    const gridCols=ref(calcCols());
+    const colOffset=computed(()=>Math.floor(gridCols.value/2)); // column 0 = center
+    window.addEventListener('resize',()=>{gridCols.value=calcCols()});
+    watch(gridCols,v=>{document.documentElement.style.setProperty('--cols',v)},{immediate:true});
+
+    const _hortGridCache=computed(()=>{
+      const m={};
+      for(const desk of desktops){
+        const widgets=getWidgets(desk);
+        const cols=gridCols.value;
+        const grid={};// "r,c"->hortId
+        const wmap={};// widgetId->{r,c,w,h}
+        let r=0,c=0;
+        for(const w of widgets){
+          const[wc,wr]=w.size.split('x').map(Number);
+          const h=w.hpiort||null;
+          // Find next position where widget fits (respects column count)
+          let placed=false;
+          while(!placed){
+            while(grid[r+','+c]!==undefined){c++;if(c>=cols){c=0;r++}}
+            if(c+wc<=cols){
+              // Check all cells are free
+              let fits=true;
+              for(let dr=0;dr<wr&&fits;dr++)for(let dc=0;dc<wc&&fits;dc++){
+                if(grid[(r+dr)+','+(c+dc)]!==undefined)fits=false;
+              }
+              if(fits){placed=true;break}
+            }
+            c++;if(c>=cols){c=0;r++}
+          }
+          for(let dr=0;dr<wr;dr++)for(let dc=0;dc<wc;dc++)grid[(r+dr)+','+(c+dc)]=h;
+          wmap[w.id]={r,c,w:wc,h:wr,hort:h};
+          c+=wc;if(c>=cols){c=0;r++}
+        }
+        m[desk.id]={grid,wmap};
+      }
+      return m;
+    });
+
+
+    // Top-row widgets get margin for spacing; widgets with hort assignment get subtle glow
+    function widgetStyle(w,desk){
+      const s={};
+      const wHort=w.hpiort||null;
+      const deskHort=desk.hpiort||null;
+      if(wHort&&wHort!==deskHort){
+        const hg=getHortGroup(wHort);
+        const tRgb=desktopTints[hg.tint||0].rgb;
+        s.borderColor=hg.color+'99';
+        s['--rest-glow']=`0 0 30px rgba(${tRgb[0]*4},${tRgb[1]*4},${tRgb[2]*4},.45)`;
+        s['--hover-glow']=hg.color;
+      }else{
+        const tint=desktopTints[desk.tint||0];
+        s.borderColor=tint.border;
+        s['--rest-glow']=`0 0 30px rgba(${tint.rgb[0]*4},${tint.rgb[1]*4},${tint.rgb[2]*4},.4)`;
+        s['--hover-glow']='#3b82f6';
+      }
+      return s;
+    }
+
+    // Auto-reflow: compute display positions that avoid overlaps at current column count
+    const _displayPosCache=computed(()=>{
+      const cols=gridCols.value;
+      const off=colOffset.value;
+      const result={};
+      for(const desk of desktops){
+        const widgets=getWidgets(desk);
+        const occupied={}; // "r,c" -> true
+        function isOccupied(r,c,w,h){
+          for(let dr=0;dr<h;dr++)for(let dc=0;dc<w;dc++){if(occupied[(r+dr)+','+(c+dc)])return true}
+          return false;
+        }
+        function occupy(r,c,w,h){
+          for(let dr=0;dr<h;dr++)for(let dc=0;dc<w;dc++)occupied[(r+dr)+','+(c+dc)]=true;
+        }
+        // Sort by original position: top first, then left
+        const sorted=[...widgets].filter(w=>w.pos).sort((a,b)=>(a.pos.r-b.pos.r)||(a.pos.c-b.pos.c));
+        const noPos=widgets.filter(w=>!w.pos);
+
+        for(const w of sorted){
+          const ww=Math.min(w.pos.w,cols); // clamp width to available cols
+          let gc=Math.max(0,Math.min(cols-ww,w.pos.c+off)); // map centered→grid, clamp
+          let gr=w.pos.r;
+          // Try original position first
+          if(!isOccupied(gr,gc,ww,w.pos.h)){
+            occupy(gr,gc,ww,w.pos.h);
+            result[w.id]={c:gc,r:gr,w:ww,h:w.pos.h};
+          }else{
+            // Find next free position (scan rows top-down, cols left-right)
+            let placed=false;
+            for(let tr=0;tr<50&&!placed;tr++){
+              for(let tc=0;tc<=cols-ww&&!placed;tc++){
+                if(!isOccupied(tr,tc,ww,w.pos.h)){
+                  occupy(tr,tc,ww,w.pos.h);
+                  result[w.id]={c:tc,r:tr,w:ww,h:w.pos.h};
+                  placed=true;
+                }
+              }
+            }
+          }
+        }
+        // Auto-flow widgets (no pos) — pack after positioned ones
+        for(const w of noPos){
+          const [ww,wh]=w.size.split('x').map(Number);
+          const cw=Math.min(ww,cols);
+          for(let tr=0;tr<50;tr++){
+            for(let tc=0;tc<=cols-cw;tc++){
+              if(!isOccupied(tr,tc,cw,wh)){
+                occupy(tr,tc,cw,wh);
+                result[w.id]={c:tc,r:tr,w:cw,h:wh};
+                break;
+              }
+            }
+            if(result[w.id])break;
+          }
+        }
+      }
+      return result;
+    });
+
+    function widgetGridStyle(w,desk){
+      const s=widgetStyle(w,desk);
+      const dp=_displayPosCache.value[w.id];
+      if(dp){
+        s.gridColumn=(dp.c+1)+' / span '+dp.w;
+        s.gridRow=(dp.r+1)+' / span '+dp.h;
+      }
+      return s;
+    }
+
+    // Drag-to-place system
+    // Grid cells for edit mode visualization
+    const GRID_ROWS=6; // show this many rows of grid hints
+    const gridCells=computed(()=>{
+      const cols=gridCols.value;
+      const cells=[];
+      for(let r=0;r<GRID_ROWS;r++){
+        for(let c=0;c<cols;c++){
+          cells.push({k:r+','+c, c:(c+1)+' / span 1', r:(r+1)+' / span 1'});
+        }
+      }
+      return cells;
+    });
+
+    const dragW=ref(null);
+    const dragDesk=ref(null);
+    const dragGhost=ref(null);
+
+    let _dragCancelTimer=null;
+    function onDragStart(e,w,desk){
+      dragW.value=w;dragDesk.value=desk;
+      e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('text/plain',w.id);
+      e.stopPropagation();
+      // Cancel drag if held without moving for >600ms (long press override)
+      clearTimeout(_dragCancelTimer);
+      _dragCancelTimer=setTimeout(()=>{
+        if(dragW.value){dragW.value=null;dragDesk.value=null;dragGhost.value=null}
+      },600);
+    }
+
+    function onDrop(e,targetW,desk){
+      e.preventDefault();
+      if(!dragW.value||dragDesk.value!==desk)return;
+      if(dragW.value.id===targetW.id)return;
+      // Swap positions if both have pos, or swap order
+      const src=dragW.value,tgt=targetW;
+      if(src.pos&&tgt.pos){
+        const tmp={...src.pos};src.pos={...tgt.pos};tgt.pos={...tmp};
+      }else{
+        const so=src.order;src.order=tgt.order;tgt.order=so;
+      }
+      dragW.value=null;dragGhost.value=null;
+      showT('Widget moved');
+    }
+
+    // Grid-level drop for placing on empty cells
+    // Check if a widget placement overlaps any existing widget
+    function checkOverlap(desk, dropC, dropR, dropW, dropH, excludeId){
+      const off=colOffset.value;
+      for(const w of desk.widgets){
+        if(w.id===excludeId)continue;
+        if(!w.pos)continue;
+        const wc=w.pos.c+off, wr=w.pos.r, ww=w.pos.w, wh=w.pos.h;
+        const dc=dropC, dr=dropR;
+        // AABB overlap test
+        if(dc<wc+ww && dc+dropW>wc && dr<wr+wh && dr+dropH>wr)return true;
+      }
+      return false;
+    }
+
+    function onGridDragOver(e,desk){
+      if(!dragW.value||!editMode.value)return;
+      e.preventDefault();
+      clearTimeout(_dragCancelTimer);
+      const gridEl=e.currentTarget;
+      const rect=gridEl.getBoundingClientRect();
+      const cols=gridCols.value;
+      const cs=getComputedStyle(gridEl);
+      const gapV=parseFloat(cs.gap)||10;
+      const rowH=parseFloat(cs.gridAutoRows)||180;
+      // Read actual column positions from grid tracks
+      const colTracks=cs.gridTemplateColumns.split(/\s+/).map(parseFloat);
+      const cellW=colTracks[0]||200;
+      // Find grid content start X by checking where column 1 actually starts
+      const contentW=colTracks.reduce((s,v)=>s+v,0)+(cols-1)*gapV;
+      const startX=(rect.width-contentW)/2;
+      const mx=e.clientX-rect.left-startX;
+      const my=e.clientY-rect.top;
+      // Find nearest column by checking distance to each column center
+      let gc=0,bestDist=Infinity;
+      for(let c=0;c<cols;c++){
+        const colCenter=c*(cellW+gapV)+cellW/2;
+        const d=Math.abs(mx-colCenter);
+        if(d<bestDist){bestDist=d;gc=c}
+      }
+      const gr=Math.max(0,Math.floor(my/(rowH+gapV)));
+      const [wc,wr]=dragW.value.size.split('x').map(Number);
+      const hasOverlap=checkOverlap(desk,gc,gr,wc,wr,dragW.value.id);
+      const color=hasOverlap?'var(--danger)':'var(--primary)';
+      // Use CSS grid placement for the ghost — matches widget layout exactly
+      const cssCol=gc-colOffset.value;
+      dragGhost.value={
+        gridColumn:(gc+1)+' / span '+wc,
+        gridRow:(gr+1)+' / span '+wr,
+        borderColor:color,
+        background:hasOverlap?'rgba(239,68,68,.08)':'rgba(59,130,246,.06)'
+      };
+      dragW.value._dropPos=hasOverlap?null:{c:cssCol,r:gr,w:wc,h:wr};
+    }
+
+    function onGridDrop(e,desk){
+      e.preventDefault();
+      if(!dragW.value)return;
+      const pos=dragW.value._dropPos;
+      if(pos){
+        dragW.value.pos={c:pos.c,r:pos.r,w:pos.w,h:pos.h};
+        delete dragW.value._dropPos;
+        showT('Widget placed');
+      }else{
+        showT('Cannot place here — overlap');
+      }
+      dragW.value=null;dragDesk.value=null;dragGhost.value=null;
+    }
+    // Clean up drag state if drag is cancelled (e.g., escape, drag outside)
+    document.addEventListener('dragend',()=>{dragW.value=null;dragDesk.value=null;dragGhost.value=null});
+
+    // Viewport style — tinted background and plasma CSS vars based on active desktop
+    const viewportStyle=computed(()=>{
+      const tint=desktopTints[activeDesktop.value?.tint||0]||desktopTints[0];
+      return{
+        backgroundColor:tint.bg,
+        '--plasma1':tint.plasma1,
+        '--plasma2':tint.plasma2,
+        '--plasma3':tint.plasma3,
+      };
+    });
+
+    function getHortEdges(w,desk){
+      const cache=_hortGridCache.value[desk.id];
+      if(!cache)return[];
+      const p=cache.wmap[w.id];
+      if(!p||!p.hort)return[];
+      const g=cache.grid;
+      const hg=getHortGroup(p.hort);
+      const edges=[];
+      // Top: any cell in top row faces different above?
+      let top=false;for(let dc=0;dc<p.w;dc++){if(g[(p.r-1)+','+(p.c+dc)]!==p.hort){top=true;break}}
+      let bot=false;for(let dc=0;dc<p.w;dc++){if(g[(p.r+p.h)+','+(p.c+dc)]!==p.hort){bot=true;break}}
+      let lft=false;for(let dr=0;dr<p.h;dr++){if(g[(p.r+dr)+','+(p.c-1)]!==p.hort){lft=true;break}}
+      let rgt=false;for(let dr=0;dr<p.h;dr++){if(g[(p.r+dr)+','+(p.c+p.w)]!==p.hort){rgt=true;break}}
+      if(top)edges.push({side:'top',color:hg.color});
+      if(bot)edges.push({side:'bottom',color:hg.color});
+      if(lft)edges.push({side:'left',color:hg.color});
+      if(rgt)edges.push({side:'right',color:hg.color});
+      return edges;
+    }
+
+    // (old SVG approach — kept for reference)
+    function hortOverlayPaths(desk){
+      const widgets=getWidgets(desk);
+      const cols=window.innerWidth>=1024?4:window.innerWidth>=640?3:2;
+      // Build cell grid: "r,c" -> hortId
+      const grid={};const wpos=[];
+      let r=0,c=0;
+      for(const w of widgets){
+        const [wc,wr]=w.size.split('x').map(Number);
+        const h=w.hpiort||null;
+        while(grid[r+','+c]){c++;if(c>=cols){c=0;r++}}
+        for(let dr=0;dr<wr;dr++)for(let dc=0;dc<wc;dc++)grid[(r+dr)+','+(c+dc)]=h;
+        wpos.push({r,c,w:wc,h:wr,hort:h,id:w.id});
+        c+=wc;if(c>=cols){c=0;r++}
+      }
+      // Cell dimensions in SVG viewBox units (100 wide)
+      const gapPct=1.2;// gap as % of width
+      const padPct=1.2;// padding
+      const cellW=(100-padPct*2-gapPct*(cols-1))/cols;
+      const cellH=cellW*1.8;// aspect ~16:10 row height
+      function cx(col){return padPct+col*(cellW+gapPct)}
+      function cy(row){return padPct+row*(cellH+gapPct)}
+      // For each hort group, find outer edges and build path
+      const horts=new Set(Object.values(grid).filter(Boolean));
+      const paths=[];
+      const rd=1.2;// corner radius
+      for(const hid of horts){
+        const hg=getHortGroup(hid);
+        // Collect all cells of this hort
+        const cells=new Set();
+        for(const[k,v]of Object.entries(grid))if(v===hid)cells.add(k);
+        // For each cell, draw edges facing outside
+        let d='';
+        for(const key of cells){
+          const[cr,cc]=key.split(',').map(Number);
+          const x1=cx(cc)-gapPct/2, y1=cy(cr)-gapPct/2;
+          const x2=x1+cellW+gapPct, y2=y1+cellH+gapPct;
+          // Top edge
+          if(!cells.has((cr-1)+','+cc))d+=`M${x1+rd},${y1}L${x2-rd},${y1}`;
+          // Bottom edge
+          if(!cells.has((cr+1)+','+cc))d+=`M${x1+rd},${y2}L${x2-rd},${y2}`;
+          // Left edge
+          if(!cells.has(cr+','+(cc-1)))d+=`M${x1},${y1+rd}L${x1},${y2-rd}`;
+          // Right edge
+          if(!cells.has(cr+','+(cc+1)))d+=`M${x2},${y1+rd}L${x2},${y2-rd}`;
+          // Rounded corners where two outer edges meet
+          if(!cells.has((cr-1)+','+cc)&&!cells.has(cr+','+(cc-1)))d+=`M${x1},${y1+rd}Q${x1},${y1} ${x1+rd},${y1}`;
+          if(!cells.has((cr-1)+','+cc)&&!cells.has(cr+','+(cc+1)))d+=`M${x2-rd},${y1}Q${x2},${y1} ${x2},${y1+rd}`;
+          if(!cells.has((cr+1)+','+cc)&&!cells.has(cr+','+(cc-1)))d+=`M${x1+rd},${y2}Q${x1},${y2} ${x1},${y2-rd}`;
+          if(!cells.has((cr+1)+','+cc)&&!cells.has(cr+','+(cc+1)))d+=`M${x2},${y2-rd}Q${x2},${y2} ${x2-rd},${y2}`;
+          // Inner corners (concave) — where diagonal neighbor is different but both adjacent are same
+          if(cells.has((cr-1)+','+cc)&&cells.has(cr+','+(cc-1))&&!cells.has((cr-1)+','+(cc-1)))d+=`M${x1},${y1-gapPct/2+rd}Q${x1},${y1} ${x1-gapPct/2+rd},${y1}`;
+          if(cells.has((cr-1)+','+cc)&&cells.has(cr+','+(cc+1))&&!cells.has((cr-1)+','+(cc+1)))d+=`M${x2+gapPct/2-rd},${y1}Q${x2},${y1} ${x2},${y1-gapPct/2+rd}`;
+          if(cells.has((cr+1)+','+cc)&&cells.has(cr+','+(cc-1))&&!cells.has((cr+1)+','+(cc-1)))d+=`M${x1-gapPct/2+rd},${y2}Q${x1},${y2} ${x1},${y2+gapPct/2-rd}`;
+          if(cells.has((cr+1)+','+cc)&&cells.has(cr+','+(cc+1))&&!cells.has((cr+1)+','+(cc+1)))d+=`M${x2},${y2+gapPct/2-rd}Q${x2},${y2} ${x2+gapPct/2-rd},${y2}`;
+        }
+        if(d)paths.push({d,color:hg.color});
+      }
+      return paths;
+    }
+    function hortOverlayH(desk){
+      const widgets=getWidgets(desk);
+      const cols=window.innerWidth>=1024?4:window.innerWidth>=640?3:2;
+      let r=0,c=0,maxR=0;
+      for(const w of widgets){
+        const[wc,wr]=w.size.split('x').map(Number);
+        while(c>=cols){c=0;r++}// simplified
+        maxR=Math.max(maxR,r+wr);c+=wc;if(c>=cols){c=0;r++}
+      }
+      const cellW=(100-2.4-1.2*(cols-1))/cols;
+      return 2.4+maxR*(cellW*1.8+1.2);
+    }
+
+    // (old function kept for reference)
+    function computeHortEdges(desk){
+      const widgets=getWidgets(desk);
+      const cols=window.innerWidth>=1024?4:window.innerWidth>=640?3:2;
+      // Build occupancy grid
+      const grid={};// "r,c" -> hortId
+      const wpos={};// widgetId -> {r,c,w,h}
+      let r=0,c=0;
+      for(const w of widgets){
+        const [wc,wr]=w.size.split('x').map(Number);
+        const hort=w.hpiort||desk.hpiort||null;
+        // Find next free cell
+        while(grid[r+','+c]){c++;if(c>=cols){c=0;r++}}
+        // Occupy
+        for(let dr=0;dr<wr;dr++)for(let dc=0;dc<wc;dc++)grid[(r+dr)+','+(c+dc)]=hort;
+        wpos[w.id]={r,c,w:wc,h:wr,hort};
+        c+=wc;if(c>=cols){c=0;r++}
+      }
+      // Ghost card occupies 1x1
+      while(grid[r+','+c]){c++;if(c>=cols){c=0;r++}}
+      // Compute edges for each widget
+      const result={};
+      for(const w of widgets){
+        const p=wpos[w.id];
+        if(!p.hort){result[w.id]={classes:[],style:{}};continue}
+        const hg=getHortGroup(p.hort);
+        let t=false,b=false,l=false,ri=false;
+        // Top: any cell in top row has different neighbor above?
+        for(let dc=0;dc<p.w;dc++){const nb=grid[(p.r-1)+','+(p.c+dc)];if(nb!==p.hort){t=true;break}}
+        // Bottom
+        for(let dc=0;dc<p.w;dc++){const nb=grid[(p.r+p.h)+','+(p.c+dc)];if(nb!==p.hort){b=true;break}}
+        // Left
+        for(let dr=0;dr<p.h;dr++){const nb=grid[(p.r+dr)+','+(p.c-1)];if(nb!==p.hort){l=true;break}}
+        // Right
+        for(let dr=0;dr<p.h;dr++){const nb=grid[(p.r+dr)+','+(p.c+p.w)];if(nb!==p.hort){ri=true;break}}
+        const cls=['hort-edge'];
+        if(t)cls.push('hort-t');if(b)cls.push('hort-b');if(l)cls.push('hort-l');if(ri)cls.push('hort-r');
+        result[w.id]={classes:cls,style:{borderColor:hg.color,borderStyle:'solid'}};
+      }
+      return result;
+    }
+    // Cache per desktop (recompute when widgets change)
+    const hortEdgeCache=computed(()=>{
+      const m={};
+      for(const d of desktops)m[d.id]=computeHortEdges(d);
+      return m;
+    });
+    function widgetHortClasses(w,desk){return(hortEdgeCache.value[desk.id]?.[w.id]?.classes)||[]}
+    function widgetHortStyle(w,desk){return(hortEdgeCache.value[desk.id]?.[w.id]?.style)||{}}
+    // Track width only — transform always managed by snapTrack/applySwipeOffset
+    const trackStyle=computed(()=>({width:desktops.length*100+'%'}));
+    // Snap on deskIdx change and on mount
+    watch(deskIdx,()=>nextTick(()=>snapTrack()));
+    onMounted(()=>setTimeout(()=>snapTrack(),50));;
+
+    // Desktop swipe — real-time tracking, attached to viewport
+    const trackEl=ref(null);
+    const vpEl=ref(null);
+    let _sx=0,_sy=0,_sw=false,_swLocked=false,_swOffset=0;
+    const swipeDrag=ref(false); // true while actively dragging
+
+    function applySwipeOffset(dx){
+      const t=trackEl.value;if(!t)return;
+      const pageW=t.offsetWidth/desktops.length;
+      const baseX=-deskIdx.value*pageW;
+      // Rubber-band at edges
+      let clamped=dx;
+      if(deskIdx.value===0&&dx>0)clamped=dx*.3;
+      if(deskIdx.value===desktops.length-1&&dx<0)clamped=dx*.3;
+      t.style.transition='none';
+      t.style.transform=`translateX(${baseX+clamped}px)`;
+    }
+    function snapTrack(){
+      const t=trackEl.value;if(!t)return;
+      const pageW=t.offsetWidth/desktops.length;
+      t.style.transition='transform .25s cubic-bezier(.25,.1,.25,1)';
+      t.style.transform=`translateX(${-deskIdx.value*pageW}px)`;
+    }
+
+    onMounted(()=>{
+      const el=vpEl.value;
+      if(!el)return;
+
+      el.addEventListener('touchstart',e=>{
+        if(editMode.value)return; // no swiping in edit mode
+        _sx=e.touches[0].clientX;_sy=e.touches[0].clientY;_sw=false;_swLocked=false;_swOffset=0;
+      },{passive:true});
+
+      el.addEventListener('touchmove',e=>{
+        if(editMode.value||_swLocked)return;
+        const dx=e.touches[0].clientX-_sx,dy=e.touches[0].clientY-_sy;
+        if(!_sw&&Math.abs(dy)>Math.abs(dx)&&Math.abs(dy)>10){_swLocked=true;return}
+        if(!_sw&&Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>12){
+          _sw=true;swipeDrag.value=true;
+          // Cancel any long-press
+          clearTimeout(_lp);clearTimeout(_dotLp);lpCircle.value=null;
+        }
+        if(_sw){e.preventDefault();_swOffset=dx;applySwipeOffset(dx)}
+      },{passive:false});
+
+      el.addEventListener('touchend',e=>{
+        if(!_sw){swipeDrag.value=false;return}
+        const dx=e.changedTouches[0].clientX-_sx;
+        const threshold=window.innerWidth*.2;
+        if(dx<-threshold&&deskIdx.value<desktops.length-1)deskIdx.value++;
+        else if(dx>threshold&&deskIdx.value>0)deskIdx.value--;
+        snapTrack();_sw=false;swipeDrag.value=false;
+      },{passive:true});
+
+      // Mouse drag for desktop browsers
+      el.addEventListener('mousedown',e=>{
+        if(e.button!==0||editMode.value)return; // no swiping in edit mode
+        const sx=e.clientX;let dragging=false;
+        function onMove(ev){
+          const dx=ev.clientX-sx;
+          if(!dragging&&Math.abs(dx)>8){
+            dragging=true;swipeDrag.value=true;
+            clearTimeout(_lp);clearTimeout(_dotLp);lpCircle.value=null;
+          }
+          if(dragging){ev.preventDefault();applySwipeOffset(dx)}
+        }
+        function onUp(ev){
+          document.removeEventListener('mousemove',onMove);
+          document.removeEventListener('mouseup',onUp);
+          if(!dragging)return;
+          const dx=ev.clientX-sx;
+          const threshold=window.innerWidth*.2;
+          if(dx<-threshold&&deskIdx.value<desktops.length-1)deskIdx.value++;
+          else if(dx>threshold&&deskIdx.value>0)deskIdx.value--;
+          snapTrack();swipeDrag.value=false;
+        }
+        document.addEventListener('mousemove',onMove);
+        document.addEventListener('mouseup',onUp);
+      });
+    });
+
+    function getActivePage(){return document.querySelectorAll('.page')[deskIdx.value]}
+
+    // === Color field renderer — per-pixel distance-weighted hort blending ===
+    const CF_W=160; // height computed dynamically per render to match aspect ratio
+    function renderColorField(desk,canvas){
+      if(!canvas)return;
+      const page=canvas.closest('.page');
+      if(!page)return;
+      const CF_H=Math.max(40,Math.round(CF_W*ph/Math.max(pw,1)));
+      canvas.width=CF_W;canvas.height=CF_H;
+      const ctx=canvas.getContext('2d');
+      const pageRect=page.getBoundingClientRect();
+      const gridEl=page.querySelector('.grid');
+      const margin=0;
+      const pw=pageRect.width;
+      const ph=gridEl?gridEl.scrollHeight:pageRect.height;
+      canvas.style.height=ph+'px';
+      if(pw<1||ph<1)return;
+
+      const deskTint=desktopTints[desk.tint||0];
+      const di=desktops.indexOf(desk);
+
+      // Collect sources from THIS desktop + neighbors (for cross-desktop blending)
+      const sources=[];
+      function addSources(d,offsetX){
+        const dTint=desktopTints[d.tint||0];
+        const widgets=getWidgets(d);
+        const pages=document.querySelectorAll('.page');
+        const pi=desktops.indexOf(d);
+        const gridEl=pages[pi]?.querySelector('.grid');
+        if(!gridEl)return;
+        const widgetEls=gridEl.querySelectorAll('.widget');
+        widgetEls.forEach((el,i)=>{
+          if(i>=widgets.length)return;
+          const w=widgets[i];
+          const hort=w.hpiort||d.hpiort||null;
+          const hg=hort?hortGroups.find(h=>h.id===hort):null;
+          const rgb=hg?desktopTints[hg.tint||0].rgb:dTint.rgb;
+          const wr=el.getBoundingClientRect();
+          const scrollY=pages[pi]?.scrollTop||0;
+          sources.push({
+            x1:(wr.left-pageRect.left)/pw+offsetX,
+            y1:(wr.top-pageRect.top+scrollY)/ph,
+            x2:(wr.left+wr.width-pageRect.left)/pw+offsetX,
+            y2:(wr.top+wr.height-pageRect.top+scrollY)/ph,
+            rgb
+          });
+        });
+      }
+      addSources(desk,0);
+
+      // Paint radial gradients centered on each widget — perfectly symmetric
+      ctx.fillStyle=`rgb(${BORDER_RGB.join(',')})`;
+      ctx.fillRect(0,0,CF_W,CF_H);
+      // Paint soft rounded rects matching widget shapes
+      const boost=2.0;
+      const glow=5;
+      for(const s of sources){
+        const r=Math.min(255,Math.round(s.rgb[0]*boost));
+        const g=Math.min(255,Math.round(s.rgb[1]*boost));
+        const b=Math.min(255,Math.round(s.rgb[2]*boost));
+        const x1=s.x1*CF_W, y1=s.y1*CF_H;
+        const w=(s.x2-s.x1)*CF_W, h=(s.y2-s.y1)*CF_H;
+        const rd=2;
+        // Glow layers first (back to front) — clamped to canvas
+        for(let i=glow;i>=1;i--){
+          const a=Math.pow(1-i/glow,2.5);
+          ctx.fillStyle=`rgba(${r},${g},${b},${a.toFixed(2)})`;
+          ctx.beginPath();
+          ctx.roundRect(Math.max(0,x1-i),Math.max(0,y1-i),
+            Math.min(CF_W,x1+w+i)-Math.max(0,x1-i),
+            Math.min(CF_H,y1+h+i)-Math.max(0,y1-i), rd+i);
+          ctx.fill();
+        }
+        // Solid core
+        ctx.fillStyle=`rgb(${r},${g},${b})`;
+        ctx.beginPath();
+        ctx.roundRect(x1,y1,w,h,rd);
+        ctx.fill();
+      }
+    }
+
+    function updateAllColorFields(){
+      document.querySelectorAll('.hort-field').forEach(canvas=>{
+        const deskId=canvas.dataset.desk;
+        const desk=desktops.find(d=>d.id===deskId);
+        if(desk)renderColorField(desk,canvas);
+      });
+    }
+    onMounted(()=>setTimeout(updateAllColorFields,300));
+    watch([()=>desktops.map(d=>d.widgets.map(w=>w.hpiort).join()+d.tint).join(),deskIdx],()=>nextTick(()=>setTimeout(updateAllColorFields,100)));
+    window.addEventListener('resize',()=>setTimeout(updateAllColorFields,200));
+
+    // Horizontal scroll wheel switches desktops
+    let _wheelCd=false;
+    function mSwWheel(e){
+      if(_wheelCd||editMode.value)return;
+      if(Math.abs(e.deltaX)>Math.abs(e.deltaY)&&Math.abs(e.deltaX)>20){
+        if(e.deltaX>0&&deskIdx.value<desktops.length-1)deskIdx.value++;
+        else if(e.deltaX<0&&deskIdx.value>0)deskIdx.value--;
+        _wheelCd=true;setTimeout(()=>{_wheelCd=false},300);
+      }
+    }
+
+    let _glp=null;
+    let _lpX=0,_lpY=0;
+    function lpS(e,w){
+      _lpX=e.clientX;_lpY=e.clientY;
+      const onMove=ev=>{
+        if(Math.abs(ev.clientX-_lpX)>8||Math.abs(ev.clientY-_lpY)>8){clearTimeout(_lp);document.removeEventListener('pointermove',onMove)}
+      };
+      document.addEventListener('pointermove',onMove);
+      _lp=setTimeout(()=>{editMode.value=true;document.removeEventListener('pointermove',onMove)},500);
+    }
+    function lpE(){clearTimeout(_lp)}
+    function gridLpS(e){_glp=setTimeout(()=>{onGridCtx(e)},500)}
+
+    // Long-press on dot area → overview with circle feedback
+    let _dotLp=null;
+    const lpCircle=ref(null);
+    function dotLpS(e){
+      const rect=e.currentTarget.getBoundingClientRect();
+      const sx=e.clientX,sy=e.clientY;
+      lpCircle.value={x:sx-rect.left, y:sy-rect.top};
+      let dragging=false;
+      const onMove=ev=>{
+        const dx=ev.clientX-sx;
+        if(!dragging&&Math.abs(dx)>15){
+          dragging=true;
+          clearTimeout(_dotLp);lpCircle.value=null;
+        }
+        if(dragging){
+          // Drag inside pill → switch desktop based on direction
+          if(dx>30&&deskIdx.value<desktops.length-1){deskIdx.value++;sx_=ev.clientX}
+          else if(dx<-30&&deskIdx.value>0){deskIdx.value--;sx_=ev.clientX}
+        }
+      };
+      let sx_=sx;
+      const origOnMove=ev=>{
+        const dx=ev.clientX-sx_;
+        if(!dragging&&Math.abs(ev.clientX-sx)>15){
+          dragging=true;clearTimeout(_dotLp);lpCircle.value=null;
+        }
+        if(dragging){
+          if(dx>30&&deskIdx.value<desktops.length-1){deskIdx.value++;sx_=ev.clientX}
+          else if(dx<-30&&deskIdx.value>0){deskIdx.value--;sx_=ev.clientX}
+        }
+      };
+      const onUp=()=>{document.removeEventListener('pointermove',origOnMove);document.removeEventListener('pointerup',onUp)};
+      document.addEventListener('pointermove',origOnMove);
+      document.addEventListener('pointerup',onUp);
+      _dotLp=setTimeout(()=>{if(!dragging){lpCircle.value=null;zoomedOut.value=true}document.removeEventListener('pointermove',origOnMove);document.removeEventListener('pointerup',onUp)},400);
+    }
+    function dotLpE(){clearTimeout(_dotLp);lpCircle.value=null}
+    const dotEls=ref([]);
+    function dotTrackClick(e){
+      const dots=dotEls.value;
+      if(!dots||!dots.length)return;
+      const cx=e.clientX;
+      let closest=0,minDist=Infinity;
+      dots.forEach((el,i)=>{
+        const rect=el.getBoundingClientRect();
+        const dist=Math.abs(cx-(rect.left+rect.width/2));
+        if(dist<minDist){minDist=dist;closest=i}
+      });
+      deskIdx.value=closest;
+    }
+
+    // Drag-to-reorder
+    let _dragW=null,_dragDesk=null,_dragIdx=-1;
+    function dragStart(e,w,desk,idx){_dragW=w;_dragDesk=desk;_dragIdx=idx;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',w.id)}
+    function dragOver(e,idx){e.dataTransfer.dropEffect='move'}
+    function dragDrop(e,targetW,desk,targetIdx){
+      e.preventDefault();
+      if(!_dragW||_dragDesk!==desk||_dragW.id===targetW.id)return;
+      const srcOrder=_dragW.order;
+      _dragW.order=targetW.order;
+      targetW.order=srcOrder;
+      _dragW=null;_dragDesk=null;
+      showT('Widget moved');
+    }
+
+    // Drop to desktop target
+    function dropToDesktop(e,targetIdx){
+      if(!_dragW||!_dragDesk)return;
+      const targetDesk=desktops[targetIdx];
+      if(targetDesk===_dragDesk)return;
+      _dragDesk.widgets=_dragDesk.widgets.filter(w=>w.id!==_dragW.id);
+      _dragW.order=targetDesk.widgets.length;
+      targetDesk.widgets.push(_dragW);
+      deskIdx.value=targetIdx;
+      showT('Moved to '+targetDesk.name);
+      _dragW=null;_dragDesk=null;
+    }
+    function dropToNewDesktop(e){
+      if(!_dragW||!_dragDesk)return;
+      const name='Desktop '+(desktops.length);
+      const nd={id:'d_'+Date.now(),name,isHome:false,tint:desktops.length%desktopTints.length,widgets:[]};
+      _dragDesk.widgets=_dragDesk.widgets.filter(w=>w.id!==_dragW.id);
+      _dragW.order=0;
+      nd.widgets.push(_dragW);
+      desktops.push(nd);
+      deskIdx.value=desktops.length-1;
+      showT('Created "'+name+'"');
+      _dragW=null;_dragDesk=null;
+    }
+    function dropToTrash(e){
+      if(!_dragW||!_dragDesk)return;
+      _dragDesk.widgets=_dragDesk.widgets.filter(w=>w.id!==_dragW.id);
+      showT('Widget removed');
+      _dragW=null;_dragDesk=null;
+    }
+
+    // Drag-to-resize
+    function resizeStart(e,w,axis){
+      e.preventDefault();
+      const startX=e.clientX,startY=e.clientY;
+      const [cols,rows]=w.size.split('x').map(Number);
+      const threshold=30;
+
+      function onMove(ev){
+        const dx=ev.clientX-startX,dy=ev.clientY-startY;
+        if(axis==='w'){
+          const newCols=dx>threshold?2:dx<-threshold?1:cols;
+          w.size=newCols+'x'+rows;
+          if(w.pos)w.pos.w=newCols;
+        }else{
+          const newRows=dy>threshold?2:dy<-threshold?1:rows;
+          w.size=cols+'x'+newRows;
+          if(w.pos)w.pos.h=newRows;
+        }
+      }
+      function onUp(){
+        document.removeEventListener('pointermove',onMove);
+        document.removeEventListener('pointerup',onUp);
+      }
+      document.addEventListener('pointermove',onMove);
+      document.addEventListener('pointerup',onUp);
+    }
+    function gridLpE(){clearTimeout(_glp)}
+
+    function openPicker(){pickerSearch.value='';pickerCat.value=null;lensMode.value=null;picker.value=true}
+
+    // Favorites: top llmings that are active
+    const favWidgets=computed(()=>catalog.filter(c=>['system-monitor','llming-lens','llming-wire'].includes(c.id)).map(c=>({id:c.id,name:c.name,iconClass:c.iconClass,cat:c})));
+    // Recents: last 3 added widget types (deduped)
+    const recentWidgets=computed(()=>{
+      const seen=new Set();
+      return recentAdds.filter(r=>{if(seen.has(r.key))return false;seen.add(r.key);return true}).slice(0,4);
+    });
+
+    function onGridCtx(e){
+      if(dragW.value||swipeDrag.value||_sw)return; // no context menu while any drag active
+      gridCtx.x=Math.min(e.clientX,innerWidth-240);
+      gridCtx.y=Math.min(e.clientY,innerHeight-300);
+      gridCtx.open=true;
+    }
+    function addFromFav(f){addFromCat(f.cat)}
+    function addFromRecent(r){addW(r.type,r.extId,r.subId,r.size,{...r.c})}
+    function openScreenPicker(){screenPicker.value=true}
+    function addScreenWidget(scr){addW('extension-sub','llming-lens',scr.id,'1x1',{title:scr.app,iconClass:scr.iconClass,iconColor:scr.color,screenName:scr.title})}
+    function onWCtx(e,w,desk){if(dragW.value||swipeDrag.value||_sw)return;wctx.x=Math.min(e.clientX,innerWidth-200);wctx.y=Math.min(e.clientY,innerHeight-250);wctx.w=w;wctx.desk=desk;wctx.open=true}
+
+    function addW(type,extId,subId,size,c){
+      const d=activeDesktop.value;
+      const sz=size.replace(/\u00d7/g,'x');
+      d.widgets.push({id:wid(),type,extId,subId,size:sz,order:d.widgets.length,c:c||{},borderStyle:{}});
+      // Track recent
+      const key=type+':'+(extId||'')+'/'+(subId||'');
+      recentAdds.unshift({key,name:c?.title||extId||type,iconClass:c?.iconClass||'ph ph-puzzle-piece',type,extId,subId,size:sz,c:{...c}});
+      if(recentAdds.length>10)recentAdds.length=10;
+      showT('Widget added');
+    }
+    function addFromCat(cat){
+      addW('extension',cat.extId,null,cat.defaultSize.replace(/\u00d7/g,'x'),{...cat.c});
+    }
+    function addSubWidget(cat,child){
+      addW('extension-sub',cat.extId,child.id,
+        (child.size||'1\u00d71').replace(/\u00d7/g,'x'),
+        {title:child.name,iconClass:child.iconClass||cat.iconClass,screenName:child.name});
+    }
+    function rmW(w,desk){desk.widgets=desk.widgets.filter(x=>x.id!==w.id);showT('Widget removed')}
+    function spawnClaude(){const n='claude_'+Math.random().toString(36).slice(2,5);addW('terminal',null,n,'1x2',{title:n,iconClass:'ph ph-terminal-window',iconColor:'var(--purple)',state:'idle',idle:0,output:'$ claude\n\nWelcome! How can I help?'})}
+    function spawnTerm(){addW('terminal',null,'shell','1x1',{title:'Terminal',iconClass:'ph ph-terminal',state:'idle',output:'$ \nReady.'})}
+    function addDesk(){nameEd.value={title:'New Desktop',value:'',btn:'Create',save:()=>{const n=nameEd.value.value.trim()||'Desktop '+desktops.length;desktops.push({id:'d_'+Date.now(),name:n,isHome:false,tint:desktops.length%desktopTints.length,widgets:[]});deskIdx.value=desktops.length-1;nameEd.value=null;showT('"'+n+'" created')}}}
+    function editDesktopName(){const d=activeDesktop.value;if(d.isHome)return;nameEd.value={title:'Rename Desktop',value:d.name,btn:'Save',save:()=>{d.name=nameEd.value.value.trim()||d.name;nameEd.value=null}}}
+    function onTap(w){showT('Opening '+(w.c.title||w.type)+'...')}
+    function onWidgetClick(w){
+      if(selectedWidget.value===w.id){
+        // Second tap — open it
+        selectedWidget.value=null;
+        onTap(w);
+      }else{
+        // First tap — select (show resize handles)
+        selectedWidget.value=w.id;
+      }
+    }
+    function showT(m){toast.value=m;clearTimeout(_tt);_tt=setTimeout(()=>{toast.value=''},2000)}
+
+    function onKey(e){
+      if(e.key==='Escape'){
+        if(deviceView.value){deviceView.value=false;return}
+        if(zoomedOut.value){zoomedOut.value=false;return}
+        editMode.value=false;picker.value=false;drawer.value=false;nameEd.value=null;wctx.open=false;gridCtx.open=false;selectedWidget.value=null;
+      }
+      if(e.key==='ArrowLeft'&&deskIdx.value>0&&!picker.value&&!drawer.value)deskIdx.value--;
+      if(e.key==='ArrowRight'&&deskIdx.value<desktops.length-1&&!picker.value&&!drawer.value)deskIdx.value++;
+    }
+    onMounted(()=>{
+      document.addEventListener('keydown',onKey);
+    });
+    onUnmounted(()=>document.removeEventListener('keydown',onKey));
+
+    return{drawer,picker,pickerSearch,pickerCat,dwSearch,editMode,deskIdx,toast,nameEd,viewers,wctx,gridCtx,
+      fabOpen,screenPicker,screens,
+      lensMode,lensWinSearch,lensFilterText,lensFilters,lensFilterSize,lensWinSize,lensScreens,filteredLensWindows,selectedLensWindows,lensAllFilterMatches,
+      hortGroups,getHortGroup,getGroupedWidgets,desktopTints,widgetStyle,widgetGridStyle,viewportStyle,colOffset,
+      gridCells,dragW,dragGhost,onDragStart,onDrop,onGridDragOver,onGridDrop,
+      desktops,activeDesktop,lemmingColor,trackStyle,getWidgets,cpu,spark,timeStr,llmings,catalog,filteredCatalog,activeCatData,dwResults,
+      favWidgets,recentWidgets,
+      selectedWidget,zoomedOut,overviewDrop,lpCircle,trackEl,vpEl,swipeDrag,ovCardW,ovCardH,ovScale,ovContentW,ovContentH,
+      deviceView,activeDevice,devices,pullDown,deviceHeaderH,pageEls,
+      mSwWheel,lpS,lpE,gridLpS,gridLpE,dotLpS,dotLpE,dotEls,dotTrackClick,openPicker,openScreenPicker,onGridCtx,onWCtx,onTap,onWidgetClick,
+      addW,addFromCat,addFromFav,addFromRecent,addSubWidget,addScreenWidget,addSelectedWindows,addMultiFilterWidget,addFilterTag,rmW,
+      spawnClaude,spawnTerm,addDesk,editDesktopName,showT,
+      dropToDesktop,dropToNewDesktop,dropToTrash,resizeStart}
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
