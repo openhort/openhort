@@ -175,6 +175,11 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     )
     app.include_router(command_router, prefix="/api/llming")
 
+    # Mount credential management API
+    from hort.credentials.api import build_credential_router
+    credential_router = build_credential_router()
+    app.include_router(credential_router, prefix="/api")
+
     @app.on_event("startup")
     async def _on_startup() -> None:
         load_plugins_sync(plugin_registry)
