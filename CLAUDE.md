@@ -150,6 +150,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 ## Critical Rules
 
+- **NEVER commit personal info, credentials, or identifiable data.** No real usernames, email addresses, API keys, tokens, registry hostnames, or organization names in code, config examples, docs, or test fixtures. Use generic placeholders (`alice_dev`, `user@example.com`, `yourregistry.azurecr.io`). The only exception is the LICENSE file copyright.
 - **NEVER expose internal errors to users.** Stack traces, docker commands, container IDs, file paths, Python exceptions — NONE of this may ever appear in Telegram messages, web chat responses, API responses to unauthenticated clients, or any user-facing channel. Catch all exceptions and return safe generic messages ("Something went wrong. Try again."). Full details go to logs only. See [Error Handling](docs/manual/internals/security/error-handling.md).
 - **Sandbox containers run until hort stops.** Containers are created on first use and persist across messages. On `hort stop` or status bar quit, ALL sandbox containers (`ohsb-*`) are stopped and removed. On `hort start`, orphaned containers from crashes are cleaned up. Never create containers eagerly at startup.
 - **NEVER run `git commit`.** Only the user commits.
