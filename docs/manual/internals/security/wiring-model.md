@@ -272,63 +272,43 @@ When multiple wiring forms coexist, rules stack:
 flowchart TD
     CALL["Tool call / data flow"] --> F1{"Hort-to-hort<br/>wire rules?"}
     F1 -->|"DENY"| BLOCKED["BLOCKED"]
-    F1 -->|"ALLOW"| F2{"Llming<br/>wire rules?"}
+    F1 -->|"ALLOW"| F2{"Group<br/>rules?"}
     F2 -->|"DENY"| BLOCKED
-    F2 -->|"ALLOW"| F3{"Direct wire<br/>rules? (if exists)"}
+    F2 -->|"ALLOW"| F3{"Llming<br/>wire rules?"}
     F3 -->|"DENY"| BLOCKED
-    F3 -->|"ALLOW / N/A"| OK["PROCEED"]
+    F3 -->|"ALLOW"| F4{"Direct wire<br/>rules? (if exists)"}
+    F4 -->|"DENY"| BLOCKED
+    F4 -->|"ALLOW / N/A"| OK["PROCEED"]
     
     style BLOCKED fill:#f44336,color:#fff
     style OK fill:#4caf50,color:#fff
 ```
 
 1. **Hort-to-hort wire** — the outer blanket. Cannot be overridden by inner rules.
-2. **Llming wire** — per-llming rules inside the hort. Further restricts.
-3. **Direct wire** — if two llmings have a direct connection, those rules apply additionally. Direct wires can open paths that aren't available through the agent (like broadcast events) but **cannot bypass** hort-level restrictions.
+2. **Group rules** — session isolation, taint, relations. See [Group Isolation](group-isolation.md).
+3. **Llming wire** — per-llming rules inside the hort. Further restricts.
+4. **Direct wire** — if two llmings have a direct connection, those rules apply additionally. Direct wires can open paths that aren't available through the agent (like broadcast events) but **cannot bypass** hort-level or group restrictions.
 
-!!! danger "Direct wires cannot weaken hort rules"
-    A direct wire between two llmings can allow broadcasts and circuit triggers that don't go through the agent. But if the hort-to-hort wire says `deny: [send_*]`, the direct wire cannot override that with `allow: [send_email]`. Hort rules are the ceiling.
+!!! danger "Inner rules cannot weaken outer rules"
+    A group, llming wire, or direct wire cannot override hort-to-hort rules. If the hort wire says `deny: [send_*]`, no inner rule can allow `send_email`. Each layer can only further restrict — the most restrictive wins.
 
-### Form 4: Fence (Virtual Boundary)
+### Form 4: Groups (Virtual Boundary)
 
-A fence is a **virtual grouping** drawn around any set of llmings. Unlike a hort, a fence has no container, no network isolation, no credentials. It's purely a rule boundary — a lasso that says "these components share a common ruleset."
+Groups are the universal organizing concept — a named, colored set of rules drawn around llmings. Unlike a sub-hort, a group has no container, no network isolation, no credentials. It's purely a rule and session boundary.
 
-```mermaid
-graph TD
-    subgraph main ["🏠 Root Hort"]
-        AGENT["🤖 Agent"]
-        TG["📦 openhort/telegram"]
-        GH["📦 openhort/github"]
-        SH["📦 openhort/shell"]
-        SAP["📦 sap/connector"]
-        O365["📦 microsoft/office365"]
-        
-        AGENT --- TG
-        AGENT --- GH
-        AGENT --- SH
-        AGENT --- SAP
-        AGENT --- O365
-    end
-    
-    style TG fill:#e3f2fd,stroke:#1565c0
-    style GH fill:#e3f2fd,stroke:#1565c0
-    style SAP fill:#fce4ec,stroke:#c62828
-    style O365 fill:#fce4ec,stroke:#c62828
-```
-
-The user draws a fence around Telegram + GitHub (blue) and another around SAP + Office 365 (red):
+A llming can belong to **multiple groups** (overlapping). Groups also define user roles (permissions, session policies). See [Group Isolation](group-isolation.md) for the full model including relations (mutual, reads, delegates) and dual-layer enforcement.
 
 ```mermaid
 graph TD
     subgraph main ["🏠 Root Hort"]
         AGENT["🤖 Agent"]
         
-        subgraph fence_safe ["🔵 Fence: safe-tools"]
+        subgraph g_safe ["🔵 Group: safe-tools"]
             TG["📦 openhort/telegram"]
             GH["📦 openhort/github"]
         end
         
-        subgraph fence_sensitive ["🔴 Fence: sensitive-data"]
+        subgraph g_sensitive ["🔴 Group: sensitive-data"]
             SAP["📦 sap/connector"]
             O365["📦 microsoft/office365"]
         end
@@ -343,149 +323,49 @@ graph TD
     end
 ```
 
-**What a fence does:**
-
-1. **Auto-connects** all members inside the fence (if not already connected)
-2. **Applies a shared ruleset** to all connections between fence members AND between fence members and the outside
-3. Components **remain children of their original hort** — they are NOT moved into a sub-hort
-4. A component can belong to **multiple fences** (overlapping)
-
-**What a fence does NOT do:**
-
-- No container isolation (no Docker, no network boundary)
-- No credential scoping
-- No separate agent
-
-#### Fence Rules
-
-A fence defines two rule zones: **inside** (between members) and **boundary** (between members and non-members):
-
 ```yaml
-hort:
-  llmings:
-    - openhort/telegram: {}
-    - openhort/github: {}
-    - openhort/shell: {}
-    - sap/connector: {}
-    - microsoft/office365: {}
+groups:
+  safe-tools:
+    color: blue
+    llmings:
+      openhort/telegram: all
+      openhort/github: all
+    taint: source:safe
 
-  fences:
-    - name: safe-tools
-      members: [openhort/telegram, openhort/github]
-      inside:                            # rules between members
-        allow_groups: [read, write, send]
-        # telegram and github can freely exchange data
-      boundary:                          # rules crossing the fence
-        taint: source:safe-zone
-        # data flowing OUT of this fence gets tagged
-
-    - name: sensitive-data
-      members: [sap/connector, microsoft/office365]
-      inside:
-        allow_groups: [read]
-        block_taint: []                  # within the fence, taint flows freely
-      boundary:
-        taint: source:sensitive
-        block_taint: [source:safe-zone]  # safe-zone data can't enter
-        deny_groups: [send, destroy]     # sensitive data can't be sent/deleted from outside
+  sensitive-data:
+    color: red
+    llmings:
+      sap/connector: [query, read]
+      microsoft/office365: [sharepoint, mail-read]
+    taint: source:sensitive
+    block_taint: [source:safe]
 ```
 
-#### Overlapping Fences
+#### Groups vs Sub-Horts
 
-A llming can belong to multiple fences. When fences overlap, rules **intersect** — all fences must allow a flow for it to proceed:
-
-```mermaid
-graph TD
-    subgraph main ["🏠 Hort"]
-        subgraph f1 ["🔵 Fence: chat-enabled"]
-            TG["📦 openhort/telegram"]
-            O365["📦 microsoft/office365"]
-        end
-        
-        subgraph f2 ["🔴 Fence: sensitive"]
-            O365
-            SAP["📦 sap/connector"]
-        end
-        
-        AGENT["🤖 Agent"]
-        AGENT --- TG
-        AGENT --- O365
-        AGENT --- SAP
-    end
-```
-
-Office 365 is in both fences. Rules from **both** apply:
-
-- `chat-enabled` fence allows `send` group → O365 can send
-- `sensitive` fence denies `send` group at boundary → O365 **cannot send** (intersection = deny wins)
-
-```yaml
-fences:
-  - name: chat-enabled
-    members: [openhort/telegram, microsoft/office365]
-    inside:
-      allow_groups: [read, write, send]
-
-  - name: sensitive
-    members: [microsoft/office365, sap/connector]
-    boundary:
-      deny_groups: [send, destroy]
-      taint: source:sensitive
-```
-
-#### Fences vs Horts
-
-| Property | Fence | Hort |
-|----------|-------|------|
+| Property | Group | Sub-Hort |
+|----------|-------|----------|
 | Container isolation | No | Yes |
 | Network boundary | No | Yes |
 | Credential scoping | No | Yes |
-| Members become children | No — stay in parent hort | Yes — owned by the hort |
-| Overlapping | Yes — component in multiple fences | No — component in one hort |
-| Purpose | Group rules, fast visual assignment | True isolation boundary |
-| Performance cost | Zero (just rule evaluation) | Container overhead |
-| Visual | Colored lasso/region | Box with border |
+| Overlapping | Yes — llming in multiple groups | No — llming in one sub-hort |
+| Session isolation | Yes — enforced by MCP bridge | Yes — separate container |
+| User roles | Yes — groups can define permissions | No — sub-horts define isolation |
+| Performance cost | Zero (rule evaluation only) | Container overhead |
+| Visual | Colored region on canvas | Box with border |
 
 !!! tip "When to use which"
-    Use a **fence** when you want to group permissions without isolation overhead. Use a **hort** when you need actual separation — different network, different credentials, different container.
-    
-    Rule of thumb: if you'd draw it with a lasso in 2 seconds, it's a fence. If you'd deploy a Docker container for it, it's a hort.
+    Use a **group** when you want to organize permissions, taint, and session isolation without container overhead. Use a **sub-hort** when you need actual separation — different network, different credentials, different container.
 
-#### Visual Editor: Drawing Fences
+#### Visual Editor: Drawing Groups
 
-In the visual editor, the user draws a fence with a lasso tool:
+In the visual editor, draw a group with the lasso tool:
 
 1. Select the **lasso tool** (or hold Shift and drag)
-2. Draw a region around the components to include
-3. A colored boundary appears around the selected components
-4. The **fence rule panel** opens:
-
-```
-┌────────────────────────────────────────────────────────┐
-│  🔵 Fence: (name this fence)                           │
-│                                                        │
-│  Members: openhort/telegram, openhort/github           │
-│                                                        │
-│  Inside rules (between members):                      │
-│  ┌──────────────────────────────────────┐              │
-│  │ [x] 🟢 read   [x] 🟡 write         │              │
-│  │ [x] 🟠 send   [ ] 🔴 destroy       │              │
-│  └──────────────────────────────────────┘              │
-│                                                        │
-│  Boundary rules (crossing the fence):                 │
-│  ┌──────────────────────────────────────┐              │
-│  │ Taint: [ source:safe-tools     ]    │              │
-│  │ Block: [ source:sensitive      ]    │              │
-│  │ [x] 🟢 read   [ ] 🟡 write         │              │
-│  │ [ ] 🟠 send   [ ] 🔴 destroy       │              │
-│  └──────────────────────────────────────┘              │
-│                                                        │
-│  [Apply]                                               │
-└────────────────────────────────────────────────────────┘
-```
-
-4. Fence appears as a colored region on the canvas with a label
-5. Drag to resize, click to edit rules, delete key to remove
+2. Draw a region around the llmings to include
+3. A colored boundary appears with a name prompt
+4. The **group panel** opens — set color, relations, taint rules
+5. Drag to resize, click to edit, delete key to remove
 
 ## Unified Ruleset Model
 
