@@ -844,9 +844,9 @@ Regions wrap vertically on phones, sit side-by-side on tablets. Each region stre
 
 | Context | Width | Layout |
 |---|---|---|
-| Spirit lightbox (phone portrait) | 100% screen | Single column, full height |
-| Spirit lightbox (phone landscape) | 100% screen | 2 regions side by side |
-| Spirit lightbox (tablet/desktop) | 480px centered | 2 regions side by side |
+| Llming detail (phone portrait) | 100% screen | Single column, full height |
+| Llming detail (phone landscape) | 100% screen | 2 regions side by side |
+| Llming detail (tablet/desktop) | 480px centered | 2 regions side by side |
 | Llmings grid (pinned panel) | Grid column width | Compact, adapt to card |
 
 **Rules:**

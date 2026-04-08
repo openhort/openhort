@@ -226,17 +226,17 @@ The navigation is inspired by **YouTube Shorts**: users should be able to effici
 **Key principles:**
 
 1. **Single-swipe navigation** — On mobile, swipe left/right or tap card edges to cycle through llmings. Each llming fills the viewport like a "short".
-2. **Cards as entry points** — Every llming, spirit, and system appears as a unified card in the grid. Tap once to peek (preview), tap again to enter full screen.
+2. **Cards as entry points** — Every llming appears as a unified card in the grid. Tap once to peek (preview), tap again to enter full screen.
 3. **Consistent card layout** — Whether it's a window screenshot, terminal, plugin dashboard, or system status — all use the same `.grid-card` with `.card-thumb-icon` or `.grid-card-thumb` + `.grid-card-info`.
-4. **Glanceable thumbnails** — Spirits render live thumbnails via `renderThumbnail(ctx, 320, 200)`. The grid is a dashboard — you should be able to see the state of your entire system at a glance without opening anything.
-5. **Constrained detail panels** — Config and spirit detail panels never span full width. Max-width 420px (smartphone-proportioned). This works on both landscape tablet and portrait phone.
+4. **Glanceable thumbnails** — Llmings render live thumbnails via `renderThumbnail(ctx, 320, 200)`. The grid is a dashboard — you should be able to see the state of your entire system at a glance without opening anything.
+5. **Constrained detail panels** — Config and llming detail panels never span full width. Max-width 420px (smartphone-proportioned). This works on both landscape tablet and portrait phone.
 
 **Three views, same feel:**
 
 | View | Content | Card behavior |
 |---|---|---|
 | **Llmings** | Windows + terminals + plugin UIs | Tap → full viewer, swipe to cycle |
-| **Spirits** | Background plugins with live stats | Tap → config panel with toggles |
+| **Pulse cards** | Llmings with live stats (Pulse data) | Tap → detail panel with toggles |
 | **Config** | All plugins with feature management | Tap → detail with capabilities |
 
 **Responsive breakpoints:**

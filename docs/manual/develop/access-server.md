@@ -414,7 +414,7 @@ Automated build, push, and deploy workflow:
 | Plugin scripts 404 through proxy | Script URLs not prefixed with basePath | Fixed: `_loadScript` in `hort-plugins-ui.js` prepends `bp` to all plugin script URLs |
 | manifest.json 401 through proxy | Browser prefetches manifest before session cookie is set | Fixed: `<link rel="manifest">` removed from HTML, added dynamically only when not proxied |
 | Old service worker breaks proxy | SW cached from local access intercepts proxy requests | Fixed: SW only registered when `!_basePath`. Users must manually unregister old SWs |
-| Only 1 spirit visible remotely | Spirit visibility in localStorage (not synced) | Fixed: stored on server at `/api/config/ui.spirits`, loaded on all browsers |
+| Only 1 llming visible remotely | Llming visibility in localStorage (not synced) | Fixed: stored on server at `/api/config/ui.spirits`, loaded on all browsers |
 
 ### Landing Page
 
@@ -676,9 +676,9 @@ An old service worker registered during local access stays cached in the browser
 
 **Fix:** Don't register SW when proxied (`if (!_basePath)`). For existing cached SWs, users must manually unregister via DevTools → Application → Service Workers → Unregister.
 
-### Spirit Visibility Not Syncing to Remote
+### Llming Visibility Not Syncing to Remote
 
-The "Show in Llmings" toggle was stored in `localStorage` (browser-side only). Remote browsers had empty localStorage, so no spirits showed. Fixed by storing the visibility list on the server via `/api/config/ui.spirits`.
+The "Show in Llmings" toggle was stored in `localStorage` (browser-side only). Remote browsers had empty localStorage, so no llmings showed. Fixed by storing the visibility list on the server via `/api/config/ui.spirits`.
 
 ### Cloud Connector Green Dot vs Actual Connectivity
 

@@ -4,10 +4,14 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 
 ## Terminology
 
-- **Llming** — an extension unit (plugin). The building block of the system.
-- **Soul** (`SOUL.md`) — what an Llming knows and how it behaves. Markdown file with feature-gated sections.
-- **Powers** — what an Llming can do. MCP tools exposed via `MCPMixin`.
+- **Llming** — an extension unit (plugin). The universal building block. Has up to five parts: Soul, Powers, Pulse, Cards, Envoy.
+- **Soul** (`SOUL.md`) — what a Llming knows and how it behaves. Markdown file with feature-gated sections.
+- **Powers** — what a Llming can do. MCP tools exposed via `MCPMixin`. Call-response.
+- **Pulse** — what a Llming radiates. Live state (readable) + events (subscribable). Like Redis pub/sub.
+- **Cards** — how a Llming looks. Grid thumbnails, detail panels, widgets, float windows.
+- **Envoy** — where a Llming executes remotely. The execution agent inside a sub-hort (container/VM).
 - **Circuits** — visual flow editor for wiring Llmings, triggers, and actions into automated workflows (`/hortmap`).
+- **Neighbors** — horts at the same level that can wire bidirectionally (first connection wins).
 
 ## Architecture
 
@@ -138,6 +142,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Boundary Filters](docs/manual/internals/security/boundary-filters.md) — MCP filter chains, content inspection (regex/AI), container network egress filtering, DNS/IP/URL allowlists
 - [H2H Protocol](docs/manual/internals/protocols/h2h-protocol.md) — hort-to-hort communication, transport-agnostic (stdio/HTTP/socket), tree routing, wire permissions (channels/direction/tools/CLI/filters), neighbor horts, constellation examples
 - [Credential Provisioning](docs/manual/internals/security/credential-provisioning.md) — downward-only credential flow, OS credential stores (macOS/Linux/Windows), apiKeyHelper pattern, container injection, rotation, threat mitigations
+- [Llming Anatomy](docs/manual/internals/llming-anatomy.md) — the five parts (Soul, Powers, Pulse, Cards, Envoy), manifest schema, composition, permission unification
 - [Unified Access](docs/manual/internals/security/unified-access.md) — uphid, device_uid, pairing tokens, share links, guest access, hub device selector
 - [Error Handling](docs/manual/internals/security/error-handling.md) — no internal errors to users, container lifecycle, shutdown cleanup
 
