@@ -255,23 +255,31 @@ class LlmingWire(PluginBase):
         try:
             from hort.ext.chat_backend import ChatBackendManager
 
-            # Find or create a chat backend manager (host mode, no container)
+            # Find or create a chat backend manager — reads agent config from YAML
             if not hasattr(self, "_chat_mgr") or self._chat_mgr is None:
-                from hort.agent import AgentConfig
-                cfg = AgentConfig(container=False)
+                from hort.agent import get_agent_config
+                cfg = get_agent_config()
                 self._chat_mgr = ChatBackendManager(agent_cfg=cfg)
                 self._chat_mgr.start()
 
-            session = self._chat_mgr.get_session(f"llming-wire:{cid}")
+            # Resolve user session from hort-config.yaml
+            from hort.hort_config import get_hort_config
+            hort_cfg = get_hort_config()
+            # Wire uses conversation ID as session key by default
+            # TODO: resolve user identity from auth once wire has login
+            session_key = f"llming-wire:{cid}"
+
+            session = self._chat_mgr.get_session(session_key)
             # Resume from client's session_id if server lost it (restart)
             if client_session_id and not session._session_id:
                 session._session_id = client_session_id
             response = await session.send(text)
             return response
         except ImportError:
-            return "Chat backend not available. Install claude CLI."
-        except Exception as exc:
-            return f"Error: {exc}"
+            return "Chat backend not available."
+        except Exception:
+            logger.exception("Chat backend error")
+            return "Something went wrong. Try again."
 
 
 def _extract_buttons(text: str) -> list[dict[str, str]]:

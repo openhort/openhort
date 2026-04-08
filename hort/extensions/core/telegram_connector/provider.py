@@ -446,7 +446,25 @@ class TelegramConnector(PluginBase, ConnectorBase):
         assert self._ai_chat is not None
         if not self._ai_chat.alive:
             return ConnectorResponse.simple("Chat backend not running.")
-        session = self._ai_chat.get_session(message.user_id)
+
+        # Resolve user from hort-config.yaml for group-based session management
+        from hort.hort_config import get_hort_config
+        hort_cfg = get_hort_config()
+        user_cfg = hort_cfg.get_user_by_match("telegram", message.user_name or "")
+        if user_cfg:
+            # Use group session policy: "shared" = same session across connectors
+            groups = hort_cfg.get_user_groups(user_cfg)
+            session_key = user_cfg.name  # default: user name as session key
+            for g in groups:
+                if g.session == "shared":
+                    session_key = f"shared:{user_cfg.name}"
+                    break
+                elif g.session == "isolated":
+                    session_key = f"telegram:{message.user_id}"
+                    break
+            session = self._ai_chat.get_session(session_key)
+        else:
+            session = self._ai_chat.get_session(message.user_id)
 
         # Progress callback: Telegram only shows periodic "thinking" updates,
         # NOT individual tool events (those are for richer UIs like web chat)
@@ -482,5 +500,5 @@ class TelegramConnector(PluginBase, ConnectorBase):
                     pass  # Best effort for intermediate chunks
             return ConnectorResponse.simple(chunks[-1])
         except Exception as exc:
-            self.log.error("Chat backend error: %s", exc, exc_info=True)
-            return ConnectorResponse.simple(f"Error processing request. Try /new to reset.")
+            self.log.exception("Chat backend error")
+            return ConnectorResponse.simple("Something went wrong. Try /new to reset.")
