@@ -325,7 +325,6 @@ class TelegramConnector(PluginBase, ConnectorBase):
             return await self._cmd_spaces()
         if cmd == "new":
             return self._cmd_new(message)
-
         # Plugin commands via registry
         if self._registry:
             result = await self._registry.dispatch(message, self.capabilities)
