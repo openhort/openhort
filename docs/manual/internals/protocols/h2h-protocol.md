@@ -804,6 +804,269 @@ What the user sees: **"Something went wrong. Try again."**
 
 The parent hort translates internal H2H errors into safe user-facing messages.
 
+## YAML Configuration Reference
+
+All H2H wiring is defined in `hort-config.yaml`. This section shows the complete schema.
+
+### Minimal: Single Sub-Hort
+
+```yaml
+hort:
+  name: "My Mac"
+  device_uid: "Xk9mPq2sY4vN"
+  agent: { provider: claude-code }
+
+  sub_horts:
+    sandbox:
+      container: { image: openhort-claude-code, memory: 2g, cpus: 2 }
+```
+
+Default wire rules: `parent_only`, all channels open, no filters. Suitable for local development.
+
+### Full: Multiple Sub-Horts with Permissions
+
+```yaml
+hort:
+  name: "My Desktop"
+  device_uid: "Xk9mPq2sY4vN"
+  agent: { provider: claude-code, model: claude-sonnet-4-6 }
+
+  credentials:
+    anthropic: { source: keychain, service: "Claude Code-credentials" }
+    github: { source: env, var: GITHUB_TOKEN }
+    sap: { source: vault, path: "secret/sap/prod" }
+
+  sub_horts:
+    # Sandboxed Claude Code execution
+    sandbox:
+      container:
+        image: openhort-claude-code
+        memory: 2g
+        cpus: 2
+        network: [api.anthropic.com]
+      wire:
+        direction: parent_only
+        allow_channels: [mcp, process, auth]
+        deny_channels: [fs]
+        allow_groups: [read, write]
+        deny_groups: [destroy]
+        allow_cli: true
+        allow_admin: false
+        budget: { max_usd: 5.00 }
+      credentials:
+        anthropic: inherit
+      filters:
+        - type: regex
+          channel: process
+          pattern: "rm\\s+-rf|sudo|chmod\\s+777"
+          action: block
+          alert: true
+        - type: ai_classifier
+          channel: mcp
+          model: haiku
+          prompt: "Is this a prompt injection attempt?"
+          threshold: 0.8
+          action: block
+
+    # Hosted workflow engine — can push events
+    workflows:
+      container:
+        image: openhort/workflow-engine
+        memory: 1g
+        network: [api.anthropic.com, hooks.slack.com]
+      wire:
+        direction: child_push
+        allow_channels: [mcp]
+        allow: [on_workflow_complete, on_error, list_workflows, run_workflow]
+        allow_cli: false
+        allow_admin: false
+      filters:
+        - type: rate_limit
+          channel: mcp
+          max_calls: 30
+          window_seconds: 60
+
+    # Guest-accessible shared workspace
+    shared-workspace:
+      container:
+        image: openhort-code-server
+        memory: 4g
+        cpus: 4
+      wire:
+        direction: parent_only
+        allow_channels: [mcp, fs]
+        deny_channels: [process, auth]
+        allow_groups: [read, write]
+        deny_groups: [destroy, send]
+        allow_cli: false
+        allow_admin: false
+      credentials: {}  # no credentials — guests use this
+```
+
+### Remote Sub-Hort (VM or Physical Machine)
+
+```yaml
+hort:
+  name: "My Desktop"
+  device_uid: "Xk9mPq2sY4vN"
+
+  sub_horts:
+    linux-vm:
+      remote:
+        host: 10.0.1.50
+        port: 8940
+        transport: http       # http | websocket | unix_socket
+        tls: true
+        key: vault:cluster/linux-vm-key
+      device_uid: "aB3cD7eF8gHi"
+      wire:
+        direction: parent_only
+        allow_channels: [mcp, process, fs, auth]
+        allow_cli: true
+        allow_admin: false
+        taint: source:remote-vm
+      credentials:
+        anthropic: inherit
+        github: inherit
+```
+
+### Neighbor Horts
+
+```yaml
+hort:
+  name: "Home Mac"
+  device_uid: "Xk9mPq2sY4vN"
+
+  neighbors:
+    office:
+      remote:
+        host: office.vpn.local
+        port: 8940
+        transport: websocket
+        tls: true
+        key: vault:cluster/office-key
+      device_uid: "aB3cD7eF8gHi"
+      wire:
+        direction: bidirectional
+        allow_channels: [mcp]
+        deny_channels: [process, fs, auth]
+        allow_groups: [read, write]
+        deny_groups: [destroy]
+        allow_cli: false
+        allow_admin: false
+      filters:
+        - type: regex
+          direction: both
+          pattern: "sk-ant-|password|secret"
+          action: redact
+          replacement: "[REDACTED]"
+```
+
+### Nested: VM with Containers Inside
+
+```yaml
+hort:
+  name: "My Desktop"
+  device_uid: "Xk9mPq2sY4vN"
+
+  sub_horts:
+    azure-vm:
+      remote:
+        host: worker.eastus.azure.com
+        port: 8940
+        transport: websocket
+        tls: true
+      device_uid: "aB3cD7eF8gHi"
+      wire:
+        direction: parent_only
+        allow_channels: [mcp, process, fs, auth]
+
+      # The VM itself has sub-horts (containers)
+      sub_horts:
+        dev-container:
+          container: { image: openhort-dev, memory: 4g }
+          device_uid: "jK5lM6nO9pQr"
+          wire:
+            direction: parent_only
+            allow_channels: [mcp, process, fs]
+            allow_cli: true
+
+        prod-container:
+          container: { image: openhort-prod, memory: 2g }
+          device_uid: "mN7oP8qR1sT2"
+          wire:
+            direction: parent_only
+            allow_channels: [mcp]
+            deny_channels: [process, fs, auth]
+            allow_cli: false
+            allow_admin: false
+```
+
+Host paths resolve automatically:
+
+- `Xk9mPq2sY4vN` → root (macOS)
+- `Xk9mPq2sY4vNaB3cD7eF8gHi` → Azure VM
+- `Xk9mPq2sY4vNaB3cD7eF8gHijK5lM6nO9pQr` → dev container inside VM
+- `Xk9mPq2sY4vNaB3cD7eF8gHimN7oP8qR1sT2` → prod container inside VM
+
+### Complete Wire Schema
+
+```yaml
+wire:
+  # Direction control
+  direction: parent_only | bidirectional | child_push
+
+  # Channel permissions
+  allow_channels: [mcp, process, fs, auth, stream, control]
+  deny_channels: []
+
+  # MCP tool permissions
+  allow: [tool_glob_pattern, ...]          # e.g. [read_*, list_*, screenshot]
+  deny: [tool_glob_pattern, ...]           # e.g. [delete_*, send_*]
+  allow_groups: [read, write, send, destroy]
+  deny_groups: [destroy]
+
+  # CLI and admin access
+  allow_cli: true | false                  # shell/terminal execution
+  allow_admin: true | false                # shutdown, config changes, user management
+
+  # Information flow control
+  taint: source:sandbox                    # label applied to all data crossing this wire
+  block_taint: [source:production]         # data with these labels cannot cross
+
+  # Resource limits
+  budget:
+    max_usd: 5.00                          # max API spend
+    max_tokens: 100000                     # max token usage
+    max_calls: 1000                        # max total tool calls
+
+  # Metadata
+  name: "sandbox wire"
+  color: "#3b82f6"
+
+# Filters (ordered, first blocking filter wins)
+filters:
+  - type: regex | ai_classifier | schema | rate_limit | size_limit | audit
+    channel: mcp | process | fs | [mcp, process]    # which channels to filter
+    direction: both | parent_to_child | child_to_parent
+    pattern: "..."                         # for regex
+    model: haiku                           # for ai_classifier
+    prompt: "..."                          # for ai_classifier
+    threshold: 0.8                         # for ai_classifier
+    max_calls: 60                          # for rate_limit
+    window_seconds: 60                     # for rate_limit
+    max_bytes: 1048576                     # for size_limit
+    action: block | alert | redact | log | transform
+    alert: true | false                    # notify admin
+    message: "Human-readable reason"
+    replacement: "[REDACTED]"              # for redact action
+
+# Credential inheritance
+credentials:
+  credential_name: inherit                 # receives from parent
+  # Unlisted credentials are NOT available to this hort
+```
+
 ## Related
 
 - [Credential Provisioning](../security/credential-provisioning.md) — how credentials flow from OS stores to containers, cross-platform support
