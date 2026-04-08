@@ -143,6 +143,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [H2H Protocol](docs/manual/internals/protocols/h2h-protocol.md) — hort-to-hort communication, transport-agnostic (stdio/HTTP/socket), tree routing, wire permissions (channels/direction/tools/CLI/filters), neighbor horts, constellation examples
 - [Credential Provisioning](docs/manual/internals/security/credential-provisioning.md) — downward-only credential flow, OS credential stores (macOS/Linux/Windows), apiKeyHelper pattern, container injection, rotation, threat mitigations
 - [Llming Anatomy](docs/manual/internals/llming-anatomy.md) — the five parts (Soul, Powers, Pulse, Cards, Envoy), manifest schema, composition, permission unification
+- [Group Isolation](docs/manual/internals/security/group-isolation.md) — colored groups, 4 relation types (isolated/mutual/reads/delegates), dual-layer enforcement (Soul + MCP bridge), auto-generated Soul instructions, delegation mechanism
 - [Unified Access](docs/manual/internals/security/unified-access.md) — uphid, device_uid, pairing tokens, share links, guest access, hub device selector
 - [Error Handling](docs/manual/internals/security/error-handling.md) — no internal errors to users, container lifecycle, shutdown cleanup
 
