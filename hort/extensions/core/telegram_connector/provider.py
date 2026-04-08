@@ -170,10 +170,10 @@ class TelegramConnector(PluginBase, ConnectorBase):
                     await connector.send_response(str(message.chat.id), response)
                 else:
                     self.log.info("No response for message")
-            except Exception as e:
-                self.log.error("Error handling message: %s", e, exc_info=True)
+            except Exception:
+                self.log.exception("Error handling message")
                 try:
-                    await bot.send_message(str(message.chat.id), f"Error: {e}")
+                    await bot.send_message(str(message.chat.id), "Something went wrong. Try again.")
                 except Exception:
                     pass
 
@@ -450,7 +450,7 @@ class TelegramConnector(PluginBase, ConnectorBase):
         # Resolve user from hort-config.yaml for group-based session management
         from hort.hort_config import get_hort_config
         hort_cfg = get_hort_config()
-        user_cfg = hort_cfg.get_user_by_match("telegram", message.user_name or "")
+        user_cfg = hort_cfg.get_user_by_match("telegram", message.username or "")
         if user_cfg:
             # Use group session policy: "shared" = same session across connectors
             groups = hort_cfg.get_user_groups(user_cfg)

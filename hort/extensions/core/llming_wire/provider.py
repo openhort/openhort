@@ -94,9 +94,9 @@ class LlmingWire(PluginBase):
             client_session_id = body.get("session_id")
             try:
                 response_text = await plugin._get_ai_response(cid, text, client_session_id)
-            except Exception as exc:
-                logger.error("Chat error: %s", exc)
-                response_text = f"Error: {exc}"
+            except Exception:
+                logger.exception("Chat error")
+                response_text = "Something went wrong. Try again."
 
             # Parse response for buttons (lines like "1. Option" become buttons)
             buttons = _extract_buttons(response_text)
@@ -170,9 +170,9 @@ class LlmingWire(PluginBase):
                                 for row in result.buttons for btn in row
                             ]
                         return JSONResponse(resp)
-            except Exception as exc:
-                logger.error("Callback error: %s", exc)
-                return JSONResponse({"error": str(exc)}, status_code=500)
+            except Exception:
+                logger.exception("Callback error")
+                return JSONResponse({"error": "Something went wrong"}, status_code=500)
 
             return JSONResponse({"text": "No handler for this callback.", "ts": time.time()})
 

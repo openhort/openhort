@@ -479,7 +479,14 @@ class ChatBackendManager:
         from hort.sandbox import SessionConfig, SecurityProfile
 
         if user_id in self._container_sessions:
-            return self._container_sessions[user_id]
+            session = self._container_sessions[user_id]
+            # Verify container is still alive (may have been cleaned up on restart)
+            try:
+                session.exec(["true"])  # no-op health check
+                return session
+            except Exception:
+                logger.info("Stale container for user %s, recreating", user_id)
+                del self._container_sessions[user_id]
 
         cfg = SessionConfig(
             image=self._agent_cfg.image,
