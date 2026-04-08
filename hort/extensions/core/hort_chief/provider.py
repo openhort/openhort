@@ -67,29 +67,31 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
                     text_lines.append("No sub-horts running.")
                     html_lines.append("No sub-horts running.")
                 else:
-                    text_lines.append(f"Sub-horts ({len(containers)}):")
-                    html_lines.append(f"<b>Sub-horts ({len(containers)}):</b>")
                     for c in containers:
                         short_id = c["name"].replace("ohsb-", "")[:12]
+                        image = c["image"].replace("openhort-", "")
                         status = (c["status"]
                                   .replace(" minutes", "m")
                                   .replace(" hours", "h")
                                   .replace(" seconds", "s")
                                   .replace("About a ", "~")
                                   .replace("About an ", "~"))
-                        text_lines.append(f"  {short_id}  {c['image']}  {status}")
+                        text_lines.append(f"  {short_id}  {image}  {status}")
                         html_lines.append(
-                            f"  <code>{short_id}</code>  {c['image']}  {status}"
+                            f"\n<code>{short_id}</code>\n"
+                            f"  Image: {image}\n"
+                            f"  Status: {status}"
                         )
 
                 if sessions:
                     text_lines.append("")
                     html_lines.append("")
-                    text_lines.append(f"Sessions ({len(sessions)}):")
-                    html_lines.append(f"<b>Sessions ({len(sessions)}):</b>")
+                    count_by_type: dict[str, int] = {}
                     for s in sessions:
-                        text_lines.append(f"  {s['type']:<6} {s['ip']}")
-                        html_lines.append(f"  {s['type']}  {s['ip']}")
+                        count_by_type[s["type"]] = count_by_type.get(s["type"], 0) + 1
+                    parts = [f"{v} {k}" for k, v in count_by_type.items()]
+                    text_lines.append(f"Sessions: {', '.join(parts)}")
+                    html_lines.append(f"Sessions: {', '.join(parts)}")
 
                 # Buttons for each container (clickable detail view)
                 buttons = []
@@ -109,17 +111,27 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
                 logger.exception("Failed to build hort overview")
                 return ConnectorResponse.simple("Something went wrong.")
 
-        # Handle button callbacks
+        # Handle button callbacks (callback_data: "hort-chief:detail:<id>")
         if command == "_callback":
             data = getattr(message, "callback_data", "") or ""
-            if data.startswith("detail:"):
-                container_id = data.split(":", 1)[1]
-                try:
-                    text = self._build_detail(container_id)
-                except Exception:
-                    logger.exception("Failed to build detail")
-                    text = "Something went wrong."
-                return ConnectorResponse.simple(text)
+            # Strip plugin prefix if present
+            if ":" in data:
+                parts = data.split(":")
+                # "hort-chief:detail:abc123" → action="detail", arg="abc123"
+                if len(parts) >= 3 and parts[0] == "hort-chief":
+                    action, arg = parts[1], ":".join(parts[2:])
+                elif len(parts) >= 2:
+                    action, arg = parts[0], ":".join(parts[1:])
+                else:
+                    action, arg = data, ""
+
+                if action == "detail":
+                    try:
+                        text = self._build_detail(arg)
+                    except Exception:
+                        logger.exception("Failed to build detail")
+                        text = "Something went wrong."
+                    return ConnectorResponse.simple(text)
 
         return None
 
