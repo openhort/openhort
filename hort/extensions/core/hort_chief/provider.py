@@ -172,12 +172,21 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
     # ===== Internal =====
 
     def _is_admin(self, message: Any) -> bool:
-        """Check if the message sender has admin privileges."""
+        """Check if the message sender has admin privileges.
+
+        Local Wire users (connector_id=llming-wire, user_id=local)
+        are always admin — they're on the machine.
+        """
         try:
+            connector = getattr(message, "connector_id", "")
+            user_id = getattr(message, "user_id", "")
+            # Local access = admin
+            if connector == "llming-wire" and user_id == "local":
+                return True
+
             from hort.hort_config import get_hort_config
             hort_cfg = get_hort_config()
             username = getattr(message, "username", "") or ""
-            # Try telegram match first, then wire
             user_cfg = (
                 hort_cfg.get_user_by_match("telegram", username)
                 or hort_cfg.get_user_by_match("wire", username)
