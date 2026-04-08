@@ -139,6 +139,42 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
 
     plugin_registry = setup_plugins(app)
 
+    # Mount llming-com debug API and command router for session inspection
+    from hort.session import HortRegistry, HortSessionManager
+    from llming_com import build_debug_router, build_command_router
+
+    _session_manager = HortSessionManager.get()
+
+    def _session_detail(sid: str, entry: Any) -> dict[str, Any]:
+        """Custom detail hook for debug API."""
+        from llming_com import SessionContext
+        ctx = _session_manager.get_context(sid)
+        detail: dict[str, Any] = {
+            "active_window_id": entry.active_window_id,
+            "active_target_id": entry.active_target_id,
+            "stream_active": entry.stream_ws is not None,
+            "observer_id": entry.observer_id,
+        }
+        if ctx:
+            detail["connection_type"] = ctx.connection_type.value
+            detail["remote_ip"] = ctx.remote_ip
+            detail["user_email"] = ctx.user_email
+            detail["target_id"] = ctx.target_id
+        return detail
+
+    debug_router = build_debug_router(
+        HortRegistry.get(),
+        prefix="/debug",
+        session_detail_hook=_session_detail,
+    )
+    app.include_router(debug_router, prefix="/api/llming")
+
+    command_router = build_command_router(
+        HortRegistry.get(),
+        prefix="/debug",
+    )
+    app.include_router(command_router, prefix="/api/llming")
+
     @app.on_event("startup")
     async def _on_startup() -> None:
         load_plugins_sync(plugin_registry)
@@ -633,24 +669,31 @@ def _register_routes(app: FastAPI) -> None:
     async def create_session(request: Request) -> dict[str, Any]:
         """Create a new viewer session and return its ID.
 
-        Detects if the request is local or proxied so the UI knows
-        whether to show connector controls.
+        Detects connection type (LAN, proxy, P2P) and stores it in
+        the session context via ``HortSessionManager``.
         """
-        from hort.session import HortRegistry, HortSessionEntry
+        from llming_com import ConnectionType, SessionContext
+        from hort.session import HortSessionEntry, HortSessionManager
 
-        registry = HortRegistry.get()
-        import secrets
+        manager = HortSessionManager.get()
 
-        session_id = secrets.token_urlsafe(24)
-        # Detect if accessed locally or through the proxy
-        host_header = request.headers.get("host", "")
-        is_local = (
-            "localhost" in host_header
-            or host_header.startswith("127.")
-            or host_header.split(":")[0].count(".") == 3  # IP address
-        )
+        # Detect connection type
+        forwarded_via = request.headers.get("x-forwarded-via", "")
+        if forwarded_via == "p2p":
+            conn_type = ConnectionType.P2P
+        elif forwarded_via == "proxy":
+            conn_type = ConnectionType.PROXY
+        else:
+            conn_type = ConnectionType.LAN
+
+        is_local = conn_type == ConnectionType.LAN
+
         entry = HortSessionEntry(user_id="viewer")
-        registry.register(session_id, entry)
+        context = SessionContext(
+            connection_type=conn_type,
+            remote_ip=request.client.host if request.client else "",
+        )
+        session_id, auth_token = manager.create_session(entry, context=context)
         return {"session_id": session_id, "is_local": is_local}
 
     # --- P2P WebRTC signaling ---

@@ -33,6 +33,20 @@ from hort.agent import AgentConfig, get_agent_config
 logger = logging.getLogger(__name__)
 
 
+def _get_claude_api_key() -> str:
+    """Get a Claude API key or OAuth token for container injection.
+
+    Tries ANTHROPIC_API_KEY env var first, then OS credential store (OAuth).
+    Returns empty string if nothing available.
+    """
+    try:
+        from hort.extensions.llms.claude_code.auth import get_api_key
+        return get_api_key()
+    except Exception as exc:
+        logger.warning("Could not get Claude credentials: %s", exc)
+        return ""
+
+
 @dataclass
 class ChatProgressEvent:
     """Progress event emitted during chat processing.
@@ -213,6 +227,9 @@ def _build_claude_cmd(
 
     if agent_cfg.container:
         cmd.append("--bare")
+        # --bare disables keychain reads, so auth goes through apiKeyHelper
+        # in settings.json (written by _get_or_create_container)
+        cmd.extend(["--settings", "/home/sandbox/.claude/settings.json"])
 
     if agent_cfg.model:
         cmd.extend(["--model", agent_cfg.model])
@@ -468,7 +485,7 @@ class ChatBackendManager:
             image=self._agent_cfg.image,
             memory=self._agent_cfg.memory,
             cpus=self._agent_cfg.cpus,
-            secret_env={"ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY", "")},
+            secret_env={},
             security=SecurityProfile(),
         )
         session = self._session_manager.create(cfg)
@@ -487,6 +504,19 @@ class ChatBackendManager:
             "/workspace/.claude-mcp.json",
             json.dumps(mcp_config),
         )
+
+        # Write API key + settings for Claude Code auth inside container.
+        # Uses apiKeyHelper (reads key from file) — works with both
+        # ANTHROPIC_API_KEY and OAuth tokens from the OS credential store.
+        api_key = _get_claude_api_key()
+        if api_key:
+            session.exec(["mkdir", "-p", "/home/sandbox/.claude"])
+            session.write_file("/home/sandbox/.claude/api_key", api_key)
+            session.write_file(
+                "/home/sandbox/.claude/settings.json",
+                json.dumps({"apiKeyHelper": "cat /home/sandbox/.claude/api_key"}),
+            )
+            session.write_file("/home/sandbox/.claude.json", "{}")
 
         self._container_sessions[user_id] = session
         logger.info("Created container session for user %s: %s", user_id, session.id)

@@ -1,500 +1,812 @@
 # Hort-to-Hort (H2H) Protocol
 
-The H2H protocol defines how OpenHORT instances on different physical
-machines communicate. It extends the existing
-[tunnel protocol](../../guide/multi-node.md) with tool export/import
-semantics, agent coordination, and a trust hierarchy.
+The protocol for communication between horts — parent to child, neighbor to neighbor, and across arbitrary nesting depths. Transport-agnostic: works over stdio, HTTP/WebSocket, or Unix sockets.
 
-## Overview
+## Core Principle
 
-H2H enables multi-machine Hort clusters. A Mac Studio in your office
-can invoke tools running on a Raspberry Pi in the kitchen, deploy
-agents to a cloud VM, and aggregate audit logs from every node --
-all through a single protocol layer.
+A hort is an isolation boundary. The H2H protocol is how isolated systems talk to each other **without breaking isolation**. It is NOT limited to MCP — MCP is one capability a hort can expose, but a hort can also expose process management, file operations, credential provisioning, and any other capability the parent is permitted to use.
 
-- **Built on the existing tunnel protocol.** Reuses the WebSocket +
-  JSON transport from the [access server](../../develop/access-server.md).
-  No new transport -- just new message types on the same wire.
-- **Tool locality is transparent.** An agent calls
-  `washing-machine:get_status` the same way whether the tool is
-  local or on a remote node.
-- **Trust is bilateral.** Controller sets a trust level per worker.
-  Worker sets local constraints. Effective permission = intersection.
-- **Workers cannot control their controller.** Five independent
-  layers enforce this (see [Preventing Upward Control](#preventing-upward-control)).
+```
+┌─────────────────────────────────────────────────────────┐
+│ H2H Protocol                                             │
+│                                                          │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐               │
+│  │   MCP    │  │ Process  │  │  Files   │  ...           │
+│  │  Tools   │  │  Mgmt    │  │  & Auth  │               │
+│  └──────────┘  └──────────┘  └──────────┘               │
+│                                                          │
+│  Transport: stdio | HTTP/WS | Unix socket                │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Connection Direction
+
+**Rule: Parents connect to children. Never the reverse.**
 
 ```mermaid
-flowchart LR
-    subgraph Mac ["Controller (mac-studio)"]
-        TP["Tool Proxy"]
-        AB["Agent Bus"]
+graph TD
+    subgraph mac ["🏠 macOS (root hort)"]
+        A["🤖 Agent"]
     end
-    subgraph Pi1 ["Worker (pi-kitchen)"]
-        WM["washing-machine MCP"]
+    
+    subgraph docker ["🏠 Docker Container"]
+        CL["🤖 Claude Code"]
     end
-    subgraph Pi2 ["Worker (pi-garage)"]
-        SN["sensor-hub MCP"]
+    
+    subgraph vm ["🏠 Linux VM"]
+        subgraph nested ["🏠 VM Container"]
+            APP["📦 App"]
+        end
     end
-    subgraph Cloud ["Worker (cloud-vm)"]
-        AG["Agent containers"]
-    end
-    TP <-->|"H2H tunnel"| WM
-    TP <-->|"H2H tunnel"| SN
-    AB <-->|"H2H tunnel"| AG
+    
+    A -->|"H2H"| docker
+    A -->|"H2H"| vm
+    vm -->|"H2H"| nested
+    
+    docker -.->|"❌ FORBIDDEN"| mac
+    nested -.->|"❌ FORBIDDEN"| vm
 ```
 
----
+A child hort cannot initiate connections upward. This is the fundamental security boundary — a compromised container cannot reach the host.
 
-## Connection Establishment
+### Exception: Neighbor Horts
 
-1. Controller reads `~/.hort/cluster.yaml` to discover worker nodes
-2. Controller opens a WebSocket: `ws://{worker}:{port}/api/hort/tunnel`
-3. Auth header: `Authorization: Bearer <connection_key>`
-4. Worker verifies key AND checks `accept_from` list for the `node_id`
-5. Handshake exchange (below)
-6. Both sides record each other's exports and constraints
-7. Persistent bidirectional WebSocket kept alive with 30-second heartbeats
+Two horts at the same level can be configured as **neighbors**. Both may initiate a connection; first one wins, second is dropped:
 
-**Controller sends `h2h_hello`:**
-```json
-{
-  "type": "h2h_hello",
-  "node_id": "mac-studio",
-  "hort_id": "550e8400-e29b-41d4-a716-446655440000",
-  "protocol_version": "1.0",
-  "capabilities": ["tool_export", "agent_management", "audit_stream"],
-  "exports": [
-    {"tool": "calendar", "access": {"tools": ["get_events"]}}
-  ]
-}
+```mermaid
+graph LR
+    subgraph h1 ["🏠 Hort A"]
+        A1["🤖 Agent A"]
+    end
+    
+    subgraph h2 ["🏠 Hort B"]
+        A2["🤖 Agent B"]
+    end
+    
+    A1 <-->|"H2H neighbor · first wins"| A2
 ```
 
-**Worker responds with `h2h_welcome`:**
+```yaml
+neighbors:
+  - hort_a: { host: 10.0.1.10, port: 8940 }
+    hort_b: { host: 10.0.1.20, port: 8940 }
+    rules:
+      allow_groups: [read, write]
+      deny_groups: [destroy]
+```
+
+Neighbor connections share the same underlying VMs and resources. The `WireRuleset` on the neighbor wire controls what each side can access.
+
+## Transport Layers
+
+The H2H protocol is transport-agnostic. The same message format works over any transport:
+
+| Transport | Use Case | Latency | Overhead |
+|---|---|---|---|
+| **stdio** | Local containers, subprocess | Lowest | Zero (pipes) |
+| **Unix socket** | Local VMs, sibling containers | Very low | Minimal |
+| **HTTP/WebSocket** | Remote horts, cloud VMs, P2P | Higher | TLS, framing |
+
+### Transport Selection
+
+```mermaid
+flowchart TD
+    START["Child hort type?"] --> LOCAL{"Local process<br/>or container?"}
+    LOCAL -->|"Yes"| STDIO["stdio<br/>(pipes)"]
+    LOCAL -->|"No"| NETWORK{"Same machine?"}
+    NETWORK -->|"Yes"| UNIX["Unix socket<br/>(/tmp/hort-{id}.sock)"]
+    NETWORK -->|"No"| HTTP["HTTP/WebSocket<br/>(TLS)"]
+```
+
+### stdio Transport
+
+Parent spawns child process. Communication over stdin/stdout pipes:
+
+```
+Parent                          Child (PID 1 in container)
+  │                                │
+  │──── JSON request ──────────→  │
+  │                                │  (process request)
+  │  ←── JSON response ────────── │
+  │                                │
+  │──── JSON request ──────────→  │
+  │  ←── JSON stream chunks ───── │
+  │  ←── JSON stream end ──────── │
+```
+
+No `docker exec` needed. The child's PID 1 IS the H2H agent. No process listings, no env var leaks.
+
+### HTTP/WebSocket Transport
+
+For remote horts or when stdio isn't available:
+
+```
+Parent                          Child
+  │                                │
+  │── POST /h2h/request ────────→ │
+  │  ←── 200 JSON response ────── │
+  │                                │
+  │── WS /h2h/stream ──────────→ │
+  │  ←── WS text frames ───────── │
+```
+
+### Unix Socket Transport
+
+For local VMs or sibling containers sharing a socket mount:
+
+```
+Parent                          Child
+  │                                │
+  │── connect(/tmp/hort.sock) ──→ │
+  │── JSON request ──────────────→ │
+  │  ←── JSON response ──────────  │
+```
+
+## Message Format
+
+All transports use the same JSON message format. One message per line (JSONL):
+
+### Request
+
 ```json
 {
-  "type": "h2h_welcome",
-  "node_id": "pi-kitchen",
-  "hort_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-  "protocol_version": "1.0",
-  "capabilities": ["tool_export"],
-  "exports": [
-    {"tool": "washing-machine", "access": {"tools": ["get_status", "get_remaining_time"]}}
-  ],
-  "constraints": {
-    "max_concurrent_agents": 2,
-    "max_budget_usd_per_session": 5.00
+  "id": "r1",
+  "type": "request",
+  "channel": "mcp",
+  "method": "tools/call",
+  "params": {
+    "name": "screenshot",
+    "arguments": {"window_id": 42}
   }
 }
 ```
 
-```mermaid
-sequenceDiagram
-    participant C as Controller
-    participant W as Worker
-    C->>W: WebSocket UPGRADE (Authorization: Bearer key)
-    W->>W: Verify key + accept_from
-    W-->>C: 101 Switching Protocols
-    C->>W: h2h_hello (node_id, capabilities, exports)
-    W-->>C: h2h_welcome (node_id, constraints, exports)
-    loop Every 30 seconds
-        C->>W: heartbeat
-        W-->>C: heartbeat
-    end
-```
-
-!!! info "Protocol version negotiation"
-    Both sides include `protocol_version`. Incompatible versions
-    trigger `{"type": "error", "code": "version_mismatch"}` and
-    close the WebSocket. Minor differences are tolerated using the
-    lower version's feature set.
-
----
-
-## Trust Hierarchy
-
-### Controller-side trust levels
-
-Set per worker in `cluster.yaml` under `trust_level`:
-
-| Level | Description | What controller can do |
-|-------|-------------|------------------------|
-| `trusted` | Same physical LAN, under your control | Full tool export, agent deployment, file mounts, audit stream |
-| `sandboxed` | Home network, less trusted device | Container-only agents, no file mounts, scoped tool access |
-| `untrusted` | Cloud/remote, potentially hostile network | Container-only, no file mounts, scoped API keys, TLS required |
-
-### Worker-side constraints
-
-Set locally in `node.yaml`. Cannot be overridden by any controller.
-
-| Constraint | Purpose |
-|------------|---------|
-| `max_concurrent_agents` | Hard limit on simultaneous agents |
-| `max_budget_usd_per_session` | Spending cap per agent session |
-| `accept_from` | Allowlist of permitted controller node_ids |
-| `role: worker` | Prevents acting as a controller |
-| `allowed_exports` | Tools this worker will export |
-
-**Effective trust = intersection of controller's trust level AND worker's local constraints.** Controller sets `trusted` (allows file mounts) but worker has no file mount capability? Result: no file mounts.
-
-```mermaid
-flowchart TD
-    R["Request: deploy agent, budget $10"]
-    CT["Controller trust: sandboxed"]
-    WC["Worker constraint: max_budget = $5"]
-    EF["Effective: container-only, budget $5"]
-    R --> CT
-    R --> WC
-    CT --> EF
-    WC --> EF
-```
-
----
-
-## Message Types
-
-### Controller to Worker
-
-| Type | Purpose |
-|------|---------|
-| `h2h_hello` | Connection handshake |
-| `agent_start` | Deploy and start an agent (includes `agent_config`, `api_key`) |
-| `agent_stop` | Stop a running agent |
-| `agent_status` | Query agent state (specific or all) |
-| `agent_message` | Deliver a message to an agent (A2A routing) |
-| `tool_call` | Invoke an exported tool (`tool`, `method`, `arguments`) |
-| `tool_list` | Discover available tools |
-| `export_update` | Add or revoke export declarations at runtime |
-| `budget_update` | Adjust an agent's budget (can only reduce, never exceed worker cap) |
-| `audit_tail` | Request recent audit log entries |
-| `heartbeat` | Keepalive (every 30s) |
-
-### Worker to Controller
-
-| Type | Purpose |
-|------|---------|
-| `h2h_welcome` | Handshake response (includes constraints) |
-| `response` | Response to any request (keyed by `req_id`) |
-| `agent_event` | Lifecycle events: `started`, `stopped`, `budget_warning`, `budget_exceeded`, `error` |
-| `agent_output` | Streamed agent output (text chunks) |
-| `export_update` | Add or revoke export declarations |
-| `heartbeat` | Keepalive response (includes agent status summary) |
-
----
-
-## Tool Call Proxying
-
-When an agent on Mac calls a tool hosted on Pi, the call is proxied
-transparently. Both sides check permissions independently.
-
-```mermaid
-sequenceDiagram
-    participant A as Agent (Mac)
-    participant CP as Controller Proxy
-    participant T as H2H Tunnel
-    participant WP as Worker Proxy
-    participant M as MCP Server (Pi)
-    A->>CP: tools/call(washing-machine:get_status)
-    CP->>CP: Permission check (export + import + source)
-    CP->>T: tool_call {req_id, tool, arguments}
-    T->>WP: tool_call
-    WP->>WP: Permission check (worker-side)
-    WP->>M: tools/call(get_status)
-    M-->>WP: result
-    WP-->>T: response {req_id, result}
-    T-->>CP: response
-    CP-->>A: tool result
-```
-
-**Controller-side checks** (before sending): tool in worker's
-declared exports, method in export's `access.tools`, agent's
-[permission set](../permissions.md) allows the tool, agent's
-[source policy](../source-policies.md) permits remote calls.
-
-**Worker-side checks** (before executing): requesting `node_id`
-in `accept_from`, tool in local `allowed_exports`, method in
-export's `access.tools`.
-
-!!! warning "Dual enforcement"
-    A compromised controller cannot force a worker to execute
-    unexported tools. A compromised worker cannot make the controller
-    believe it has tools it does not have.
-
-Either side can update exports at runtime via `export_update`
-without reconnecting. Changes take effect immediately.
-
----
-
-## Agent Deployment
-
-1. Controller reads agent YAML with `node: pi-kitchen`
-2. Controller resolves API key (keychain, env var, or file)
-3. Controller sends `agent_start` over H2H:
+### Response
 
 ```json
 {
-  "type": "agent_start",
-  "req_id": "r1",
-  "agent_config": {
-    "name": "data-collector",
-    "model": {"provider": "claude-code", "name": "haiku"},
-    "runtime": {"memory": "512m", "cpus": 2},
-    "budget": {"max_cost_usd": 2.00},
-    "permissions": {"tools": {"allow": ["Bash", "Read"]}}
-  },
-  "api_key": "sk-ant-oat01-..."
+  "id": "r1",
+  "type": "response",
+  "status": "ok",
+  "result": {"image": "base64..."}
 }
 ```
 
-4. Worker validates against local constraints:
+### Error
 
-| Check | Condition | Error code |
-|-------|-----------|------------|
-| Budget cap | `budget <= max_budget_usd_per_session` | `budget_exceeded` |
-| Concurrency | `running_agents < max_concurrent_agents` | `concurrency_limit` |
-| Trust level | Config compatible with trust level | `trust_violation` |
-| Accept list | Controller `node_id` in `accept_from` | `unauthorized` |
+```json
+{
+  "id": "r1",
+  "type": "error",
+  "code": "permission_denied",
+  "message": "Tool 'screenshot' not allowed by wire rules"
+}
+```
 
-5. Worker creates a Container Hort, starts the agent
-6. Worker responds with `agent_id`, then emits `agent_event: started`
+### Channels
+
+The `channel` field routes messages to the right handler:
+
+| Channel | Purpose | Examples |
+|---|---|---|
+| `mcp` | MCP tool calls and responses | `tools/list`, `tools/call` |
+| `process` | Process lifecycle management | `start`, `stop`, `status`, `exec` |
+| `fs` | File operations | `read`, `write`, `mkdir` |
+| `auth` | Credential provisioning | `set_credential`, `rotate` |
+| `stream` | Binary data streams | JPEG frames, log output |
+| `control` | Connection management | `ping`, `shutdown`, `capabilities` |
+
+Each channel can be independently allowed or denied per client via the `WireRuleset`.
+
+### Capability Negotiation
+
+On connection, parent sends a `capabilities` request. Child responds with what it supports:
+
+```json
+{"id": "c1", "type": "request", "channel": "control", "method": "capabilities"}
+```
+
+```json
+{
+  "id": "c1",
+  "type": "response",
+  "status": "ok",
+  "result": {
+    "channels": ["mcp", "process", "fs", "auth", "control"],
+    "mcp_tools": ["screenshot", "list_windows", "click", "type"],
+    "version": "1.0"
+  }
+}
+```
+
+## Nesting & Tree Routing
+
+Horts form a tree. Requests can traverse multiple levels:
+
+```mermaid
+graph TD
+    subgraph mac ["🏠 macOS · root"]
+        M["🤖 Agent"]
+    end
+    
+    subgraph vm ["🏠 Linux VM"]
+        V["🤖 Agent"]
+        subgraph c1 ["🏠 Container A"]
+            A["📦 App A"]
+        end
+        subgraph c2 ["🏠 Container B"]
+            B["📦 App B"]
+        end
+    end
+    
+    M -->|"H2H (HTTP/WS)"| V
+    V -->|"H2H (stdio)"| c1
+    V -->|"H2H (stdio)"| c2
+```
+
+### Routing via Host Path
+
+The 12-char host IDs compose the routing chain (see [Unified Access](../security/unified-access.md)):
+
+```
+Xk9mPq2sY4vN                → Linux VM (first hop)
+Xk9mPq2sY4vNaB3cD7eF8gHi    → Container A inside VM (two hops)
+```
+
+Each hort routes to the next:
 
 ```mermaid
 sequenceDiagram
-    participant C as Controller
-    participant W as Worker
-    participant D as Docker (Worker)
-    C->>W: agent_start {config, api_key}
-    W->>W: Validate constraints
-    alt Validation fails
-        W-->>C: response {status: "error", error_code}
-    else Passes
-        W->>D: Create container (API key as env var)
-        D-->>W: Container started
-        W-->>C: response {status: "ok", agent_id}
-        W-->>C: agent_event {event: "started"}
-    end
+    participant Mac as macOS (root)
+    participant VM as Linux VM
+    participant C as Container A
+    
+    Mac->>VM: H2H request (host_path: Xk9mPq2sY4vNaB3cD7eF8gHi)
+    Note over VM: Split path: ["Xk9mPq2sY4vN", "aB3cD7eF8gHi"]<br/>First chunk = me, strip and forward
+    VM->>C: H2H request (host_path: aB3cD7eF8gHi)
+    C-->>VM: H2H response
+    VM-->>Mac: H2H response
 ```
 
-!!! danger "API key handling"
-    The API key is passed as an environment variable to the container.
-    It is **never** written to disk on the worker and **never**
-    logged, even in audit logs.
+### Wire Rules at Each Hop
 
----
-
-## Preventing Upward Control
-
-Workers cannot control their controller. Five independent layers
-enforce this -- compromising one is not sufficient.
-
-1. **Role enforcement** -- `node.yaml` sets `role: worker`, disabling
-   all controller endpoints. No cluster management APIs exposed.
-2. **Connection direction** -- controller connects TO worker, never
-   the reverse. Workers only have a WebSocket server, no client.
-3. **Accept list** -- `accept_from` enumerates exact permitted
-   `node_id` values. Rogue nodes are rejected even with valid keys.
-4. **Worker-side limits** -- budget caps, concurrency limits, and
-   export restrictions are local. `budget_update` can only reduce,
-   never exceed the worker's cap.
-5. **No file access** -- workers never mount the controller's
-   filesystem, even at `trusted` level.
-
-### Blast radius of a compromised worker
-
-| Asset | Exposure | Mitigation |
-|-------|----------|------------|
-| API keys in containers | Extractable from env vars | Scoped keys with spending limits, rotate regularly |
-| Tool call results | Readable in transit (memory only) | No persistent storage of results on worker |
-| Other workers | None | Workers have no knowledge of each other |
-| Controller filesystem | None | Never mounted on workers |
-| Controller API keys | None | Only per-agent scoped keys sent |
-| Cluster topology | Controller `node_id` and IP visible | Rotate connection keys, remove from `cluster.yaml` |
-
-!!! tip "Response to compromise"
-    Remove from `cluster.yaml`, rotate API keys sent to that worker,
-    revoke the connection key, review audit logs. The tunnel closes
-    after the 90-second heartbeat timeout.
-
----
-
-## NAT Traversal
-
-### Option A: Access Server Relay
-
-Both nodes connect outbound to the
-[access server](../../develop/access-server.md). The relay routes
-H2H messages by `node_id` without inspecting content.
+Each hop applies its own `WireRuleset`. The request must pass ALL hops:
 
 ```mermaid
 flowchart LR
-    subgraph Home ["Home Network"]
-        C["Controller"]
-    end
-    subgraph Cloud ["Azure"]
-        AS["Access Server"]
-    end
-    subgraph Remote ["Remote Site"]
-        W["Worker"]
-    end
-    C <-->|"WSS outbound"| AS
-    W <-->|"WSS outbound"| AS
+    REQ["MCP tools/call<br/>screenshot"] --> H1{"Mac → VM<br/>wire rules"}
+    H1 -->|"ALLOW"| H2{"VM → Container<br/>wire rules"}
+    H2 -->|"ALLOW"| EXEC["Execute tool"]
+    H1 -->|"DENY"| BLOCKED["BLOCKED"]
+    H2 -->|"DENY"| BLOCKED
+    
+    style BLOCKED fill:#f44336,color:#fff
+    style EXEC fill:#4caf50,color:#fff
 ```
 
-No firewall changes needed. TLS between each node and relay. Adds
-latency. Subject to Azure's 64KB message limit (chunking handled).
+A parent cannot grant MORE permissions than it has. Each hop can only further restrict:
 
-### Option B: WireGuard VPN
+```yaml
+# Mac → VM wire: allows read + write
+hort/linux-vm:
+  allow_groups: [read, write]
 
-All nodes join a WireGuard mesh with stable private IPs. Controller
-connects directly to workers. Lower latency, no relay dependency,
-but requires WireGuard setup on each node.
+# VM → Container wire: allows only read (further restricts)
+hort/container-a:
+  allow_groups: [read]
+  # write is denied even though the parent allows it
+```
+
+## Wire Permissions
+
+Each H2H wire carries a `WireRuleset` that defines exactly what can cross the boundary. This is NOT limited to MCP tool filtering — it controls the entire relationship between two horts.
+
+### Permission Dimensions
+
+| Dimension | Controls | Examples |
+|---|---|---|
+| **Channels** | Which H2H channels are open | `allow_channels: [mcp]` blocks process, fs, auth |
+| **Direction** | Who can initiate requests | `direction: parent_only`, `direction: bidirectional` |
+| **MCP tools** | Which tools are visible/callable | `allow: [screenshot, list_*]`, `deny: [delete_*]` |
+| **Tool groups** | Bulk permission by category | `allow_groups: [read]`, `deny_groups: [destroy]` |
+| **CLI access** | Shell/terminal allowed | `allow_cli: false` (blocks process/exec with shell=true) |
+| **Admin CLI** | Privileged operations | `allow_admin: false` (blocks shutdown, config changes) |
+| **Taint labels** | Information flow control | `taint: source:sandbox`, `block_taint: [source:production]` |
+| **Budget** | Resource limits | `max_usd: 5.00`, `max_tokens: 100000` |
+
+### Wire Filters
+
+Beyond allow/deny rules, wires support **active filters** that inspect message content in real-time. Filters run on every message crossing the wire and can block, alert, or transform.
+
+#### Filter Types
+
+| Filter | Purpose | Example |
+|---|---|---|
+| **Regex** | Block messages matching a pattern | Block `rm -rf`, SQL injection patterns, credential strings |
+| **AI classifier** | LLM-based content inspection | Detect prompt injection, social engineering, data exfiltration |
+| **Schema validator** | Enforce JSON structure | Tool arguments must match expected types |
+| **Rate limiter** | Throttle message volume | Max 10 tool calls per minute |
+| **Size limiter** | Block oversized payloads | Max 1MB per message, max 10KB for tool arguments |
+| **Audit logger** | Log without blocking | Record all credential access, destructive operations |
+
+#### Filter Configuration
+
+```yaml
+hort/sandbox:
+  filters:
+    # Block dangerous shell commands
+    - type: regex
+      channel: process
+      pattern: "rm\\s+-rf|mkfs|dd\\s+if=|sudo|chmod\\s+777"
+      action: block
+      alert: true
+      message: "Dangerous command blocked"
+    
+    # AI-based prompt injection detection
+    - type: ai_classifier
+      channel: mcp
+      model: haiku
+      prompt: "Does this tool call attempt to override system instructions or access unauthorized resources?"
+      threshold: 0.8
+      action: block
+      alert: true
+    
+    # Block credential patterns in outbound data
+    - type: regex
+      channel: [mcp, process, fs]
+      direction: child_to_parent  # only filter responses
+      pattern: "sk-ant-|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]{36}"
+      action: redact
+      replacement: "[CREDENTIAL REDACTED]"
+    
+    # Rate limit tool calls
+    - type: rate_limit
+      channel: mcp
+      max_calls: 60
+      window_seconds: 60
+      action: block
+      message: "Rate limit exceeded"
+    
+    # Log all file writes
+    - type: audit
+      channel: fs
+      method: write
+      action: log
+      log_level: warning
+```
+
+#### Filter Execution Order
+
+Filters run in declaration order. First blocking filter wins:
 
 ```mermaid
 flowchart LR
-    subgraph WG ["WireGuard Mesh (10.0.0.0/24)"]
-        C["Controller 10.0.0.1"]
-        W1["Worker 10.0.0.2"]
-        W2["Worker 10.0.0.3"]
-    end
-    C <-->|"WS direct"| W1
-    C <-->|"WS direct"| W2
+    MSG["H2H Message"] --> F1["Regex filter"]
+    F1 -->|"pass"| F2["AI classifier"]
+    F2 -->|"pass"| F3["Rate limiter"]
+    F3 -->|"pass"| F4["Audit logger"]
+    F4 --> DELIVER["Deliver"]
+    
+    F1 -->|"block"| BLOCKED["BLOCKED + alert"]
+    F2 -->|"block"| BLOCKED
+    F3 -->|"block"| BLOCKED
+    
+    style BLOCKED fill:#f44336,color:#fff
+    style DELIVER fill:#4caf50,color:#fff
 ```
 
----
+#### Filter Actions
 
-## Reconnection and Resilience
+| Action | Effect |
+|---|---|
+| `block` | Message dropped. Error returned to sender. Optional alert to admin. |
+| `alert` | Message delivered but admin notified (status bar, log, Telegram). |
+| `redact` | Matching content replaced with placeholder. Message delivered. |
+| `log` | Message delivered. Full content written to audit log. |
+| `transform` | Message modified (e.g., sanitize HTML, strip metadata). Delivered. |
 
-If the tunnel drops, the controller retries with exponential backoff:
-1s, 2s, 4s, 8s, then 60s max. Running agents **continue executing**
-on the worker during disconnection -- worker-side budget limits
-enforce caps independently.
+### Direction Control
 
-Agent events are queued for delivery when the tunnel is restored
-(up to 1000 messages or 1 MB; oldest dropped on overflow).
+Not all wires are request-response. The direction determines who can initiate:
+
+```yaml
+# Parent sends commands, child only responds
+hort/sandbox:
+  direction: parent_only
+  allow_channels: [mcp, process, auth]
+
+# Both can initiate (neighbor horts)
+hort/office:
+  direction: bidirectional
+  allow_channels: [mcp]
+
+# Child can push events (e.g. webhook notifications) but not request
+hort/webhook-receiver:
+  direction: child_push
+  allow_channels: [mcp]
+  allow: [on_webhook_received]  # child can only call this one tool on parent
+```
+
+```mermaid
+graph LR
+    subgraph parent_only ["direction: parent_only"]
+        P1["🏠 Parent"] -->|"requests"| C1["🏠 Child"]
+        C1 -->|"responses only"| P1
+    end
+```
+
+```mermaid
+graph LR
+    subgraph bidirectional ["direction: bidirectional"]
+        P2["🏠 Hort A"] <-->|"both can initiate"| C2["🏠 Hort B"]
+    end
+```
+
+```mermaid
+graph LR
+    subgraph child_push ["direction: child_push"]
+        P3["🏠 Parent"] -->|"requests"| C3["🏠 Child"]
+        C3 -->|"responses + events"| P3
+    end
+```
+
+### Full Permission Example
+
+```yaml
+# Sandbox for untrusted code execution
+hort/sandbox:
+  direction: parent_only
+  allow_channels: [mcp, process, fs, auth]
+  allow_groups: [read, write]
+  deny_groups: [destroy, send]
+  allow: [exec_command, read_file, write_file, list_files]
+  deny: [delete_*, send_*, shutdown, reboot]
+  allow_cli: true
+  allow_admin: false
+  taint: source:sandbox
+  block_taint: [source:production, content:credentials]
+  budget: { max_usd: 2.00 }
+
+# Guest viewer — can only look, never act
+hort/guest-view:
+  direction: parent_only
+  allow_channels: [mcp]
+  allow_groups: [read]
+  deny_groups: [write, send, destroy]
+  allow_cli: false
+  allow_admin: false
+
+# Neighbor office machine — bidirectional but MCP-only
+hort/office:
+  direction: bidirectional
+  allow_channels: [mcp]
+  allow_groups: [read, write]
+  deny_groups: [destroy]
+  deny: [exec_command, send_email]
+  allow_cli: false
+  allow_admin: false
+
+# Hosted app — can push webhook events, otherwise respond-only
+hort/workflow-engine:
+  direction: child_push
+  allow_channels: [mcp]
+  allow: [on_workflow_complete, on_error]  # child can push these events
+  allow_groups: [read, write]             # parent can call these on child
+  allow_cli: false
+  allow_admin: false
+```
+
+### Per-Wire MCP Filtering
+
+The same hort exposes different tool sets to different clients:
+
+```mermaid
+graph TD
+    subgraph hort ["🏠 Hort with 10 MCP tools"]
+        T1["screenshot"]
+        T2["list_windows"]
+        T3["click"]
+        T4["type_text"]
+        T5["read_file"]
+        T6["write_file"]
+        T7["delete_file"]
+        T8["exec_command"]
+        T9["send_email"]
+        T10["get_status"]
+    end
+    
+    subgraph owner ["👤 Owner"]
+        O["Sees all 10 tools<br/>+ CLI + admin"]
+    end
+    
+    subgraph guest ["👤 Guest"]
+        G["Sees: screenshot,<br/>list_windows, get_status<br/>No CLI, no admin"]
+    end
+    
+    subgraph sandbox ["🏠 Sandbox"]
+        S["Sees: read_file,<br/>exec_command<br/>CLI yes, admin no"]
+    end
+    
+    hort -->|"allow: * · allow_cli · allow_admin"| owner
+    hort -->|"allow_groups: [read] · no CLI"| guest
+    hort -->|"allow: [read_file, exec_command]<br/>allow_cli · deny: [delete_*]"| sandbox
+```
+
+### Channel + Direction + Tools = Complete Control
+
+The three dimensions compose:
+
+```mermaid
+flowchart TD
+    REQ["Incoming H2H message"] --> D{"Direction<br/>allowed?"}
+    D -->|"No (child→parent<br/>on parent_only wire)"| DROP["DROP + LOG"]
+    D -->|"Yes"| CH{"Channel<br/>allowed?"}
+    CH -->|"No (fs on mcp-only wire)"| DROP
+    CH -->|"Yes"| TOOL{"Tool/method<br/>allowed?"}
+    TOOL -->|"No (delete_file on<br/>read-only wire)"| DROP
+    TOOL -->|"Yes"| CLI{"CLI access<br/>required?"}
+    CLI -->|"shell=true but<br/>allow_cli=false"| DROP
+    CLI -->|"OK"| ADMIN{"Admin op?"}
+    ADMIN -->|"shutdown but<br/>allow_admin=false"| DROP
+    ADMIN -->|"OK"| TAINT{"Taint<br/>allowed?"}
+    TAINT -->|"source:production on<br/>sandbox wire"| DROP
+    TAINT -->|"OK"| EXEC["EXECUTE"]
+    
+    style DROP fill:#f44336,color:#fff
+    style EXEC fill:#4caf50,color:#fff
+```
+
+## Security Model
+
+### Isolation Guarantee
+
+A child hort CANNOT:
+
+- Initiate connections to its parent
+- Access the parent's filesystem
+- Read the parent's environment variables
+- Discover sibling horts
+- Escalate from a VM to the host
+- Execute commands on the parent
+
+A child hort CAN ONLY:
+
+- Respond to requests from its parent
+- Use capabilities negotiated at connection time
+- Access resources explicitly granted via the wire ruleset
+
+### Credential Flow
+
+Credentials flow **downward only**, via the `auth` channel:
 
 ```mermaid
 sequenceDiagram
-    participant C as Controller
-    participant W as Worker
-    Note over C,W: Tunnel drops
-    C->>C: Retry with backoff
-    C->>W: WebSocket UPGRADE
-    W-->>C: 101
-    C->>W: h2h_hello
-    W-->>C: h2h_welcome
-    W-->>C: agent_event (full status sync)
-    W-->>C: Queued events (budget warnings, etc.)
+    participant Mac as macOS (parent)
+    participant Container as Container (child)
+    
+    Mac->>Container: auth/set_credential<br/>{name: "api_key", value: "sk-..."}
+    Note over Container: Stores in memory only.<br/>Never persisted to disk.
+    Container-->>Mac: ok
+    
+    Mac->>Container: process/start<br/>{cmd: "claude", args: ["-p", "hello"]}
+    Note over Container: Process receives credential<br/>via in-memory injection.<br/>Not in env, not in /proc.
+    Container-->>Mac: {pid: 42, status: "running"}
 ```
 
-!!! info "Idempotent agent_start"
-    If `agent_start` targets an already-running agent (e.g., after
-    reconnect), the worker responds `{"already_running": true}`
-    instead of starting a duplicate.
+### No Upward Escalation
 
----
+Even if a process inside a container is compromised:
 
-## Security
-
-### Wire-level security
-
-| Context | Encryption | Policy |
-|---------|------------|--------|
-| LAN (trusted) | None by default | Recommend TLS or WireGuard |
-| LAN (sandboxed) | None by default | Strongly recommend TLS |
-| Cloud / untrusted | **TLS required** | Enforced in code |
-| Via Access Server | TLS to relay | Relay cannot decrypt H2H payload |
-
-!!! warning "LAN without TLS"
-    Unencrypted H2H on a LAN means any device on the network can
-    sniff tool arguments, API keys, and agent output. Acceptable
-    only on isolated, physically secured networks.
-
-### Protocol-level security
-
-| Mechanism | Detail |
-|-----------|--------|
-| Request correlation | Every request has `req_id`. Responses reference it. Duplicate `req_id` rejected. |
-| Heartbeat timeout | 90s without heartbeat = node offline, connection closed |
-| Rate limiting | 100 messages/second per tunnel, excess dropped |
-| Message size limit | 64 KB per message (Azure compat), chunking for larger payloads |
-| Budget enforcement | Worker-side caps are authoritative, cannot be exceeded remotely |
-| Connection keys | 32-byte URL-safe tokens, per node, never logged |
-
-For high-security deployments, mutual TLS (mTLS) adds certificate
-validation on top of connection keys.
-
-### Attack vectors
-
-| Attack | Mitigation |
-|--------|------------|
-| Key interception on LAN | TLS or WireGuard |
-| Compromised worker steals API key | Scoped keys with spending limits, never on disk |
-| Rogue node joins cluster | Per-node connection keys, manual out-of-band exchange |
-| Man-in-the-middle on relay | TLS to access server (enforced for untrusted) |
-| Worker spoofs another worker | Per-node keys bound to node_id |
-| DDoS from compromised worker | Rate limit: 100 msg/s per tunnel |
-| Replay attack | `req_id` uniqueness within session |
-| Budget override attempt | Worker-side cap is authoritative, update clamped to local max |
-
----
-
-## Configuration Reference
-
-### cluster.yaml (Controller)
-
-```yaml
-cluster:
-  name: home-lab
-  controller:
-    node_id: mac-studio
-    host: 192.168.1.100
-    port: 8940
-
-  nodes:
-    - node_id: pi-kitchen
-      host: 192.168.1.201
-      port: 8940
-      connection_key: "k_abc123..."
-      role: worker
-      trust_level: sandboxed
-      capabilities:
-        cpus: 4
-        memory_gb: 8
-
-    - node_id: cloud-vm
-      host: relay
-      relay_node_id: cloud-vm
-      connection_key: "k_ghi789..."
-      role: worker
-      trust_level: untrusted
+```mermaid
+graph TD
+    subgraph mac ["🏠 macOS"]
+        AGENT["🤖 Host Agent"]
+        H2H["H2H Listener"]
+    end
+    
+    subgraph container ["🏠 Container (compromised)"]
+        EVIL["💀 Malicious Process"]
+        STDIO["stdin/stdout<br/>(H2H protocol only)"]
+    end
+    
+    H2H -->|"requests"| STDIO
+    STDIO -->|"responses only"| H2H
+    
+    EVIL -->|"❌ No network to host"| mac
+    EVIL -->|"❌ No mount to host FS"| mac
+    EVIL -->|"❌ No docker socket"| mac
+    EVIL -->|"❌ Can only write to stdout<br/>(parent validates all messages)"| STDIO
 ```
 
-### node.yaml (Worker)
+The parent validates every message from the child. Invalid channels, unauthorized methods, or malformed messages are dropped and logged.
 
-```yaml
-node:
-  node_id: pi-kitchen
-  role: worker
-  accept_from: [mac-studio]
-  max_concurrent_agents: 2
-  max_budget_usd_per_session: 5.00
-  allowed_exports:
-    - tool: washing-machine
-      access:
-        tools: [get_status, get_remaining_time]
-  controller:
-    host: 192.168.1.100
-    port: 8940
-    connection_key: "k_abc123..."
+## Constellation Examples
+
+### Example 1: Development Machine
+
+```mermaid
+graph TD
+    subgraph mac ["🏠 macOS · Xk9mPq2sY4vN"]
+        AGENT["🤖 Claude Code"]
+        TG["📦 Telegram"]
+        LENS["📦 LlmingLens"]
+        WIRE["📦 LlmingWire"]
+    end
+    
+    subgraph sandbox ["🏠 Sandbox · aB3cD7eF8gHi<br/>stdio transport"]
+        CLAUDE["🤖 Claude (sandboxed)"]
+        TOOLS["📦 MCP Tools (proxied)"]
+    end
+    
+    subgraph hosted ["🏠 Hosted App · jK5lM6nO9pQr<br/>HTTP transport"]
+        WF["📦 Workflow Engine"]
+    end
+    
+    AGENT --> TG
+    AGENT --> LENS
+    AGENT --> WIRE
+    AGENT -->|"H2H · allow: [mcp, process]<br/>deny: [fs, auth]"| sandbox
+    AGENT -->|"H2H · allow: [mcp]"| hosted
 ```
 
----
+### Example 2: Remote VM with Nested Containers
 
-## Relationship to Existing Protocols
+```mermaid
+graph TD
+    subgraph mac ["🏠 macOS · Xk9mPq2sY4vN"]
+        M["🤖 Agent"]
+    end
+    
+    subgraph azure ["🏠 Azure VM · aB3cD7eF8gHi<br/>HTTP/WS transport"]
+        VA["🤖 VM Agent"]
+        
+        subgraph dev ["🏠 Dev Container · jK5lM6nO9pQr<br/>stdio transport"]
+            CODE["📦 Code Server"]
+            SHELL["📦 Shell"]
+        end
+        
+        subgraph prod ["🏠 Prod Container · mN7oP8qR1sT2<br/>stdio transport"]
+            APP["📦 Production App"]
+        end
+    end
+    
+    M -->|"H2H · allow: [mcp, process, fs]"| VA
+    VA -->|"H2H · allow: [mcp, process, fs]"| dev
+    VA -->|"H2H · allow: [mcp] · deny: [process, fs]"| prod
+```
 
-| Protocol | Purpose | H2H relationship |
-|----------|---------|------------------|
-| [Access Server Tunnel](../../develop/access-server.md) | Remote browser access via cloud relay | H2H reuses the same WebSocket transport and chunking. Adds new message types. |
-| [Wire Protocol](wire-protocol.md) | Agent-to-controller streaming | H2H extends `agent_start/stop/message` with tool export/import semantics. |
+Full host paths:
 
-Both protocols can coexist on the same WebSocket if a node serves
-dual roles (browser access AND cluster participation).
+- Dev container: `Xk9mPq2sY4vNaB3cD7eF8gHijK5lM6nO9pQr` (36 chars = 3 hops)
+- Prod container: `Xk9mPq2sY4vNaB3cD7eF8gHimN7oP8qR1sT2` (36 chars = 3 hops)
+
+### Example 3: Neighbor Horts (Home + Office)
+
+```mermaid
+graph LR
+    subgraph home ["🏠 Home Mac · Xk9mPq2sY4vN"]
+        H["🤖 Agent"]
+        HFS["📦 Home Files"]
+    end
+    
+    subgraph office ["🏠 Office Mac · aB3cD7eF8gHi"]
+        O["🤖 Agent"]
+        OFS["📦 Office Files"]
+        SAP["📦 SAP"]
+    end
+    
+    H <-->|"H2H neighbor · WireGuard<br/>allow: [mcp] · deny: [process, fs]"| O
+```
+
+Both can initiate. First connection wins. Neither can exec processes on the other — only MCP tool calls cross the wire.
+
+### Example 4: Shared Access (Guest)
+
+```mermaid
+graph TD
+    subgraph owner ["🏠 Owner's Mac · Xk9mPq2sY4vN"]
+        OA["🤖 Owner Agent"]
+        
+        subgraph shared ["🏠 Shared VM · aB3cD7eF8gHi"]
+            SA["🤖 Shared Agent"]
+            CODE["📦 Code Server"]
+            TERM["📦 Terminal"]
+        end
+    end
+    
+    subgraph guest ["👤 Guest (Sarah)"]
+        GB["🌐 Browser"]
+    end
+    
+    OA -->|"H2H · full access"| shared
+    GB -->|"H2H · allow: [mcp]<br/>deny: [process, fs, auth]"| shared
+```
+
+The guest connects to the shared VM directly (via proxy or P2P). Wire rules on the guest connection restrict to MCP-only — no process management, no filesystem, no credential access.
+
+### Example 5: Multi-Tier with Mixed Transports
+
+```mermaid
+graph TD
+    subgraph mac ["🏠 macOS (root)"]
+        M["🤖 Agent"]
+    end
+    
+    subgraph vm ["🏠 Linux VM<br/>Unix socket transport"]
+        V["🤖 VM Agent"]
+        
+        subgraph c_claude ["🏠 Claude Sandbox<br/>stdio transport"]
+            CL["🤖 Claude"]
+        end
+        
+        subgraph c_app ["🏠 App Container<br/>stdio transport"]
+            APP["📦 Web App"]
+        end
+    end
+    
+    subgraph remote ["🏠 Cloud Worker<br/>HTTP/WS transport"]
+        R["🤖 Remote Agent"]
+        
+        subgraph rc ["🏠 Remote Container<br/>stdio transport"]
+            RC["📦 Compute"]
+        end
+    end
+    
+    M -->|"Unix socket"| V
+    V -->|"stdio"| c_claude
+    V -->|"stdio"| c_app
+    M -->|"HTTP/WS (TLS)"| R
+    R -->|"stdio"| rc
+```
+
+Four different transports in one tree:
+
+- Mac → VM: Unix socket (same machine, fast)
+- VM → Containers: stdio (local processes)
+- Mac → Cloud: HTTP/WS with TLS (remote)
+- Cloud → Container: stdio (local to cloud VM)
+
+## Container Agent Implementation
+
+Instead of `docker exec` (current), each container runs a **H2H agent** as PID 1:
+
+```dockerfile
+ENTRYPOINT ["hort-agent"]
+```
+
+The agent:
+
+1. Reads JSONL from stdin (or listens on socket/HTTP)
+2. Routes by `channel` to internal handlers
+3. Validates permissions against the wire ruleset received at startup
+4. Responds via stdout (or socket/HTTP)
+5. Never initiates outbound connections
+
+### Migration Path
+
+| Current (docker exec) | H2H Agent |
+|---|---|
+| `docker exec -e KEY=val cmd` | `auth/set_credential` + `process/exec` |
+| `session.write_file(path, data)` | `fs/write` |
+| MCP SSE proxy (`host.docker.internal:PORT`) | `mcp/tools/call` routed through H2H |
+| `sleep infinity` as PID 1 | `hort-agent` as PID 1 |
+
+## Error Handling
+
+Errors in H2H communication NEVER leak to end users (see [Error Handling](../security/error-handling.md)):
+
+```json
+{"id": "r1", "type": "error", "code": "container_crash",
+ "message": "Process exited with code 137 (OOM killed)"}
+```
+
+What the user sees: **"Something went wrong. Try again."**
+
+The parent hort translates internal H2H errors into safe user-facing messages.
+
+## Related
+
+- [Credential Provisioning](../security/credential-provisioning.md) — how credentials flow from OS stores to containers, cross-platform support
+- [Unified Access](../security/unified-access.md) — host IDs, pairing, routing
+- [Wiring Model](../security/wiring-model.md) — the four wiring forms and WireRuleset
+- [Error Handling](../security/error-handling.md) — no internal errors to users

@@ -136,9 +136,15 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Taint Tracking](docs/manual/internals/security/taint-tracking.md) — data model, label classifier, propagation rules, audit trail
 - [Flow Policies & Zones](docs/manual/internals/security/flow-policies.md) — policy engine, zone isolation, auto-escalation, broadcast channels, simple/advanced config
 - [Boundary Filters](docs/manual/internals/security/boundary-filters.md) — MCP filter chains, content inspection (regex/AI), container network egress filtering, DNS/IP/URL allowlists
+- [H2H Protocol](docs/manual/internals/protocols/h2h-protocol.md) — hort-to-hort communication, transport-agnostic (stdio/HTTP/socket), tree routing, wire permissions (channels/direction/tools/CLI/filters), neighbor horts, constellation examples
+- [Credential Provisioning](docs/manual/internals/security/credential-provisioning.md) — downward-only credential flow, OS credential stores (macOS/Linux/Windows), apiKeyHelper pattern, container injection, rotation, threat mitigations
+- [Unified Access](docs/manual/internals/security/unified-access.md) — uphid, device_uid, pairing tokens, share links, guest access, hub device selector
+- [Error Handling](docs/manual/internals/security/error-handling.md) — no internal errors to users, container lifecycle, shutdown cleanup
 
 ## Critical Rules
 
+- **NEVER expose internal errors to users.** Stack traces, docker commands, container IDs, file paths, Python exceptions — NONE of this may ever appear in Telegram messages, web chat responses, API responses to unauthenticated clients, or any user-facing channel. Catch all exceptions and return safe generic messages ("Something went wrong. Try again."). Full details go to logs only. See [Error Handling](docs/manual/internals/security/error-handling.md).
+- **Sandbox containers run until hort stops.** Containers are created on first use and persist across messages. On `hort stop` or status bar quit, ALL sandbox containers (`ohsb-*`) are stopped and removed. On `hort start`, orphaned containers from crashes are cleaned up. Never create containers eagerly at startup.
 - **NEVER run `git commit`.** Only the user commits.
 - **NEVER use `alert()`, `confirm()`, or `prompt()`.** Always use `Quasar.Dialog.create()` — see [UX Guidelines: No JavaScript Dialogs](docs/manual/develop/ux-guidelines.md#no-javascript-dialogs).
 - **OAuth callback is localhost-only.** Never serve `/auth/callback` via the cloud proxy — multi-tenant callback interception risk. Remote auth uses device code flow exclusively. See [Credentials docs](docs/manual/develop/mcp-servers.md#security-oauth-callback-restricted-to-localhost).

@@ -1,11 +1,21 @@
-"""Openhort session entry and registry (built on llming-com)."""
+"""Openhort session entry, registry, and manager (built on llming-com).
+
+Uses llming-com's ``SessionManager`` for unified session lifecycle across
+LAN, cloud proxy, and P2P connections.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from llming_com import BaseSessionEntry, BaseSessionRegistry
+from llming_com import (
+    BaseSessionEntry,
+    BaseSessionRegistry,
+    ConnectionType,
+    SessionContext,
+    SessionManager,
+)
 
 from hort.models import StreamConfig
 
@@ -48,3 +58,32 @@ class HortRegistry(BaseSessionRegistry["HortSessionEntry"]):
         """Reset singleton and observer counter (for testing)."""
         super().reset()
         cls._observer_counter = 0
+
+
+class HortSessionManager(SessionManager["HortSessionEntry"]):
+    """Openhort session manager — unified across LAN, proxy, and P2P.
+
+    Wraps ``SessionManager`` with openhort-specific convenience methods.
+    """
+
+    _instance: HortSessionManager | None = None
+
+    @classmethod
+    def get(cls) -> HortSessionManager:
+        """Get or create the singleton instance."""
+        if cls._instance is None:
+            registry = HortRegistry.get()
+            cls._instance = cls(registry)
+        return cls._instance
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset singleton (for testing)."""
+        cls._instance = None
+
+    def observer_count(self) -> int:
+        """Number of sessions with an active stream."""
+        registry = self.registry
+        if isinstance(registry, HortRegistry):
+            return registry.observer_count()
+        return 0
