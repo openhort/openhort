@@ -188,14 +188,14 @@ groups:
     session: shared
 
 users:
-  michael:
+  alice:
     groups: [owner]
     match:
-      telegram: alice_dev
+      telegram: your_username
       wire: user@example.com
 ```
 
-Michael on Telegram and Michael on Wire share the same Claude session — same conversation history, same `--resume` session ID.
+Users on Telegram and Wire share the same Claude session — same conversation history, same `--resume` session ID.
 
 ### Isolated Sessions
 
@@ -205,7 +205,7 @@ Users in a group with `session: isolated` get separate sessions per connector/co
 
 When a message arrives:
 
-1. Look up user in `hort-config.yaml` by connector match (`telegram: alice_dev`)
+1. Look up user in `hort-config.yaml` by connector match (`telegram: your_username`)
 2. Find their group(s)
 3. Determine session policy (`shared` → session key by user name, `isolated` → by conversation ID)
 4. Route to Claude with the resolved session key

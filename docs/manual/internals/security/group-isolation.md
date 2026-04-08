@@ -315,10 +315,10 @@ relations:
     direction: mail -> documents
 
 users:
-  michael:
+  alice:
     groups: [owner]
     match:
-      telegram: alice_dev
+      telegram: your_username
       wire: user@example.com
 
   sarah:
