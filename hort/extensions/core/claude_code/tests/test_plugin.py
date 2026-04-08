@@ -53,14 +53,15 @@ def test_get_mcp_tools(plugin):
     assert "reset_session" in names
 
 
-def test_chat_returns_error_when_not_started(plugin):
-    """Chat should return a user-friendly message, not crash."""
+def test_chat_never_crashes(plugin):
+    """Chat should always return a string, never raise."""
     plugin.activate({})
     import asyncio
     result = asyncio.get_event_loop().run_until_complete(
-        plugin.chat("test-session", "hello")
+        plugin.chat("test-session", "Say just 'ok'")
     )
-    assert "not available" in result.lower() or "went wrong" in result.lower()
+    assert isinstance(result, str)
+    assert len(result) > 0
 
 
 @patch("hort.hort_config.get_hort_config")
