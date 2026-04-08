@@ -40,7 +40,7 @@ def _get_claude_api_key() -> str:
     Returns empty string if nothing available.
     """
     try:
-        from hort.extensions.llms.claude_code.auth import get_api_key
+        from hort.extensions.core.claude_code.auth import get_api_key
         return get_api_key()
     except Exception as exc:
         logger.warning("Could not get Claude credentials: %s", exc)
