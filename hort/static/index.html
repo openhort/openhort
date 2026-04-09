@@ -424,6 +424,10 @@
     ws.onopen = () => {
       state.connected = true;
       startHeartbeat();
+      // Fire registered on-connect callbacks (llming loading, etc.)
+      for (const fn of (window._hortOnConnect || [])) {
+        try { fn(); } catch (e) { console.error('[onConnect]', e); }
+      }
     };
 
     ws.onmessage = (e) => {
@@ -3224,8 +3228,8 @@
       }
       setInterval(refreshSpirits, 10000);
       setInterval(refreshSpiritStores, 15000);
-      // Load spirits immediately when WS connects
-      watch(() => state.wsReady, () => {
+      // Load spirits when WS connects
+      (window._hortOnConnect = window._hortOnConnect || []).push(() => {
         refreshSpirits().then(refreshSpiritStores);
       });
 
@@ -4175,21 +4179,14 @@
 
   app.mount('#q-app');
 
-  // Load plugin UI scripts once WS is ready (retry until connected)
+  // Load plugin UI scripts when WS connects
   if (typeof HortPlugins !== 'undefined') {
-    async function _loadPluginsWhenReady() {
-      for (let i = 0; i < 30; i++) {  // retry up to 30s
-        if (window.hortWS && state.controlWs && state.controlWs.readyState === WebSocket.OPEN) {
-          await HortPlugins.discoverAndLoadPlugins();
-          if (typeof HortExtension !== 'undefined') HortExtension.activateAll(app, Quasar, {});
-          pluginsLoaded.value++;
-          setTimeout(() => { pluginsLoaded.value++; }, 2000);
-          return;
-        }
-        await new Promise(r => setTimeout(r, 1000));
-      }
-    }
-    _loadPluginsWhenReady();
+    (window._hortOnConnect = window._hortOnConnect || []).push(async () => {
+      await HortPlugins.discoverAndLoadPlugins();
+      if (typeof HortExtension !== 'undefined') HortExtension.activateAll(app, Quasar, {});
+      pluginsLoaded.value++;
+      setTimeout(() => { pluginsLoaded.value++; }, 2000);
+    });
   }
 
   // Reconnect on tab visibility change (macOS Space switching suspends tabs)
