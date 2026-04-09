@@ -456,6 +456,7 @@
     switch (msg.type) {
       case 'connected':
         state.serverVersion = msg.version || '';
+        state.wsReady = (state.wsReady || 0) + 1;  // reactive trigger for llming loading
         requestTargets();
         requestTerminalList();
         sendControl({ type: 'tunnel_status' });
@@ -3222,7 +3223,10 @@
       }
       setInterval(refreshSpirits, 10000);
       setInterval(refreshSpiritStores, 15000);
-      refreshSpirits().then(refreshSpiritStores);
+      // Load spirits immediately when WS connects
+      watch(() => state.wsReady, () => {
+        refreshSpirits().then(refreshSpiritStores);
+      });
 
       function terminalsForTarget(targetId) {
         if (targetId === 'all') return state.terminals;
@@ -4170,14 +4174,21 @@
 
   app.mount('#q-app');
 
-  // Load plugin UI scripts asynchronously after mount
+  // Load plugin UI scripts once WS is ready (retry until connected)
   if (typeof HortPlugins !== 'undefined') {
-    HortPlugins.discoverAndLoadPlugins().then(() => {
-      if (typeof HortExtension !== 'undefined') HortExtension.activateAll(app, Quasar, {});
-      pluginsLoaded.value++;
-      // Delay second trigger to ensure spirit visibility config has loaded
-      setTimeout(() => { pluginsLoaded.value++; }, 2000);
-    });
+    async function _loadPluginsWhenReady() {
+      for (let i = 0; i < 30; i++) {  // retry up to 30s
+        if (window.hortWS && state.controlWs && state.controlWs.readyState === WebSocket.OPEN) {
+          await HortPlugins.discoverAndLoadPlugins();
+          if (typeof HortExtension !== 'undefined') HortExtension.activateAll(app, Quasar, {});
+          pluginsLoaded.value++;
+          setTimeout(() => { pluginsLoaded.value++; }, 2000);
+          return;
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+    _loadPluginsWhenReady();
   }
 
   // Reconnect on tab visibility change (macOS Space switching suspends tabs)
