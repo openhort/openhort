@@ -90,6 +90,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
             response: Response = await call_next(request)
             return response
 
+        # WebSocket upgrades are NOT handled by HTTP middleware —
+        # they have their own auth (session lookup in the WS handler).
+        # BaseHTTPMiddleware + WebSocket = broken in Starlette.
+        if request.scope.get("type") == "websocket":
+            return await _next()
+
         # Non-API paths are always public
         if not path.startswith(_API_PREFIX):
             return await _next()
