@@ -98,7 +98,7 @@ class TelegramConnector(LlmingBase, ConnectorBase):
                 )
         self.log.info("Telegram connector activated (allowed: %s)", self._allowed_users)
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         """Status for connectors.list and llmings.pulse WS commands."""
         token_set = bool(os.environ.get("TELEGRAM_BOT_TOKEN", ""))
         task_error = ""

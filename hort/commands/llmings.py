@@ -1,4 +1,4 @@
-"""WS commands for llming management — list, pulse, store."""
+"""WS commands for llming management — list, pulse, store, debug."""
 
 from __future__ import annotations
 
@@ -67,3 +67,46 @@ async def llming_store(controller: Any, name: str) -> dict[str, Any]:
         for k in keys[:100]:
             items[k] = await inst._store.get(k)
     return {"name": name, "data": items}
+
+
+@router.handler("debug")
+async def llming_debug(controller: Any, name: str = "") -> dict[str, Any]:
+    """Deep debug info for a llming — class, config, powers, pulse, scheduler, credentials."""
+    from hort.llming.base import LlmingBase
+
+    registry = get_llming_registry()
+    if not registry:
+        return {"error": "no registry"}
+
+    if not name:
+        # Return summary of ALL llmings
+        summary = []
+        for inst_name in sorted(registry._instances.keys()):
+            inst = registry.get_instance(inst_name)
+            info: dict[str, Any] = {"name": inst_name, "type": type(inst).__name__}
+            if isinstance(inst, LlmingBase):
+                info["class_name"] = inst.class_name
+                info["has_pulse"] = bool(inst.get_pulse())
+                info["powers"] = [p.name for p in inst.get_powers()]
+                info["scheduler_jobs"] = inst._scheduler.running_jobs if inst._scheduler else []
+            summary.append(info)
+        return {"data": summary}
+
+    inst = registry.get_instance(name)
+    if inst is None:
+        return {"error": f"llming '{name}' not found"}
+
+    info: dict[str, Any] = {
+        "name": name,
+        "type": type(inst).__name__,
+    }
+    if isinstance(inst, LlmingBase):
+        info["class_name"] = inst.class_name
+        info["instance_name"] = inst.instance_name
+        info["config"] = inst.config
+        info["pulse"] = inst.get_pulse()
+        info["powers"] = [{"name": p.name, "type": p.type.value} for p in inst.get_powers()]
+        info["scheduler_jobs"] = inst._scheduler.running_jobs if inst._scheduler else []
+        info["has_credentials"] = inst.credentials is not None
+        info["soul_length"] = len(inst.soul) if inst.soul else 0
+    return {"data": info}
