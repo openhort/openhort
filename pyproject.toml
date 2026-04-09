@@ -61,6 +61,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = ["integration: tests that hit real macOS APIs (run with -m integration)"]
 addopts = "-m 'not integration'"
+timeout = 60
 
 [tool.coverage.run]
 source = ["hort"]
