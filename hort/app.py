@@ -1366,6 +1366,7 @@ def _register_routes(app: FastAPI) -> None:
             on_message=on_message,
             on_disconnect=on_disconnect,
             log_prefix="CTRL",
+            rate_limit=2000,  # stream_ack at 15fps = 900/min + UI messages
         )
 
     @app.websocket("/ws/stream/{session_id}")

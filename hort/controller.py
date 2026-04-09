@@ -132,7 +132,13 @@ class HortController(BaseController):
         # 1. Legacy flat handlers (stream, input, terminals, tokens)
         handler_name = self._HANDLERS.get(msg_type)
         if handler_name:
-            handler = getattr(self, handler_name)
+            # stream_ack is high-frequency (15+ fps) — skip rate limiting
+            if msg_type not in ("stream_ack", "heartbeat") and not self.check_rate_limit():
+                return
+            handler = getattr(self, handler_name, None)
+            if handler is None:
+                logger.error("Handler %s not found on controller", handler_name)
+                return
             import inspect
             if "msg" in inspect.signature(handler).parameters:
                 await handler(msg)
