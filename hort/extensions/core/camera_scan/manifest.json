@@ -1,0 +1,26 @@
+{
+  "name": "camera-scan",
+  "version": "0.1.0",
+  "description": "Use phone camera to scan QR codes, barcodes, or capture photos for server-side processing. Demonstrates client→server image transfer.",
+  "provider": "core",
+  "platforms": ["darwin", "linux", "win32"],
+  "capabilities": ["tool"],
+  "entry_point": "provider:CameraScan",
+  "icon": "ph ph-qr-code",
+  "author": "openhort",
+  "llming_type": "tool",
+  "features": {
+    "save_scans": { "description": "Save all scanned images to file store", "default": true }
+  },
+  "intents": [
+    {
+      "scheme": "photo",
+      "mime_types": ["image/jpeg", "image/png"],
+      "method": "handle_photo_intent",
+      "description": "Process a photo (scan for QR/barcodes)"
+    }
+  ],
+  "mcp": true,
+  "ui_widgets": ["camera-scan-panel"],
+  "ui_script": "static/cards.js"
+}

@@ -24,7 +24,7 @@ chat backend (powers become temporarily unavailable).
 
 Usage::
 
-    class Office365(PluginBase, MCPMixin):
+    class Office365(LlmingBase):
         def activate(self, config):
             self.creds = CredentialStore(self.store, self.log)
             self.creds.configure(

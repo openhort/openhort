@@ -10,14 +10,10 @@ from typing import Any
 
 from hort.ext.connectors import (
     ConnectorCapabilities,
-    ConnectorCommand,
-    ConnectorMixin,
     ConnectorResponse,
     IncomingMessage,
 )
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
-from hort.ext.scheduler import ScheduledMixin
+from hort.llming import LlmingBase, Power, PowerType
 from hort.peer2peer import HolePuncher, StunClient
 from hort.peer2peer.models import NatType, PunchResult, StunResult
 
@@ -60,7 +56,7 @@ def _run_coro(coro):  # type: ignore[no-untyped-def]
         new_loop.close()
 
 
-class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
+class HolepunchPlugin(LlmingBase):
     """P2P hole punching with Azure VM provisioning for testing."""
 
     _stun_result: StunResult | None = None
@@ -151,7 +147,7 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                 pass
         self.log.info("peer2peer plugin deactivated")
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         """Return status for thumbnail/dashboard rendering."""
         paired_count = len(self._device_store.list_devices()) if self._device_store else 0
         return {
@@ -184,184 +180,199 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         except Exception as exc:
             self.log.debug("VM status check failed: %s", exc)
 
-    # ===== MCP Tools =====
+    # ===== Powers =====
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
+    def get_powers(self) -> list[Power]:
         return [
-            MCPToolDef(
+            # MCP tools
+            Power(
                 name="peer2peer_stun_discover",
+                type=PowerType.MCP,
                 description="Discover public IP:port via STUN and detect NAT type",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="peer2peer_vm_create",
+                type=PowerType.MCP,
                 description="Create a minimal Azure VM for hole punch testing (auto-shuts down at midnight)",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="peer2peer_vm_status",
+                type=PowerType.MCP,
                 description="Get current Azure VM status",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="peer2peer_vm_start",
+                type=PowerType.MCP,
                 description="Start the Azure VM if deallocated",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="peer2peer_vm_stop",
+                type=PowerType.MCP,
                 description="Deallocate the Azure VM (stops billing)",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="peer2peer_vm_destroy",
+                type=PowerType.MCP,
                 description="Delete the Azure VM and all resources",
                 input_schema={"type": "object", "properties": {}},
             ),
+            # Slash commands
+            Power(
+                name="pair",
+                type=PowerType.COMMAND,
+                description="Pair a mobile device (one-time setup)",
+            ),
+            Power(
+                name="devices",
+                type=PowerType.COMMAND,
+                description="List or revoke paired devices",
+            ),
+            Power(
+                name="connect",
+                type=PowerType.COMMAND,
+                description="Connect via Telegram",
+            ),
+            Power(
+                name="p2p",
+                type=PowerType.COMMAND,
+                description="Get a direct P2P link for any browser",
+            ),
+            Power(
+                name="stun",
+                type=PowerType.COMMAND,
+                description="Discover public IP and NAT type via STUN",
+            ),
+            Power(
+                name="vm",
+                type=PowerType.COMMAND,
+                description="Manage Azure test VM (create/status/start/stop/destroy)",
+            ),
         ]
 
-    async def execute_mcp_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> MCPToolResult:
-        if tool_name == "peer2peer_stun_discover":
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
+        # MCP tools
+        if name == "peer2peer_stun_discover":
             return await self._mcp_stun_discover()
-        if tool_name == "peer2peer_vm_create":
+        if name == "peer2peer_vm_create":
             return await self._mcp_vm_create()
-        if tool_name == "peer2peer_vm_status":
+        if name == "peer2peer_vm_status":
             return await self._mcp_vm_status()
-        if tool_name == "peer2peer_vm_start":
+        if name == "peer2peer_vm_start":
             return await self._mcp_vm_start()
-        if tool_name == "peer2peer_vm_stop":
+        if name == "peer2peer_vm_stop":
             return await self._mcp_vm_stop()
-        if tool_name == "peer2peer_vm_destroy":
+        if name == "peer2peer_vm_destroy":
             return await self._mcp_vm_destroy()
-        return MCPToolResult(
-            content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}],
-            is_error=True,
-        )
 
-    async def _mcp_stun_discover(self) -> MCPToolResult:
+        # Slash commands
+        message = args.get("_message")
+        if name == "pair" and message:
+            return await self._cmd_pair(message)
+        if name == "devices":
+            cmd_args = args.get("args", "")
+            return await self._cmd_devices(cmd_args)
+        if name == "connect" and message:
+            return await self._cmd_connect(message)
+        if name == "p2p" and message:
+            return await self._cmd_p2p(message)
+        if name == "stun":
+            return await self._cmd_stun()
+        if name == "vm":
+            cmd_args = args.get("args", "")
+            return await self._cmd_vm(cmd_args)
+
+        return {"error": f"Unknown power: {name}"}
+
+    async def _mcp_stun_discover(self) -> dict[str, Any]:
         if not self._stun_client:
-            return MCPToolResult(
-                content=[{"type": "text", "text": "Plugin not activated"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "Plugin not activated"}],
+                "is_error": True,
+            }
         try:
             self._stun_result = await self._stun_client.detect_nat_type()
-            return MCPToolResult(content=[{"type": "text", "text": (
+            return {"content": [{"type": "text", "text": (
                 f"Public: {self._stun_result.public_ip}:{self._stun_result.public_port}\n"
                 f"Local: {self._stun_result.local_ip}:{self._stun_result.local_port}\n"
                 f"NAT type: {self._stun_result.nat_type.value}\n"
                 f"Punchable: {self._stun_result.nat_type.punchable}"
-            )}])
+            )}]}
         except Exception as exc:
-            return MCPToolResult(
-                content=[{"type": "text", "text": f"STUN failed: {exc}"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": f"STUN failed: {exc}"}],
+                "is_error": True,
+            }
 
-    async def _mcp_vm_create(self) -> MCPToolResult:
+    async def _mcp_vm_create(self) -> dict[str, Any]:
         if not self._vm_manager:
-            return MCPToolResult(
-                content=[{"type": "text", "text": "Plugin not activated"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "Plugin not activated"}],
+                "is_error": True,
+            }
         try:
             self._vm_status = await self._vm_manager.create_vm()
-            return MCPToolResult(content=[{"type": "text", "text": (
+            return {"content": [{"type": "text", "text": (
                 f"VM created: {self._vm_status.name}\n"
                 f"IP: {self._vm_status.public_ip}\n"
                 f"State: {self._vm_status.power_state}\n"
                 f"Auto-shutdown: midnight UTC\n"
                 f"Signal relay: ws://{self._vm_status.public_ip}:9100"
-            )}])
+            )}]}
         except Exception as exc:
-            return MCPToolResult(
-                content=[{"type": "text", "text": f"VM creation failed: {exc}"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": f"VM creation failed: {exc}"}],
+                "is_error": True,
+            }
 
-    async def _mcp_vm_status(self) -> MCPToolResult:
+    async def _mcp_vm_status(self) -> dict[str, Any]:
         if not self._vm_manager:
-            return MCPToolResult(
-                content=[{"type": "text", "text": "Plugin not activated"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "Plugin not activated"}],
+                "is_error": True,
+            }
         self._vm_status = await self._vm_manager.get_status()
         if not self._vm_status.exists:
-            return MCPToolResult(content=[{"type": "text", "text": "VM does not exist"}])
-        return MCPToolResult(content=[{"type": "text", "text": (
+            return {"content": [{"type": "text", "text": "VM does not exist"}]}
+        return {"content": [{"type": "text", "text": (
             f"VM: {self._vm_status.name}\n"
             f"State: {self._vm_status.power_state}\n"
             f"IP: {self._vm_status.public_ip}"
-        )}])
+        )}]}
 
-    async def _mcp_vm_start(self) -> MCPToolResult:
+    async def _mcp_vm_start(self) -> dict[str, Any]:
         if not self._vm_manager:
-            return MCPToolResult(
-                content=[{"type": "text", "text": "Plugin not activated"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "Plugin not activated"}],
+                "is_error": True,
+            }
         self._vm_status = await self._vm_manager.start_vm()
-        return MCPToolResult(content=[{"type": "text", "text": f"VM started: {self._vm_status.power_state}"}])
+        return {"content": [{"type": "text", "text": f"VM started: {self._vm_status.power_state}"}]}
 
-    async def _mcp_vm_stop(self) -> MCPToolResult:
+    async def _mcp_vm_stop(self) -> dict[str, Any]:
         if not self._vm_manager:
-            return MCPToolResult(
-                content=[{"type": "text", "text": "Plugin not activated"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "Plugin not activated"}],
+                "is_error": True,
+            }
         self._vm_status = await self._vm_manager.stop_vm()
-        return MCPToolResult(content=[{"type": "text", "text": f"VM deallocated: {self._vm_status.power_state}"}])
+        return {"content": [{"type": "text", "text": f"VM deallocated: {self._vm_status.power_state}"}]}
 
-    async def _mcp_vm_destroy(self) -> MCPToolResult:
+    async def _mcp_vm_destroy(self) -> dict[str, Any]:
         if not self._vm_manager:
-            return MCPToolResult(
-                content=[{"type": "text", "text": "Plugin not activated"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "Plugin not activated"}],
+                "is_error": True,
+            }
         ok = await self._vm_manager.destroy_vm()
         self._vm_status = VMStatus(exists=False)
-        return MCPToolResult(content=[{"type": "text", "text": "VM destroyed" if ok else "VM destroy failed"}])
+        return {"content": [{"type": "text", "text": "VM destroyed" if ok else "VM destroy failed"}]}
 
-    # ===== Connector Commands =====
-
-    def get_connector_commands(self) -> list[ConnectorCommand]:
-        return [
-            ConnectorCommand(
-                name="pair",
-                description="Pair a mobile device (one-time setup)",
-                plugin_id="peer2peer",
-                usage="/pair [device name]",
-            ),
-            ConnectorCommand(
-                name="devices",
-                description="List or revoke paired devices",
-                plugin_id="peer2peer",
-                usage="/devices [revoke <hash_prefix>]",
-            ),
-            ConnectorCommand(
-                name="connect",
-                description="Connect via Telegram",
-                plugin_id="peer2peer",
-            ),
-            ConnectorCommand(
-                name="p2p",
-                description="Get a direct P2P link for any browser",
-                plugin_id="peer2peer",
-            ),
-            ConnectorCommand(
-                name="stun",
-                description="Discover public IP and NAT type via STUN",
-                plugin_id="peer2peer",
-            ),
-            ConnectorCommand(
-                name="vm",
-                description="Manage Azure test VM (create/status/start/stop/destroy)",
-                plugin_id="peer2peer",
-                usage="/vm <create|status|start|stop|destroy>",
-            ),
-        ]
+    # ===== Compat: pass full message/capabilities to execute_power =====
 
     async def handle_connector_command(
         self,
@@ -369,19 +380,20 @@ class HolepunchPlugin(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         message: IncomingMessage,
         capabilities: ConnectorCapabilities,
     ) -> ConnectorResponse | None:
-        if command == "pair":
-            return await self._cmd_pair(message)
-        if command == "devices":
-            return await self._cmd_devices(message.command_args)
-        if command == "connect":
-            return await self._cmd_connect(message)
-        if command == "p2p":
-            return await self._cmd_p2p(message)
-        if command == "stun":
-            return await self._cmd_stun()
-        if command == "vm":
-            return await self._cmd_vm(message.command_args)
-        return None
+        """Override compat bridge to pass message and capabilities."""
+        cmd_args = getattr(message, "command_args", "") or ""
+        result = await self.execute_power(command, {
+            "args": cmd_args,
+            "_message": message,
+            "_capabilities": capabilities,
+        })
+        if result is None:
+            return None
+        if isinstance(result, ConnectorResponse):
+            return result
+        if isinstance(result, str):
+            return ConnectorResponse.simple(result)
+        return result
 
     async def _cmd_pair(self, message: IncomingMessage) -> ConnectorResponse:
         """Pair a mobile device — generates a deep link with a permanent device token."""

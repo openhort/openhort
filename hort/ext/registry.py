@@ -26,19 +26,18 @@ class ExtensionRegistry:
         registry.load_compatible()
         provider = registry.get_provider("window.list", WindowProvider)
 
-    Enhanced plugin support::
+    Enhanced llming support::
 
         registry.set_app(app)              # enable router mounting
-        registry.load_compatible(config)   # injects PluginContext for PluginBase instances
+        registry.load_compatible(config)   # injects LlmingBase services
         registry.unload_extension("name")  # hot-unload
-        registry.list_plugins()            # metadata for admin API
+        registry.list_llmings()            # metadata for admin API
     """
 
     def __init__(self) -> None:
         self._manifests: list[ExtensionManifest] = []
         self._instances: dict[str, object] = {}  # ext name -> instance
         self._capability_map: dict[str, str] = {}  # capability -> ext name
-        self._contexts: dict[str, Any] = {}  # plugin_id -> PluginContext
         self._app: Any = None  # FastAPI app (set via set_app)
 
     def set_app(self, app: Any) -> None:
@@ -55,7 +54,7 @@ class ExtensionRegistry:
             extensions_dir/
               <provider>/
                 <extension_name>/
-                  extension.json
+                  manifest.json
 
         Returns the list of discovered manifests (also stored internally).
         """
@@ -69,7 +68,7 @@ class ExtensionRegistry:
             for ext_dir in sorted(provider_dir.iterdir()):
                 if not ext_dir.is_dir() or ext_dir.name.startswith("."):
                     continue
-                manifest_path = ext_dir / "extension.json"
+                manifest_path = ext_dir / "manifest.json"
                 if not manifest_path.exists():
                     continue
                 manifest = _parse_manifest(manifest_path, ext_dir)
@@ -95,7 +94,7 @@ class ExtensionRegistry:
     ) -> object | None:
         """Load and instantiate an extension from its manifest.
 
-        For ``PluginBase`` instances, injects a full ``PluginContext``
+        For ``LlmingBase`` instances, injects per-instance services
         (store, files, config, scheduler, logger) before calling activate.
 
         Returns the instance or ``None`` on failure.
@@ -125,13 +124,11 @@ class ExtensionRegistry:
 
         instance: object = ext_class()
 
-        # Inject PluginContext for PluginBase instances
-        from hort.ext.plugin import PluginBase
+        # Inject services for LlmingBase instances
+        from hort.llming.base import LlmingBase
 
-        if isinstance(instance, PluginBase):
-            context = self._create_plugin_context(manifest, config or {})
-            instance._ctx = context
-            self._contexts[manifest.name] = context
+        if isinstance(instance, LlmingBase):
+            self._inject_llming_services(instance, manifest, config or {})
 
         if hasattr(instance, "activate"):
             instance.activate(config or {})
@@ -147,7 +144,7 @@ class ExtensionRegistry:
             if router:
                 try:
                     self._app.include_router(
-                        router, prefix=f"/api/plugins/{manifest.name}"
+                        router, prefix=f"/api/llmings/{manifest.name}"
                     )
                     logger.info("Mounted router for %s", manifest.name)
                 except Exception as e:
@@ -155,34 +152,41 @@ class ExtensionRegistry:
 
         return instance
 
-    def _create_plugin_context(
-        self, manifest: ExtensionManifest, config: dict[str, Any]
-    ) -> Any:
-        """Create a PluginContext for a PluginBase instance."""
+    def _inject_llming_services(
+        self, instance: object, manifest: ExtensionManifest, config: dict[str, Any]
+    ) -> None:
+        """Inject per-instance services into a LlmingBase instance."""
         from hort.ext.file_store import LocalFileStore
-        from hort.ext.plugin import PluginConfig, PluginContext
         from hort.ext.scheduler import PluginScheduler
         from hort.ext.store import FilePluginStore
+        from hort.llming.base import LlmingBase
+        from hort.llming.bus import MessageBus
+        from hort.llming.pulse import PulseBus
 
-        plugin_id = manifest.name
+        if not isinstance(instance, LlmingBase):
+            return
+
+        name = manifest.name
         base_dir = Path("~/.hort/plugins").expanduser()
 
-        feature_defaults = {
-            name: ft.default for name, ft in manifest.features.items()
-        }
+        instance._instance_name = name
+        instance._class_name = name
+        instance._store = FilePluginStore(name, base_dir=base_dir)
+        instance._files = LocalFileStore(name, base_dir=base_dir)
+        instance._scheduler = PluginScheduler(name)
+        instance._logger = logging.getLogger(f"hort.llming.{name}")
+        instance._pulse_bus = PulseBus.get()
+        instance._config = config
 
-        return PluginContext(
-            plugin_id=plugin_id,
-            store=FilePluginStore(plugin_id, base_dir=base_dir),
-            files=LocalFileStore(plugin_id, base_dir=base_dir),
-            config=PluginConfig(
-                plugin_id=plugin_id,
-                _raw=dict(config),
-                _feature_defaults=feature_defaults,
-            ),
-            scheduler=PluginScheduler(plugin_id),
-            logger=logging.getLogger(f"hort.plugin.{plugin_id}"),
-        )
+        # Load Soul from SOUL.md
+        ext_path = Path(manifest.path) if manifest.path else None
+        if ext_path:
+            soul_path = ext_path / "SOUL.md"
+            if soul_path.exists():
+                instance._soul_text = soul_path.read_text()
+
+        # Register on message bus
+        MessageBus.get().register(name, instance)
 
     def load_compatible(
         self, config: dict[str, dict[str, Any]] | None = None
@@ -200,18 +204,16 @@ class ExtensionRegistry:
     # ----- Unloading -----
 
     def unload_extension(self, name: str) -> bool:
-        """Hot-unload a plugin. Stops scheduler, calls deactivate, removes routes.
+        """Hot-unload a plugin. Calls deactivate, removes routes.
+
+        Scheduler cleanup for LlmingBase instances is handled by
+        ``stop_plugins()`` in ``hort/plugins.py``.
 
         Returns True if the extension was loaded and is now unloaded.
         """
         instance = self._instances.pop(name, None)
         if instance is None:
             return False
-
-        # Stop scheduler
-        context = self._contexts.pop(name, None)
-        if context is not None and hasattr(context, "scheduler"):
-            context.scheduler.stop_all()
 
         # Call deactivate
         if hasattr(instance, "deactivate"):
@@ -227,10 +229,10 @@ class ExtensionRegistry:
 
         # Remove mounted routes (best effort)
         if self._app is not None:
-            prefix = f"/api/plugins/{name}"
+            prefixes = (f"/api/llmings/{name}",)
             self._app.routes[:] = [
                 r for r in self._app.routes
-                if not (hasattr(r, "path") and r.path.startswith(prefix))
+                if not (hasattr(r, "path") and r.path.startswith(prefixes))
             ]
 
         logger.info("Unloaded extension: %s", name)
@@ -264,18 +266,21 @@ class ExtensionRegistry:
                 return m
         return None
 
-    def list_plugins(self) -> list[dict[str, Any]]:
-        """Return metadata about all discovered plugins (for admin API)."""
+    def list_llmings(self) -> list[dict[str, Any]]:
+        """Return metadata about all discovered llmings (for admin API)."""
         results: list[dict[str, Any]] = []
         for m in self._manifests:
             loaded = m.name in self._instances
-            ctx = self._contexts.get(m.name)
+            inst = self._instances.get(m.name)
+            # Running jobs from the instance's scheduler (LlmingBase)
+            scheduler = getattr(inst, "_scheduler", None) if inst else None
+            running_jobs = scheduler.running_jobs if scheduler else []
             results.append({
                 "name": m.name,
                 "version": m.version,
                 "description": m.description,
                 "icon": m.icon,
-                "plugin_type": m.plugin_type,
+                "llming_type": m.llming_type,
                 "loaded": loaded,
                 "compatible": self.is_compatible(m),
                 "capabilities": list(m.capabilities),
@@ -283,16 +288,19 @@ class ExtensionRegistry:
                     name: {
                         "description": ft.description,
                         "default": ft.default,
-                        "enabled": ctx.config.is_feature_enabled(name) if ctx else ft.default,
+                        "enabled": ft.default,
                     }
                     for name, ft in m.features.items()
                 },
-                "running_jobs": ctx.scheduler.running_jobs if ctx else [],
+                "running_jobs": running_jobs,
                 "ui_widgets": list(m.ui_widgets),
                 "ui_script": m.ui_script,
                 "auth_status": self._get_auth_status(m.name),
             })
         return results
+
+    # Backward-compatible alias
+    list_plugins = list_llmings
 
     def _get_auth_status(self, plugin_name: str) -> dict[str, Any] | None:
         """Get credential status for a plugin, or None if no auth configured."""
@@ -315,7 +323,7 @@ class ExtensionRegistry:
 def _parse_manifest(
     manifest_path: Path, ext_dir: Path
 ) -> ExtensionManifest | None:
-    """Parse an ``extension.json`` file, returning ``None`` on any error."""
+    """Parse a ``manifest.json`` file, returning ``None`` on any error."""
     try:
         data: dict[str, Any] = json.loads(manifest_path.read_text())
         data["path"] = str(ext_dir)

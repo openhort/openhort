@@ -13,8 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
+from hort.llming import LlmingBase, Power, PowerType
 
 
 # ── Helpers (module-level) ────────────────────────────────────────
@@ -91,13 +90,13 @@ def _state_border_color(cs: Any) -> str:
 # ── Extension class ───────────────────────────────────────────────
 
 
-class CodeWatch(PluginBase, MCPMixin):
+class CodeWatch(LlmingBase):
     """Code session monitor — observes and interacts with tmux sessions."""
 
     def activate(self, config: dict[str, Any]) -> None:
         self.log.info("Code-watch activated")
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         """Return session data for the dashboard with full state detection."""
         from hort.tmux import list_sessions
 
@@ -112,15 +111,17 @@ class CodeWatch(PluginBase, MCPMixin):
             })
         return {"sessions": sessions, "count": len(sessions)}
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
+    def get_powers(self) -> list[Power]:
         return [
-            MCPToolDef(
+            Power(
                 name="list_sessions",
+                type=PowerType.MCP,
                 description="List all active code sessions (tmux sessions with hort_ prefix).",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="read_output",
+                type=PowerType.MCP,
                 description="Read the recent terminal output of a code session.",
                 input_schema={
                     "type": "object",
@@ -131,8 +132,9 @@ class CodeWatch(PluginBase, MCPMixin):
                     "required": ["session"],
                 },
             ),
-            MCPToolDef(
+            Power(
                 name="is_busy",
+                type=PowerType.MCP,
                 description="Check if a code session has a running process (True) or is idle (False).",
                 input_schema={
                     "type": "object",
@@ -142,8 +144,9 @@ class CodeWatch(PluginBase, MCPMixin):
                     "required": ["session"],
                 },
             ),
-            MCPToolDef(
+            Power(
                 name="send_text",
+                type=PowerType.MCP,
                 description="Send text input to a code session. Appends Enter by default.",
                 input_schema={
                     "type": "object",
@@ -155,8 +158,9 @@ class CodeWatch(PluginBase, MCPMixin):
                     "required": ["session", "text"],
                 },
             ),
-            MCPToolDef(
+            Power(
                 name="create_session",
+                type=PowerType.MCP,
                 description="Create a new tmux code session.",
                 input_schema={
                     "type": "object",
@@ -168,8 +172,9 @@ class CodeWatch(PluginBase, MCPMixin):
                     "required": ["name"],
                 },
             ),
-            MCPToolDef(
+            Power(
                 name="kill_session",
+                type=PowerType.MCP,
                 description="Kill (terminate) a code session.",
                 input_schema={
                     "type": "object",
@@ -179,8 +184,9 @@ class CodeWatch(PluginBase, MCPMixin):
                     "required": ["session"],
                 },
             ),
-            MCPToolDef(
+            Power(
                 name="attach_web_terminal",
+                type=PowerType.MCP,
                 description="Bridge a tmux session to a browser web terminal.",
                 input_schema={
                     "type": "object",
@@ -192,9 +198,9 @@ class CodeWatch(PluginBase, MCPMixin):
             ),
         ]
 
-    async def execute_mcp_tool(
+    async def execute_power(
         self, tool_name: str, arguments: dict[str, Any],
-    ) -> MCPToolResult:
+    ) -> Any:
         from hort.tmux import (
             create_session as tmux_create,
             is_busy as tmux_is_busy,
@@ -208,63 +214,63 @@ class CodeWatch(PluginBase, MCPMixin):
         if tool_name == "list_sessions":
             sessions = tmux_list()
             if not sessions:
-                return MCPToolResult(content=[{"type": "text", "text": "No active code sessions."}])
+                return {"content": [{"type": "text", "text": "No active code sessions."}]}
             lines = []
             for s in sessions:
                 status = "busy" if tmux_is_busy(s.short_name) else "idle"
                 attached = " (attached)" if s.attached else ""
                 lines.append(f"  {s.short_name}: {status}{attached} — {s.current_command}")
-            return MCPToolResult(content=[{"type": "text", "text": f"Active sessions ({len(sessions)}):\n" + "\n".join(lines)}])
+            return {"content": [{"type": "text", "text": f"Active sessions ({len(sessions)}):\n" + "\n".join(lines)}]}
 
         if tool_name == "read_output":
             session = arguments["session"]
             n = arguments.get("lines", 100)
             output = tmux_read(session, lines=n, caller_plugin="code-watch")
             if output is None:
-                return MCPToolResult(content=[{"type": "text", "text": f"Session '{session}' not found or access denied."}], is_error=True)
-            return MCPToolResult(content=[{"type": "text", "text": output.rstrip("\n") + "\n"}])
+                return {"content": [{"type": "text", "text": f"Session '{session}' not found or access denied."}], "is_error": True}
+            return {"content": [{"type": "text", "text": output.rstrip("\n") + "\n"}]}
 
         if tool_name == "is_busy":
             session = arguments["session"]
             busy = tmux_is_busy(session)
             if busy is None:
-                return MCPToolResult(content=[{"type": "text", "text": f"Session '{session}' not found."}], is_error=True)
+                return {"content": [{"type": "text", "text": f"Session '{session}' not found."}], "is_error": True}
             status = "busy (process running)" if busy else "idle (at shell prompt)"
-            return MCPToolResult(content=[{"type": "text", "text": f"Session '{session}': {status}"}])
+            return {"content": [{"type": "text", "text": f"Session '{session}': {status}"}]}
 
         if tool_name == "send_text":
             session = arguments["session"]
             text = arguments["text"]
             enter = arguments.get("enter", True)
             if not tmux_exists(session):
-                return MCPToolResult(content=[{"type": "text", "text": f"Session '{session}' not found."}], is_error=True)
+                return {"content": [{"type": "text", "text": f"Session '{session}' not found."}], "is_error": True}
             ok = tmux_send(session, text, enter=enter, caller_plugin="code-watch")
             if not ok:
-                return MCPToolResult(content=[{"type": "text", "text": "Failed to send (access denied or session error)."}], is_error=True)
-            return MCPToolResult(content=[{"type": "text", "text": f"Sent to '{session}'"}])
+                return {"content": [{"type": "text", "text": "Failed to send (access denied or session error)."}], "is_error": True}
+            return {"content": [{"type": "text", "text": f"Sent to '{session}'"}]}
 
         if tool_name == "create_session":
             name = arguments["name"]
             session = tmux_create(name, command=arguments.get("command"), cwd=arguments.get("cwd"))
             if session is None:
-                return MCPToolResult(content=[{"type": "text", "text": f"Failed to create '{name}'."}], is_error=True)
-            return MCPToolResult(content=[{"type": "text", "text": f"Created session '{session.short_name}'."}])
+                return {"content": [{"type": "text", "text": f"Failed to create '{name}'."}], "is_error": True}
+            return {"content": [{"type": "text", "text": f"Created session '{session.short_name}'."}]}
 
         if tool_name == "kill_session":
             session = arguments["session"]
             if not tmux_exists(session):
-                return MCPToolResult(content=[{"type": "text", "text": f"Session '{session}' not found."}], is_error=True)
+                return {"content": [{"type": "text", "text": f"Session '{session}' not found."}], "is_error": True}
             tmux_kill(session)
-            return MCPToolResult(content=[{"type": "text", "text": f"Session '{session}' terminated."}])
+            return {"content": [{"type": "text", "text": f"Session '{session}' terminated."}]}
 
         if tool_name == "attach_web_terminal":
             session = arguments["session"]
             if not tmux_exists(session):
-                return MCPToolResult(content=[{"type": "text", "text": f"Session '{session}' not found."}], is_error=True)
+                return {"content": [{"type": "text", "text": f"Session '{session}' not found."}], "is_error": True}
             terminal_id = await self._bridge_to_web_terminal(session)
-            return MCPToolResult(content=[{"type": "text", "text": f"Web terminal ready: {terminal_id}"}])
+            return {"content": [{"type": "text", "text": f"Web terminal ready: {terminal_id}"}]}
 
-        return MCPToolResult(content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}], is_error=True)
+        return {"error": f"Unknown tool: {tool_name}"}
 
     async def _bridge_to_web_terminal(self, session_name: str) -> str:
         """Bridge a tmux session to a browser web terminal."""

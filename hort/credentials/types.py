@@ -1,6 +1,6 @@
 """Credential type definitions and data models.
 
-Every llming declares its credential needs in ``extension.json``.
+Every llming declares its credential needs in ``manifest.json``.
 The credential system uses these specs to render setup UIs,
 validate inputs, and manage the lifecycle.
 """
@@ -39,7 +39,7 @@ class CredentialStatus(str, enum.Enum):
 class CredentialSpec:
     """Declaration of a credential a llming needs.
 
-    Parsed from ``extension.json`` or ``hort-config.yaml``.
+    Parsed from ``manifest.json`` or ``hort-config.yaml``.
     Drives the setup UI and validation logic.
     """
 

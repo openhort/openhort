@@ -14,13 +14,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hort.ext.mcp import MCPMixin
-from hort.ext.plugin import PluginBase
+from hort.llming import LlmingBase, Power, PowerType
 
 logger = logging.getLogger(__name__)
 
 
-class ClaudeCodePlugin(PluginBase, MCPMixin):
+class ClaudeCodePlugin(LlmingBase):
     """Claude Code llming — chat with Claude via any connector.
 
     Config (from hort-config.yaml llmings.claude.config):
@@ -83,7 +82,7 @@ class ClaudeCodePlugin(PluginBase, MCPMixin):
         except Exception:
             self.log.exception("Failed to start chat backend")
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         """Return live status for Cards/Pulse."""
         return {
             "started": self._started,
@@ -94,12 +93,13 @@ class ClaudeCodePlugin(PluginBase, MCPMixin):
 
     # ===== MCP Tools (Powers) =====
 
-    def get_mcp_tools(self) -> list[dict[str, Any]]:
+    def get_powers(self) -> list[Power]:
         return [
-            {
-                "name": "send_message",
-                "description": "Send a message to Claude and get a response",
-                "inputSchema": {
+            Power(
+                name="send_message",
+                type=PowerType.MCP,
+                description="Send a message to Claude and get a response",
+                input_schema={
                     "type": "object",
                     "properties": {
                         "session_key": {"type": "string", "description": "Session identifier (user or conversation ID)"},
@@ -107,32 +107,34 @@ class ClaudeCodePlugin(PluginBase, MCPMixin):
                     },
                     "required": ["session_key", "text"],
                 },
-            },
-            {
-                "name": "get_session_status",
-                "description": "Get status of a chat session",
-                "inputSchema": {
+            ),
+            Power(
+                name="get_session_status",
+                type=PowerType.MCP,
+                description="Get status of a chat session",
+                input_schema={
                     "type": "object",
                     "properties": {
                         "session_key": {"type": "string"},
                     },
                     "required": ["session_key"],
                 },
-            },
-            {
-                "name": "reset_session",
-                "description": "Reset a chat session (start fresh conversation)",
-                "inputSchema": {
+            ),
+            Power(
+                name="reset_session",
+                type=PowerType.MCP,
+                description="Reset a chat session (start fresh conversation)",
+                input_schema={
                     "type": "object",
                     "properties": {
                         "session_key": {"type": "string"},
                     },
                     "required": ["session_key"],
                 },
-            },
+            ),
         ]
 
-    async def execute_mcp_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+    async def execute_power(self, name: str, arguments: dict[str, Any]) -> Any:
         self._ensure_started()
         if not self._chat_mgr or not self._chat_mgr.alive:
             return {"error": "Chat backend not running"}

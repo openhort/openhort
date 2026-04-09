@@ -80,9 +80,9 @@ def load_plugin(
     plugin_dir: Path, data_dir: Path
 ) -> tuple[ExtensionManifest, object | None, PluginContext]:
     """Load a plugin from a directory. Returns (manifest, instance, context)."""
-    manifest_path = plugin_dir / "extension.json"
+    manifest_path = plugin_dir / "manifest.json"
     if not manifest_path.exists():
-        raise FileNotFoundError(f"No extension.json in {plugin_dir}")
+        raise FileNotFoundError(f"No manifest.json in {plugin_dir}")
 
     manifest_data = json.loads(manifest_path.read_text())
     manifest_data["path"] = str(plugin_dir)
@@ -220,7 +220,7 @@ def create_app(plugin_dir: Path) -> FastAPI:
                 "version": m.version,
                 "description": m.description,
                 "icon": m.icon,
-                "plugin_type": m.plugin_type,
+                "llming_type": m.llming_type,
                 "features": {
                     k: {"description": v.description, "default": v.default, "enabled": context.config.is_feature_enabled(k)}
                     for k, v in m.features.items()
@@ -435,7 +435,7 @@ body {{ background: var(--el-bg); color: var(--el-text); font-family: system-ui;
         <i :class="info.icon || 'ph ph-puzzle-piece'"></i>
         <div>
           <h1>{{{{ info.name }}}}</h1>
-          <div class="version">v{{{{ info.version }}}} &middot; {{{{ info.plugin_type || 'plugin' }}}}</div>
+          <div class="version">v{{{{ info.version }}}} &middot; {{{{ info.llming_type || 'llming' }}}}</div>
         </div>
       </div>
       <div style="color:var(--el-text-dim);font-size:12px;margin-bottom:12px">{{{{ info.description }}}}</div>
@@ -602,8 +602,8 @@ def main() -> None:
         sys.exit(1)
 
     plugin_dir = Path(sys.argv[1]).resolve()
-    if not (plugin_dir / "extension.json").exists():
-        print(f"Error: No extension.json in {plugin_dir}")
+    if not (plugin_dir / "manifest.json").exists():
+        print(f"Error: No manifest.json in {plugin_dir}")
         sys.exit(1)
 
     # Set up logging

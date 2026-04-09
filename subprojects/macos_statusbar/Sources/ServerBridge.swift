@@ -49,13 +49,21 @@ final class ServerBridge {
         var request = URLRequest(url: url, timeoutInterval: 5)
         request.setValue(sharedKey.getOrRotate(), forHTTPHeaderField: "X-Hort-Key")
 
-        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let self = self else { return }
             let oldRunning = self.status.running
+            let oldObservers = self.status.observers
 
             if let http = response as? HTTPURLResponse, http.statusCode == 200 {
                 self.status.running = true
                 self.status.httpURL = "http://localhost:\(self.httpPort)"
+
+                // Parse observer count from JSON response
+                if let data = data,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let obs = json["observers"] as? Int {
+                    self.status.observers = obs
+                }
 
                 if !self.handshakeDone {
                     self.doHandshake()
@@ -65,7 +73,7 @@ final class ServerBridge {
                 self.status.observers = 0
             }
 
-            if oldRunning != self.status.running {
+            if oldRunning != self.status.running || oldObservers != self.status.observers {
                 let s = self.status
                 DispatchQueue.main.async {
                     self.onStatusChange?(s)
@@ -75,7 +83,7 @@ final class ServerBridge {
     }
 
     private func doHandshake() {
-        guard let url = URL(string: "http://localhost:\(httpPort)/api/plugins/macos-statusbar/verify") else { return }
+        guard let url = URL(string: "http://localhost:\(httpPort)/api/llmings/macos-statusbar/verify") else { return }
         var request = URLRequest(url: url, timeoutInterval: 5)
         request.httpMethod = "POST"
         request.setValue(sharedKey.getOrRotate(), forHTTPHeaderField: "X-Hort-Key")

@@ -1,6 +1,6 @@
-"""Plugin data store — per-plugin namespaced key-value storage with TTL.
+"""Per-llming namespaced key-value storage with TTL.
 
-Each plugin gets its own isolated store via ``PluginContext.store``.
+Each llming gets its own isolated store via ``LlmingBase.store``.
 Backed by ``LocalBlobStore`` — no locks, no deadlocks, atomic writes.
 """
 

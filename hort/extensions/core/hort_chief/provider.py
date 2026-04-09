@@ -10,44 +10,70 @@ import logging
 import subprocess
 from typing import Any
 
-from hort.ext.connectors import ConnectorMixin
-from hort.ext.mcp import MCPMixin
-from hort.ext.plugin import PluginBase
+from hort.llming import LlmingBase, Power, PowerType
 
 logger = logging.getLogger(__name__)
 
 
-class HortChief(PluginBase, ConnectorMixin, MCPMixin):
+class HortChief(LlmingBase):
     """Hort topology and admin overview."""
 
     def activate(self, config: dict[str, Any]) -> None:
         self.log.info("Hort Chief activated")
 
-    # ===== Connector Commands =====
+    # ===== Powers =====
 
-    def get_connector_commands(self) -> list:
-        from hort.ext.connectors import ConnectorCommand
+    def get_powers(self) -> list[Power]:
         return [
-            ConnectorCommand(
+            # MCP tools
+            Power(
+                name="hort_overview",
+                type=PowerType.MCP,
+                description="Get hort topology: containers, llmings, groups, sessions",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Power(
+                name="list_containers",
+                type=PowerType.MCP,
+                description="List running sandbox containers with status",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Power(
+                name="list_sessions",
+                type=PowerType.MCP,
+                description="List active viewer/chat sessions with connection type",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            # Slash commands
+            Power(
                 name="horts",
+                type=PowerType.COMMAND,
                 description="Sub-hort overview. Use /horts <name> for details.",
-                plugin_id="hort-chief",
             ),
         ]
 
-    async def handle_connector_command(
-        self, command: str, message: Any, capabilities: Any,
-    ) -> Any:
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
         from hort.ext.connectors import ConnectorResponse, ResponseButton
 
-        if command == "horts":
+        # MCP tools
+        if name == "hort_overview":
+            return {"content": [{"type": "text", "text": self._build_overview()}]}
+        if name == "list_containers":
+            import json
+            return {"content": [{"type": "text", "text": json.dumps(self._get_containers())}]}
+        if name == "list_sessions":
+            import json
+            return {"content": [{"type": "text", "text": json.dumps(self._get_sessions())}]}
+
+        # Slash command: /horts
+        if name == "horts":
+            message = args.get("_message")
             if not self._is_admin(message):
                 return ConnectorResponse.simple("Permission denied. Admin access required.")
             try:
-                # Check for subcommand: /horts <name>
-                args = getattr(message, "command_args", "") or ""
-                if args.strip():
-                    result = self._build_detail(args.strip())
+                cmd_args = args.get("args", "")
+                if cmd_args.strip():
+                    result = self._build_detail(cmd_args.strip())
                     if isinstance(result, ConnectorResponse):
                         return result
                     return ConnectorResponse.simple(result)
@@ -58,12 +84,12 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
 
                 from hort.hort_config import get_hort_config
                 hort_cfg = get_hort_config()
-                name = hort_cfg.name or "openhort"
+                hort_name = hort_cfg.name or "openhort"
 
                 # Plain text fallback
-                text_lines = [name, ""]
+                text_lines = [hort_name, ""]
                 # HTML version
-                html_lines = [f"<b>{name}</b>", ""]
+                html_lines = [f"<b>{hort_name}</b>", ""]
 
                 if not containers:
                     text_lines.append("No sub-horts running.")
@@ -114,7 +140,8 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
                 return ConnectorResponse.simple("Something went wrong.")
 
         # Handle button callbacks (callback_data: "hort-chief:detail:<id>")
-        if command == "_callback":
+        if name == "_callback":
+            message = args.get("_message")
             data = getattr(message, "callback_data", "") or ""
             # Strip plugin prefix if present
             if ":" in data:
@@ -139,35 +166,29 @@ class HortChief(PluginBase, ConnectorMixin, MCPMixin):
 
         return None
 
-    # ===== MCP Tools =====
+    # ===== Compat: pass full message to execute_power =====
 
-    def get_mcp_tools(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "hort_overview",
-                "description": "Get hort topology: containers, llmings, groups, sessions",
-                "inputSchema": {"type": "object", "properties": {}},
-            },
-            {
-                "name": "list_containers",
-                "description": "List running sandbox containers with status",
-                "inputSchema": {"type": "object", "properties": {}},
-            },
-            {
-                "name": "list_sessions",
-                "description": "List active viewer/chat sessions with connection type",
-                "inputSchema": {"type": "object", "properties": {}},
-            },
-        ]
+    async def handle_connector_command(
+        self, command: str, message: Any, capabilities: Any,
+    ) -> Any:
+        """Override compat bridge to pass the full message object."""
+        from hort.ext.connectors import ConnectorResponse
 
-    async def execute_mcp_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        if name == "hort_overview":
-            return {"text": self._build_overview()}
-        elif name == "list_containers":
-            return {"containers": self._get_containers()}
-        elif name == "list_sessions":
-            return {"sessions": self._get_sessions()}
-        return {"error": f"Unknown tool: {name}"}
+        cmd_args = getattr(message, "command_args", "") or ""
+        result = await self.execute_power(command, {
+            "args": cmd_args,
+            "_message": message,
+            "_capabilities": capabilities,
+        })
+        if result is None:
+            return None
+        if isinstance(result, ConnectorResponse):
+            return result
+        if isinstance(result, str):
+            return ConnectorResponse.simple(result)
+        if isinstance(result, dict) and "error" in result:
+            return ConnectorResponse.simple(f"Error: {result['error']}")
+        return result
 
     # ===== Internal =====
 

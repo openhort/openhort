@@ -5,13 +5,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
-from hort.ext.scheduler import ScheduledMixin
+from hort.llming import LlmingBase, Power, PowerType
 
 
-class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
+class NetworkMonitor(LlmingBase):
     """Polls network interface counters and stores bandwidth metrics."""
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -24,7 +21,7 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     def deactivate(self) -> None:
         self.log.info("Network monitor deactivated")
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         """Return in-memory network data."""
         return {"latest": self._latest, "history": self._history[-60:]}
 
@@ -69,7 +66,7 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             iface_info["ips"] = ips
 
             # Calculate bandwidth delta
-            if self.config.is_feature_enabled("bandwidth") and elapsed > 0:
+            if self.config.get("bandwidth", True) and elapsed > 0:
                 prev = self._prev_counters.get(iface)
                 if prev:
                     sent_delta = cnt.bytes_sent - prev["bytes_sent"]
@@ -90,10 +87,10 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         }
         self._prev_time = now
 
-        if self.config.is_feature_enabled("interfaces"):
+        if self.config.get("interfaces", True):
             metrics["interfaces"] = interfaces
 
-        if self.config.is_feature_enabled("bandwidth"):
+        if self.config.get("bandwidth", True):
             metrics["total_upload_bps"] = round(total_up_bps, 1)
             metrics["total_download_bps"] = round(total_down_bps, 1)
 
@@ -104,31 +101,39 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         if len(self._history) > 60:
             self._history = self._history[-60:]
 
-    # ===== MCP =====
+    # ===== Powers =====
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
+    def get_powers(self) -> list[Power]:
         return [
-            MCPToolDef(
+            # MCP tools
+            Power(
                 name="get_network_status",
+                type=PowerType.MCP,
                 description="Get current network interfaces, IP addresses, and bandwidth usage",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="get_network_history",
+                type=PowerType.MCP,
                 description="Get recent network bandwidth history (last 5 minutes)",
                 input_schema={"type": "object", "properties": {
                     "limit": {"type": "integer", "description": "Max entries to return", "default": 30}
                 }},
             ),
+            # Connector commands
+            Power(
+                name="network",
+                type=PowerType.COMMAND,
+                description="Network interfaces and bandwidth",
+            ),
         ]
 
-    async def execute_mcp_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> MCPToolResult:
-        if tool_name == "get_network_status":
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
+        # MCP: get_network_status
+        if name == "get_network_status":
             data = self._latest
             if not data:
-                return MCPToolResult(content=[{"type": "text", "text": "No network data available yet"}])
+                return {"content": [{"type": "text", "text": "No network data available yet"}]}
             lines = []
             up = data.get("total_upload_bps", 0)
             down = data.get("total_download_bps", 0)
@@ -140,32 +145,22 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                 if "upload_bps" in iface:
                     bw = f" (up: {_format_speed(iface['upload_bps'])}, down: {_format_speed(iface['download_bps'])})"
                 lines.append(f"  {iface['name']}: {ips_str}{bw}")
-            return MCPToolResult(content=[{"type": "text", "text": "\n".join(lines)}])
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        elif tool_name == "get_network_history":
-            limit = arguments.get("limit", 30)
+        # MCP: get_network_history
+        if name == "get_network_history":
+            limit = args.get("limit", 30)
             entries = list(reversed(self._history[-limit:]))
-            return MCPToolResult(content=[{"type": "text", "text": f"{len(entries)} entries:\n" + "\n".join(
+            return {"content": [{"type": "text", "text": f"{len(entries)} entries:\n" + "\n".join(
                 f"  UP:{_format_speed(e.get('total_upload_bps', 0))} DOWN:{_format_speed(e.get('total_download_bps', 0))}"
                 for e in entries
-            )}])
+            )}]}
 
-        return MCPToolResult(content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}], is_error=True)
-
-    # ===== Connector =====
-
-    def get_connector_commands(self) -> list[ConnectorCommand]:
-        return [
-            ConnectorCommand(name="network", description="Network interfaces and bandwidth", plugin_id="network-monitor"),
-        ]
-
-    async def handle_connector_command(
-        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
-    ) -> ConnectorResponse | None:
-        if command == "network":
+        # Command: network
+        if name == "network":
             data = self._latest
             if not data:
-                return ConnectorResponse.simple("No network data available yet.")
+                return "No network data available yet."
             lines = []
             for iface in data.get("interfaces", []):
                 ips_str = ", ".join(iface.get("ips", [])) or "no IP"
@@ -175,9 +170,9 @@ class NetworkMonitor(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                 lines.append(f"{iface['name']}: {ips_str}{bw}")
             if not lines:
                 lines.append("No interfaces found.")
-            return ConnectorResponse.simple("\n".join(lines))
+            return "\n".join(lines)
 
-        return None
+        return {"error": f"Unknown power: {name}"}
 
 
 def _format_speed(bps: float) -> str:

@@ -1,8 +1,7 @@
-"""Plugin scheduler — runs interval jobs in executor threads.
+"""Llming scheduler — runs interval jobs in executor threads.
 
-Each plugin gets its own ``PluginScheduler`` instance via the context.
-Jobs are defined via ``ScheduledMixin.get_jobs()`` or declaratively in
-the manifest's ``jobs`` array.
+Each llming gets its own ``LlmingScheduler`` instance.
+Jobs are declared in the manifest's ``jobs`` array.
 
 **Critical:** Every job function is wrapped in ``loop.run_in_executor()``
 to never block the async event loop.
@@ -29,8 +28,8 @@ class JobSpec:
     enabled_feature: str = ""  # only run when this feature toggle is on
 
 
-class PluginScheduler:
-    """Manages asyncio tasks for one plugin's interval jobs.
+class LlmingScheduler:
+    """Manages asyncio tasks for one llming's interval jobs.
 
     All job functions run in the default executor (thread pool)
     to avoid blocking the event loop.
@@ -39,7 +38,7 @@ class PluginScheduler:
     def __init__(self, plugin_id: str) -> None:
         self._plugin_id = plugin_id
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._log = logging.getLogger(f"hort.plugin.{plugin_id}.scheduler")
+        self._log = logging.getLogger(f"hort.llming.{plugin_id}.scheduler")
 
     def start_job(self, spec: JobSpec, fn: Callable[[], Any]) -> None:
         """Start a job that calls ``fn`` every ``spec.interval_seconds``."""
@@ -82,25 +81,9 @@ class PluginScheduler:
         return [jid for jid, t in self._tasks.items() if not t.done()]
 
 
-class ScheduledMixin:
-    """Mixin for plugins that need background interval jobs.
 
-    Override ``get_jobs()`` to return job definitions.
-    The registry calls this after ``activate()`` and starts each job.
+# Backward-compatible alias
+PluginScheduler = LlmingScheduler
 
-    Example::
-
-        class MyPlugin(PluginBase, ScheduledMixin):
-            def get_jobs(self) -> list[JobSpec]:
-                return [
-                    JobSpec(id="poll", fn_name="poll_data", interval_seconds=30),
-                ]
-
-            def poll_data(self) -> None:
-                # Runs every 30s in an executor thread
-                ...
-    """
-
-    def get_jobs(self) -> list[JobSpec]:
-        """Return job definitions. Called once after activate."""
-        return []
+# ScheduledMixin removed — jobs are declared in manifest and started by the framework.
+# LlmingBase instances get a scheduler injected automatically.

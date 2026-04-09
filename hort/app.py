@@ -130,14 +130,22 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
         )
         logger.info("Documentation mounted at /guide")
 
+    # Auth middleware — protects all /api/ endpoints except public allowlist
+    from hort.auth import AuthMiddleware
+    app.add_middleware(AuthMiddleware)
+
     _register_targets()
     _register_routes(app)
 
-    # Plugins — discovery and route registration only (no loading yet).
+    # Llmings — discovery and route registration only (no loading yet).
     # Actual loading + scheduling + connectors happen in the startup event.
-    from hort.plugins import load_plugins_sync, setup_plugins, start_plugins, stop_plugins
+    from hort.plugins import load_llmings_sync, setup_llmings, start_llmings, stop_llmings
 
-    plugin_registry = setup_plugins(app)
+    llming_registry = setup_llmings(app)
+
+    # Make registry available to WS command handlers
+    from hort.commands._registry import set_llming_registry
+    set_llming_registry(llming_registry)
 
     # Mount llming-com debug API and command router for session inspection
     from hort.session import HortRegistry, HortSessionManager
@@ -182,14 +190,14 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
 
     @app.on_event("startup")
     async def _on_startup() -> None:
-        load_plugins_sync(plugin_registry)
-        await start_plugins(plugin_registry)
+        load_llmings_sync(llming_registry)
+        await start_llmings(llming_registry)
         logger.info("App startup complete (pid=%d)", os.getpid())
 
     @app.on_event("shutdown")
     async def _on_shutdown() -> None:
         logger.info("App shutdown initiated (pid=%d)", os.getpid())
-        await stop_plugins(plugin_registry)
+        await stop_llmings(llming_registry)
 
     @app.on_event("startup")
     async def _start_target_scanner() -> None:
@@ -497,8 +505,14 @@ def _register_routes(app: FastAPI) -> None:
         return resp
 
     @app.get("/api/hash")
-    async def get_hash() -> dict[str, str]:
-        return {"hash": _static_hash(), "dev": str(app.state.dev_mode)}
+    async def get_hash() -> dict[str, Any]:
+        from hort.session import HortRegistry
+        registry = HortRegistry.get()
+        return {
+            "hash": _static_hash(),
+            "dev": str(app.state.dev_mode),
+            "observers": registry.observer_count(),
+        }
 
     @app.get("/api/debug/memory")
     async def debug_memory() -> dict[str, Any]:
@@ -613,15 +627,15 @@ def _register_routes(app: FastAPI) -> None:
 
         # Messaging connectors (Telegram, etc.) from plugin registry
         messaging: dict[str, Any] = {}
-        if hasattr(app.state, "plugin_registry"):  # pragma: no cover
+        if hasattr(app.state, "llming_registry"):  # pragma: no cover
             from hort.ext.connectors import ConnectorBase
 
-            for name, inst in app.state.plugin_registry._instances.items():
+            for name, inst in app.state.llming_registry._instances.items():
                 if isinstance(inst, ConnectorBase):
-                    status = inst.get_status() if hasattr(inst, "get_status") else {}
+                    status = inst.get_pulse() if hasattr(inst, "get_pulse") else {}
                     messaging[inst.connector_id] = {
                         "active": status.get("active", False),
-                        "plugin_id": name,
+                        "llming_id": name,
                         **status,
                     }
 
@@ -647,7 +661,7 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.get("/api/config/{plugin_id:path}")
     async def get_config(plugin_id: str) -> Response:
-        """Get system config by ID (connectors, etc). NOT for plugin data — use /api/plugins/{id}/store."""
+        """Get system config by ID (connectors, etc). NOT for llming data — use /api/llmings/{id}/store."""
         from hort.config import get_store
 
         config = get_store().get(plugin_id)
@@ -655,7 +669,7 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/api/config/{plugin_id:path}")
     async def update_config(plugin_id: str, request: Request) -> Response:
-        """Update config for a plugin by its unique ID (merge)."""
+        """Update config for a llming by its unique ID (merge)."""
         from hort.config import get_store
 
         data = await request.json()
@@ -699,7 +713,7 @@ def _register_routes(app: FastAPI) -> None:
             remote_ip=request.client.host if request.client else "",
         )
         session_id, auth_token = manager.create_session(entry, context=context)
-        return {"session_id": session_id, "is_local": is_local}
+        return {"session_id": session_id, "auth_token": auth_token, "is_local": is_local}
 
     # --- P2P WebRTC signaling ---
 
@@ -748,8 +762,8 @@ def _register_routes(app: FastAPI) -> None:
     async def p2p_status() -> dict[str, Any]:
         """Get P2P connection status."""
         relay_sessions = 0
-        if getattr(app.state, "plugin_registry", None):
-            plugin = app.state.plugin_registry.get_instance("peer2peer")
+        if getattr(app.state, "llming_registry", None):
+            plugin = app.state.llming_registry.get_instance("peer2peer")
             if plugin and getattr(plugin, "_relay_listener", None):
                 relay_sessions = plugin._relay_listener.active_sessions
         return {
@@ -761,9 +775,9 @@ def _register_routes(app: FastAPI) -> None:
     @app.post("/api/p2p/connect")
     async def p2p_connect() -> dict[str, Any]:
         """Generate a one-time P2P connection URL."""
-        if not hasattr(app.state, "plugin_registry"):
+        if not hasattr(app.state, "llming_registry"):
             return {"error": "plugins not loaded"}
-        plugin = app.state.plugin_registry.get_instance("peer2peer")
+        plugin = app.state.llming_registry.get_instance("peer2peer")
         if not plugin or not hasattr(plugin, "_relay_poller") or not plugin._relay_poller:
             return {"error": "P2P relay not running"}
         poller = plugin._relay_poller
@@ -779,9 +793,9 @@ def _register_routes(app: FastAPI) -> None:
     @app.post("/api/p2p/pair")
     async def p2p_pair(request: Request) -> dict[str, Any]:
         """Generate a permanent device pairing link (deep link for mobile apps)."""
-        if not hasattr(app.state, "plugin_registry"):
+        if not hasattr(app.state, "llming_registry"):
             return {"error": "plugins not loaded"}
-        plugin = app.state.plugin_registry.get_instance("peer2peer")
+        plugin = app.state.llming_registry.get_instance("peer2peer")
         if not plugin or not hasattr(plugin, "_device_store") or not plugin._device_store:
             return {"error": "Device store not available"}
         if not hasattr(plugin, "_relay_poller") or not plugin._relay_poller:
@@ -801,9 +815,9 @@ def _register_routes(app: FastAPI) -> None:
     @app.get("/api/p2p/devices")
     async def p2p_devices_list() -> dict[str, Any]:
         """List all paired devices."""
-        if not hasattr(app.state, "plugin_registry"):
+        if not hasattr(app.state, "llming_registry"):
             return {"devices": []}
-        plugin = app.state.plugin_registry.get_instance("peer2peer")
+        plugin = app.state.llming_registry.get_instance("peer2peer")
         if not plugin or not hasattr(plugin, "_device_store") or not plugin._device_store:
             return {"devices": []}
         return {"devices": plugin._device_store.list_devices()}
@@ -811,9 +825,9 @@ def _register_routes(app: FastAPI) -> None:
     @app.delete("/api/p2p/devices")
     async def p2p_device_revoke(request: Request) -> dict[str, Any]:
         """Revoke a paired device by token_hash."""
-        if not hasattr(app.state, "plugin_registry"):
+        if not hasattr(app.state, "llming_registry"):
             return {"error": "plugins not loaded"}
-        plugin = app.state.plugin_registry.get_instance("peer2peer")
+        plugin = app.state.llming_registry.get_instance("peer2peer")
         if not plugin or not hasattr(plugin, "_device_store") or not plugin._device_store:
             return {"error": "Device store not available"}
         body = await request.json()
@@ -834,7 +848,7 @@ def _register_routes(app: FastAPI) -> None:
     @app.post("/api/hosted-apps/instances")
     async def hosted_apps_create(request: Request) -> dict[str, Any]:
         """Create a new hosted app instance."""
-        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        plugin = app.state.llming_registry.get_instance("hosted-apps") if hasattr(app.state, "llming_registry") else None
         if not plugin:
             return {"error": "Hosted apps not available"}
         body = await request.json()
@@ -849,14 +863,14 @@ def _register_routes(app: FastAPI) -> None:
     @app.get("/api/hosted-apps/instances")
     async def hosted_apps_list() -> dict[str, Any]:
         """List all instances."""
-        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        plugin = app.state.llming_registry.get_instance("hosted-apps") if hasattr(app.state, "llming_registry") else None
         if not plugin:
             return {"instances": []}
         return {"instances": plugin.list_instances()}
 
     @app.post("/api/hosted-apps/instances/{name}/start")
     async def hosted_apps_start(name: str) -> dict[str, Any]:
-        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        plugin = app.state.llming_registry.get_instance("hosted-apps") if hasattr(app.state, "llming_registry") else None
         if not plugin:
             return {"error": "not available"}
         ok = await asyncio.get_event_loop().run_in_executor(None, plugin.start_instance, name)
@@ -864,7 +878,7 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/api/hosted-apps/instances/{name}/stop")
     async def hosted_apps_stop(name: str) -> dict[str, Any]:
-        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        plugin = app.state.llming_registry.get_instance("hosted-apps") if hasattr(app.state, "llming_registry") else None
         if not plugin:
             return {"error": "not available"}
         ok = await asyncio.get_event_loop().run_in_executor(None, plugin.stop_instance, name)
@@ -872,7 +886,7 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.delete("/api/hosted-apps/instances/{name}")
     async def hosted_apps_destroy(name: str) -> dict[str, Any]:
-        plugin = app.state.plugin_registry.get_instance("hosted-apps") if hasattr(app.state, "plugin_registry") else None
+        plugin = app.state.llming_registry.get_instance("hosted-apps") if hasattr(app.state, "llming_registry") else None
         if not plugin:
             return {"error": "not available"}
         ok = await asyncio.get_event_loop().run_in_executor(None, plugin.destroy_instance, name)
@@ -1075,9 +1089,9 @@ def _register_routes(app: FastAPI) -> None:
     async def _proxy_hosted_app(instance: str, path: str, request: Request) -> Response:
         """Reverse proxy HTTP to a hosted app container."""
         logger.warning("HOSTED APP PROXY hit instance=%s path=%r method=%s", instance, path, request.method)
-        if not hasattr(app.state, "plugin_registry"):
+        if not hasattr(app.state, "llming_registry"):
             return Response(content="Plugins not loaded", status_code=503)
-        plugin = app.state.plugin_registry.get_instance("hosted-apps")
+        plugin = app.state.llming_registry.get_instance("hosted-apps")
         if not plugin:
             return Response(content="Hosted apps not available", status_code=503)
         container_url = plugin.get_container_url(instance)
@@ -1248,10 +1262,10 @@ def _register_routes(app: FastAPI) -> None:
     @app.websocket("/app/{instance}/~/{path:path}")
     async def proxy_hosted_app_ws(websocket: WebSocket, instance: str, path: str) -> None:
         """WebSocket proxy to a hosted app container."""
-        if not hasattr(app.state, "plugin_registry"):
+        if not hasattr(app.state, "llming_registry"):
             await websocket.close(code=1013)
             return
-        plugin = app.state.plugin_registry.get_instance("hosted-apps")
+        plugin = app.state.llming_registry.get_instance("hosted-apps")
         if not plugin:
             await websocket.close(code=1013)
             return
@@ -1328,6 +1342,9 @@ def _register_routes(app: FastAPI) -> None:
             controller = HortController(session_id)
             controller.set_websocket(ws)
             controller.set_session_entry(entry)
+            # Mount WS command router (llmings.list, config.get, etc.)
+            from hort.commands import build_ws_router
+            controller.mount_router(build_ws_router())
             entry.controller = controller
             await controller.send({"type": "connected", "version": "0.1.0"})
 

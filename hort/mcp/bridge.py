@@ -1,15 +1,15 @@
-"""MCP Bridge — serves in-process MCPMixin tools over MCP protocol.
+"""MCP Bridge — serves llming tools over MCP protocol.
 
 Supports two transports:
   - stdio: Newline-delimited JSON-RPC on stdin/stdout (for local Claude)
   - SSE:   HTTP server with GET /sse + POST /message (for container Claude)
 
-The bridge aggregates tools from multiple MCPMixin plugin instances,
+The bridge aggregates tools from multiple llming instances,
 namespacing them as ``{plugin_id}__{tool_name}`` to avoid collisions.
 
 This module has NO dependency on the extension registry — it works with
 any object that satisfies the ``MCPToolProvider`` protocol (which matches
-``MCPMixin`` + ``plugin_id``).
+``LlmingBase`` + ``plugin_id``).
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ PROTOCOL_VERSION = "2024-11-05"
 
 
 class MCPToolProvider(Protocol):
-    """Minimal interface matching MCPMixin — no dependency on hort.ext."""
+    """Minimal interface matching LlmingBase — no dependency on hort.ext."""
 
     @property
     def plugin_id(self) -> str: ...

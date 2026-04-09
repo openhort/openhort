@@ -1,7 +1,7 @@
-"""Plugin management — discovery, loading, scheduling, and API routes.
+"""Llming lifecycle — discovery, loading, scheduling, and API routes.
 
 Extracted from app.py to keep files focused. Called by ``create_app()``
-to wire plugins into the FastAPI application.
+to wire llmings into the FastAPI application.
 """
 
 from __future__ import annotations
@@ -16,13 +16,13 @@ from fastapi.responses import Response
 
 from hort.ext.registry import ExtensionRegistry
 
-logger = logging.getLogger("hort.plugins")
+logger = logging.getLogger("hort.llmings")
 
 EXTENSIONS_DIR = Path(__file__).parent / "extensions"
 
 
-def setup_plugins(app: FastAPI) -> ExtensionRegistry:
-    """Discover plugins and register API routes. Returns the registry.
+def setup_llmings(app: FastAPI) -> ExtensionRegistry:
+    """Discover llmings and register API routes. Returns the registry.
 
     Call this during ``create_app()``. The actual loading happens
     in the startup event (needs a running event loop for schedulers).
@@ -31,60 +31,60 @@ def setup_plugins(app: FastAPI) -> ExtensionRegistry:
     registry.set_app(app)
     if EXTENSIONS_DIR.exists():
         registry.discover(EXTENSIONS_DIR)
+    app.state.llming_registry = registry
+    # Backward-compatible alias
     app.state.plugin_registry = registry
-    _register_plugin_routes(app, registry)
+    _register_llming_routes(app, registry)
     return registry
 
 
-def load_plugins_sync(registry: ExtensionRegistry) -> None:  # pragma: no cover
-    """Load compatible plugins synchronously (no scheduler start — call start_schedulers separately)."""
-    # Pass per-plugin config from the YAML config store
+# Backward-compatible alias
+setup_plugins = setup_llmings
+
+
+def load_llmings_sync(registry: ExtensionRegistry) -> None:  # pragma: no cover
+    """Load compatible llmings synchronously (no scheduler start — call start_schedulers separately)."""
+    # Pass per-llming config from the YAML config store
     from hort.config import get_store
     store = get_store()
-    plugin_configs: dict[str, dict] = {}
+    llming_configs: dict[str, dict] = {}
     for manifest in registry._manifests:
         cfg = store.get(manifest.name)
         if cfg:
-            plugin_configs[manifest.name] = cfg
-    registry.load_compatible(plugin_configs or None)
+            llming_configs[manifest.name] = cfg
+    registry.load_compatible(llming_configs or None)
     loaded = list(registry._instances.keys())
-    logger.info("Loaded %d plugins: %s", len(loaded), loaded)
+    logger.info("Loaded %d llmings: %s", len(loaded), loaded)
 
 
-async def start_plugins(registry: ExtensionRegistry) -> None:  # pragma: no cover
-    """Start plugin schedulers and connectors. Called once from startup event."""
-    from hort.ext.plugin import PluginBase
-    from hort.ext.scheduler import JobSpec, ScheduledMixin
+# Backward-compatible alias
+load_plugins_sync = load_llmings_sync
 
-    # Start schedulers
+
+async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cover
+    """Start llming schedulers and connectors. Called once from startup event."""
+    from hort.ext.scheduler import JobSpec
+    from hort.llming.base import LlmingBase
+
+    # Start schedulers for all LlmingBase instances
     for name, inst in registry._instances.items():
-        if not isinstance(inst, PluginBase):
+        if not isinstance(inst, LlmingBase):
             continue
         manifest = registry.get_manifest(name)
         if not manifest:
             continue
-        jobs: list[JobSpec] = []
+        # Manifest-declared jobs
         for jm in manifest.jobs:
-            jobs.append(JobSpec(
-                id=jm.id, fn_name=jm.method,
-                interval_seconds=jm.interval_seconds,
-                run_on_activate=False,
-                enabled_feature=jm.enabled_feature,
-            ))
-        if isinstance(inst, ScheduledMixin):
-            jobs.extend(inst.get_jobs())
-        ctx = registry._contexts.get(name)
-        if not ctx:
-            continue
-        for job in jobs:
-            if job.enabled_feature and not ctx.config.is_feature_enabled(
-                job.enabled_feature
-            ):
-                continue
-            fn = getattr(inst, job.fn_name, None)
-            if fn:
-                ctx.scheduler.start_job(job, fn)
-    logger.info("Plugin schedulers started")
+            fn = getattr(inst, jm.method, None)
+            if fn and inst._scheduler is not None:
+                spec = JobSpec(
+                    id=jm.id, fn_name=jm.method,
+                    interval_seconds=jm.interval_seconds,
+                    run_on_activate=jm.run_on_activate,
+                    enabled_feature=jm.enabled_feature,
+                )
+                inst._scheduler.start_job(spec, fn)
+    logger.info("Llming schedulers started")
 
     # Start messaging connectors (Telegram, etc.)
     await _start_connectors(registry)
@@ -96,9 +96,16 @@ async def start_plugins(registry: ExtensionRegistry) -> None:  # pragma: no cove
         pass
 
 
-async def stop_plugins(registry: ExtensionRegistry) -> None:  # pragma: no cover
+# Backward-compatible alias
+start_plugins = start_llmings
+
+
+async def stop_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cover
     """Stop connectors and schedulers cleanly. Called from shutdown event."""
     from hort.ext.connectors import ConnectorBase
+    from hort.llming.base import LlmingBase
+    from hort.llming.bus import MessageBus
+    from hort.llming.pulse import PulseBus
 
     for name, inst in registry._instances.items():
         if isinstance(inst, ConnectorBase):
@@ -108,32 +115,41 @@ async def stop_plugins(registry: ExtensionRegistry) -> None:  # pragma: no cover
             except Exception as e:
                 logger.error("Error stopping connector %s: %s", name, e)
 
-    # Stop all schedulers
-    for name, ctx in registry._contexts.items():
-        if ctx and ctx.scheduler:
-            ctx.scheduler.stop_all()
-    logger.info("Plugins stopped")
+    # Stop all LlmingBase instances
+    for name, inst in registry._instances.items():
+        if isinstance(inst, LlmingBase):
+            if inst._scheduler is not None:
+                inst._scheduler.stop_all()
+            inst.deactivate()
+            MessageBus.get().unregister(name)
+            PulseBus.get().clear_instance(name)
+
+    logger.info("Llmings stopped")
+
+
+# Backward-compatible alias
+stop_plugins = stop_llmings
 
 
 async def _start_connectors(registry: ExtensionRegistry) -> None:  # pragma: no cover
     """Discover and start messaging connectors with command registry."""
     logger.info("Starting connector discovery...")
-    from hort.ext.connectors import CommandRegistry, ConnectorBase, ConnectorMixin
+    from hort.ext.connectors import CommandRegistry, ConnectorBase
+    from hort.llming.base import LlmingBase
 
     cmd_registry = CommandRegistry()
-    # Make registry accessible globally for llming-wire and other consumers
     _global_cmd_registry[0] = cmd_registry
 
     # Register system commands
     from hort.extensions.core.telegram_connector.provider import SYSTEM_COMMANDS
     cmd_registry.register_system(SYSTEM_COMMANDS)
 
-    # Collect commands from plugins
+    # Collect commands from all LlmingBase instances (skip connectors themselves)
     for name, inst in registry._instances.items():
-        if isinstance(inst, ConnectorMixin) and not isinstance(inst, ConnectorBase):
+        if isinstance(inst, LlmingBase) and not isinstance(inst, ConnectorBase):
             commands = inst.get_connector_commands()
             if commands:
-                cmd_registry.register_plugin(name, inst, commands)
+                cmd_registry.register_llming(name, inst, commands)
                 logger.info("Registered %d commands from %s", len(commands), name)
 
     # Start connectors
@@ -151,7 +167,7 @@ _global_cmd_registry: list = [None]  # mutable container for the singleton
 
 
 def get_command_registry():
-    """Get the global command registry (available after plugin startup)."""
+    """Get the global command registry (available after llming startup)."""
     return _global_cmd_registry[0]
 
 
@@ -193,13 +209,21 @@ def apply_power_settings() -> None:  # pragma: no cover
         subprocess.run(["pmset", "-a", "displaysleep", "10"], capture_output=True)
 
 
-def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
-    """Register plugin-related API endpoints on the app."""
+def _register_llming_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
+    """Register llming REST API endpoints (admin/external use, auth-gated).
 
-    @app.get("/api/plugins")
+    The SPA uses WebSocket commands (llmings.list, config.get, etc.) instead.
+    These REST endpoints are kept for admin tooling and future API access.
+    """
+    from fastapi import APIRouter
+
+    # Build all routes on a router, then mount at both prefixes
+    r = APIRouter()
+
+    @r.get("")
     async def list_plugins() -> Response:
-        """List all discovered plugins with status, features, and UI scripts."""
-        plugins = registry.list_plugins()
+        """List all discovered llmings with status, features, and UI scripts."""
+        plugins = registry.list_llmings()
         # Add UI script URLs for the frontend to load
         for p in plugins:
             manifest = registry.get_manifest(p["name"])
@@ -211,27 +235,21 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
             content=json.dumps(plugins), media_type="application/json"
         )
 
-    @app.post("/api/plugins/{plugin_id}/features/{feature}")
-    async def toggle_feature(plugin_id: str, feature: str, request: Request) -> Response:
-        """Toggle a plugin feature at runtime."""
-        data = await request.json()
-        enabled = data.get("enabled", True)
-        ctx = registry._contexts.get(plugin_id)
-        if ctx is None:
-            return Response(
-                content=json.dumps({"error": "Plugin not found"}),
-                media_type="application/json", status_code=404,
-            )
-        ctx.config.set_feature(feature, enabled)
+    @r.post("/{llming_id}/features/{feature}")
+    async def toggle_feature(llming_id: str, feature: str, request: Request) -> Response:
+        """Toggle a llming feature at runtime.
+
+        Feature toggles are not yet supported in LlmingBase — returns 404.
+        """
         return Response(
-            content=json.dumps({"ok": True, "feature": feature, "enabled": enabled}),
-            media_type="application/json",
+            content=json.dumps({"error": "Feature toggles not available"}),
+            media_type="application/json", status_code=404,
         )
 
-    @app.post("/api/plugins/{plugin_id}/unload")
-    async def unload_plugin(plugin_id: str) -> Response:
-        """Hot-unload a plugin."""
-        ok = registry.unload_extension(plugin_id)
+    @r.post("/{llming_id}/unload")
+    async def unload_plugin(llming_id: str) -> Response:
+        """Hot-unload a llming."""
+        ok = registry.unload_extension(llming_id)
         return Response(
             content=json.dumps({"ok": ok}), media_type="application/json",
             status_code=200 if ok else 404,
@@ -245,39 +263,43 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
         await loop.run_in_executor(None, apply_power_settings)
         return Response(content=json.dumps({"ok": True}), media_type="application/json")
 
-    @app.get("/api/plugins/{plugin_id}/status")
-    async def plugin_status(plugin_id: str) -> Response:
-        """Get plugin's in-memory status summary (no disk I/O)."""
-        inst = registry.get_instance(plugin_id)
+    @r.get("/{llming_id}/status")
+    async def llming_status(llming_id: str) -> Response:
+        """Get llming's in-memory pulse (no disk I/O)."""
+        inst = registry.get_instance(llming_id)
         if inst is None:
             return Response(
-                content=json.dumps({"error": "Plugin not found"}),
+                content=json.dumps({"error": "Llming not found"}),
                 media_type="application/json", status_code=404,
             )
-        # Call get_status() if the plugin has it, otherwise empty
         status: dict[str, Any] = {}
-        if hasattr(inst, "get_status"):
+        if hasattr(inst, "get_pulse"):
             try:
-                status = inst.get_status()
+                status = inst.get_pulse()
             except Exception:
                 pass
         return Response(
             content=json.dumps(status, default=str), media_type="application/json"
         )
 
-    @app.get("/api/plugins/{plugin_id}/store")
-    async def plugin_store(plugin_id: str) -> Response:
-        """Read a plugin's store (for debugging / admin)."""
-        ctx = registry._contexts.get(plugin_id)
-        if ctx is None:
+    @r.get("/{llming_id}/store")
+    async def plugin_store(llming_id: str) -> Response:
+        """Read a llming's store (for debugging / admin)."""
+        from hort.llming.base import LlmingBase
+
+        store = None
+        inst = registry.get_instance(llming_id)
+        if isinstance(inst, LlmingBase) and inst._store is not None:
+            store = inst._store
+        if store is None:
             return Response(
-                content=json.dumps({"error": "Plugin not found"}),
+                content=json.dumps({"error": "Llming not found"}),
                 media_type="application/json", status_code=404,
             )
-        keys = await ctx.store.list_keys()
+        keys = await store.list_keys()
         items: dict[str, Any] = {}
         for k in keys[:100]:
-            items[k] = await ctx.store.get(k)
+            items[k] = await store.get(k)
         return Response(
             content=json.dumps(items, default=str), media_type="application/json"
         )
@@ -286,13 +308,13 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
     # These endpoints let the UI (including remote/mobile via cloud proxy)
     # manage authentication for Llmings that need external service access.
 
-    @app.get("/api/plugins/{plugin_id}/auth")
-    async def get_auth_status(plugin_id: str) -> Response:
-        """Get auth status for a plugin (no secrets exposed)."""
-        inst = registry.get_instance(plugin_id)
+    @r.get("/{llming_id}/auth")
+    async def get_auth_status(llming_id: str) -> Response:
+        """Get auth status for a llming (no secrets exposed)."""
+        inst = registry.get_instance(llming_id)
         if inst is None:
             return Response(
-                content=json.dumps({"error": "Plugin not found"}),
+                content=json.dumps({"error": "Llming not found"}),
                 media_type="application/json", status_code=404,
             )
         from hort.ext.credentials import CredentialStore
@@ -307,20 +329,20 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
             media_type="application/json",
         )
 
-    @app.post("/api/plugins/{plugin_id}/auth/token")
-    async def store_auth_token(plugin_id: str, request: Request) -> Response:
-        """Store a credential/token for a plugin. Called after OAuth callback or manual entry."""
-        inst = registry.get_instance(plugin_id)
+    @r.post("/{llming_id}/auth/token")
+    async def store_auth_token(llming_id: str, request: Request) -> Response:
+        """Store a credential/token for a llming. Called after OAuth callback or manual entry."""
+        inst = registry.get_instance(llming_id)
         if inst is None:
             return Response(
-                content=json.dumps({"error": "Plugin not found"}),
+                content=json.dumps({"error": "Llming not found"}),
                 media_type="application/json", status_code=404,
             )
         from hort.ext.credentials import CredentialStore
         creds = getattr(inst, "creds", None)
         if not isinstance(creds, CredentialStore):
             return Response(
-                content=json.dumps({"error": "Plugin does not use credentials"}),
+                content=json.dumps({"error": "Llming does not use credentials"}),
                 media_type="application/json", status_code=400,
             )
         data = await request.json()
@@ -334,20 +356,20 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
             media_type="application/json",
         )
 
-    @app.delete("/api/plugins/{plugin_id}/auth")
-    async def revoke_auth(plugin_id: str) -> Response:
-        """Clear stored credentials for a plugin (logout)."""
-        inst = registry.get_instance(plugin_id)
+    @r.delete("/{llming_id}/auth")
+    async def revoke_auth(llming_id: str) -> Response:
+        """Clear stored credentials for a llming (logout)."""
+        inst = registry.get_instance(llming_id)
         if inst is None:
             return Response(
-                content=json.dumps({"error": "Plugin not found"}),
+                content=json.dumps({"error": "Llming not found"}),
                 media_type="application/json", status_code=404,
             )
         from hort.ext.credentials import CredentialStore
         creds = getattr(inst, "creds", None)
         if not isinstance(creds, CredentialStore):
             return Response(
-                content=json.dumps({"error": "Plugin does not use credentials"}),
+                content=json.dumps({"error": "Llming does not use credentials"}),
                 media_type="application/json", status_code=400,
             )
         await creds.clear()
@@ -358,15 +380,15 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
 
     # ── OAuth 2.0 browser flow ───────────────────────────────────
 
-    @app.get("/api/plugins/{plugin_id}/auth/oauth-start")
-    async def oauth_start(plugin_id: str, request: Request) -> Response:
+    @r.get("/{llming_id}/auth/oauth-start")
+    async def oauth_start(llming_id: str, request: Request) -> Response:
         """Get the OAuth authorization URL (localhost only).
 
         OAuth callback flow is restricted to localhost for security.
         Remote access (cloud proxy) must use device code flow instead
         to prevent multi-tenant callback interception.
         """
-        inst = registry.get_instance(plugin_id)
+        inst = registry.get_instance(llming_id)
         if inst is None:
             return Response(content=json.dumps({"error": "Not found"}), media_type="application/json", status_code=404)
         from hort.ext.credentials import CredentialStore
@@ -408,7 +430,7 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
         if not code or not state:
             return HTMLResponse("<h2>Missing code or state</h2>", status_code=400)
 
-        # Find the plugin with the matching pending state
+        # Find the llming with the matching pending state
         from hort.ext.credentials import CredentialStore
         for name in list(registry._instances.keys()):
             inst = registry.get_instance(name)
@@ -428,10 +450,10 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
 
     # ── Device code flow ─────────────────────────────────────────
 
-    @app.post("/api/plugins/{plugin_id}/auth/device-start")
-    async def device_code_start(plugin_id: str) -> Response:
+    @r.post("/{llming_id}/auth/device-start")
+    async def device_code_start(llming_id: str) -> Response:
         """Start device code flow. Returns user_code and verification_uri."""
-        inst = registry.get_instance(plugin_id)
+        inst = registry.get_instance(llming_id)
         if inst is None:
             return Response(content=json.dumps({"error": "Not found"}), media_type="application/json", status_code=404)
         from hort.ext.credentials import CredentialStore
@@ -445,10 +467,10 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
 
         return Response(content=json.dumps(result), media_type="application/json")
 
-    @app.post("/api/plugins/{plugin_id}/auth/device-poll")
-    async def device_code_poll(plugin_id: str) -> Response:
+    @r.post("/{llming_id}/auth/device-poll")
+    async def device_code_poll(llming_id: str) -> Response:
         """Poll for device code completion. Returns {complete: true/false}."""
-        inst = registry.get_instance(plugin_id)
+        inst = registry.get_instance(llming_id)
         if inst is None:
             return Response(content=json.dumps({"error": "Not found"}), media_type="application/json", status_code=404)
         from hort.ext.credentials import CredentialStore
@@ -461,3 +483,5 @@ def _register_plugin_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
         if complete:
             result.update(creds.status_dict())
         return Response(content=json.dumps(result), media_type="application/json")
+
+    app.include_router(r, prefix="/api/llmings")

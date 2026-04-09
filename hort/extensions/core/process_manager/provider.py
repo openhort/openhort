@@ -6,20 +6,17 @@ import os
 import signal
 from typing import Any
 
-from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
-from hort.ext.scheduler import ScheduledMixin
+from hort.llming import LlmingBase, Power, PowerType
 
 
-class ProcessManager(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
+class ProcessManager(LlmingBase):
     """Lists processes with CPU/memory usage, allows killing by PID."""
 
     def activate(self, config: dict[str, Any]) -> None:
         self._latest: dict[str, Any] = {}
         self.log.info("Process manager activated")
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         """Return in-memory process data."""
         return {"processes": self._latest}
 
@@ -49,40 +46,53 @@ class ProcessManager(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
 
         self._latest = {"list": top, "total": len(procs)}
 
-    # ===== MCP =====
+    # ===== Powers =====
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
-        tools = [
-            MCPToolDef(
+    def get_powers(self) -> list[Power]:
+        powers = [
+            # MCP tools
+            Power(
                 name="list_processes",
+                type=PowerType.MCP,
                 description="List running processes sorted by CPU usage",
                 input_schema={"type": "object", "properties": {
                     "limit": {"type": "integer", "description": "Max processes to return", "default": 20},
                     "sort_by": {"type": "string", "enum": ["cpu", "mem", "name"], "default": "cpu"},
                 }},
             ),
+            # Connector commands
+            Power(
+                name="processes",
+                type=PowerType.COMMAND,
+                description="Top processes by CPU",
+            ),
         ]
-        if self.config.is_feature_enabled("kill"):
-            tools.append(MCPToolDef(
+        if self.config.get("kill", True):
+            powers.append(Power(
                 name="kill_process",
+                type=PowerType.MCP,
                 description="Kill a process by PID (requires kill feature enabled)",
                 input_schema={"type": "object", "properties": {
                     "pid": {"type": "integer", "description": "Process ID to kill"},
                     "force": {"type": "boolean", "description": "Force kill (SIGKILL)", "default": False},
                 }, "required": ["pid"]},
             ))
-        return tools
+            powers.append(Power(
+                name="kill",
+                type=PowerType.COMMAND,
+                description="Kill a process by PID",
+            ))
+        return powers
 
-    async def execute_mcp_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> MCPToolResult:
-        if tool_name == "list_processes":
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
+        # MCP: list_processes
+        if name == "list_processes":
             data = self._latest
             if not data:
-                return MCPToolResult(content=[{"type": "text", "text": "No process data yet"}])
+                return {"content": [{"type": "text", "text": "No process data yet"}]}
             procs = list(data.get("list", []))
-            limit = arguments.get("limit", 20)
-            sort_by = arguments.get("sort_by", "cpu")
+            limit = args.get("limit", 20)
+            sort_by = args.get("sort_by", "cpu")
             if sort_by == "mem":
                 procs.sort(key=lambda p: p["mem"], reverse=True)
             elif sort_by == "name":
@@ -90,63 +100,53 @@ class ProcessManager(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             lines = [f"{'PID':>7} {'CPU%':>6} {'MEM%':>6} {'STATUS':>10} {'NAME'}"]
             for p in procs[:limit]:
                 lines.append(f"{p['pid']:>7} {p['cpu']:>6.1f} {p['mem']:>6.1f} {p['status']:>10} {p['name']}")
-            return MCPToolResult(content=[{"type": "text", "text": "\n".join(lines)}])
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        elif tool_name == "kill_process":
-            if not self.config.is_feature_enabled("kill"):
-                return MCPToolResult(content=[{"type": "text", "text": "Kill feature is disabled"}], is_error=True)
-            pid = arguments.get("pid")
-            force = arguments.get("force", False)
+        # MCP: kill_process
+        if name == "kill_process":
+            if not self.config.get("kill", True):
+                return {"content": [{"type": "text", "text": "Kill feature is disabled"}], "is_error": True}
+            pid = args.get("pid")
+            force = args.get("force", False)
             if not pid:
-                return MCPToolResult(content=[{"type": "text", "text": "PID required"}], is_error=True)
+                return {"content": [{"type": "text", "text": "PID required"}], "is_error": True}
             try:
                 sig = signal.SIGKILL if force else signal.SIGTERM
                 os.kill(pid, sig)
-                return MCPToolResult(content=[{"type": "text", "text": f"Sent {'SIGKILL' if force else 'SIGTERM'} to PID {pid}"}])
+                return {"content": [{"type": "text", "text": f"Sent {'SIGKILL' if force else 'SIGTERM'} to PID {pid}"}]}
             except ProcessLookupError:
-                return MCPToolResult(content=[{"type": "text", "text": f"Process {pid} not found"}], is_error=True)
+                return {"content": [{"type": "text", "text": f"Process {pid} not found"}], "is_error": True}
             except PermissionError:
-                return MCPToolResult(content=[{"type": "text", "text": f"Permission denied for PID {pid}"}], is_error=True)
+                return {"content": [{"type": "text", "text": f"Permission denied for PID {pid}"}], "is_error": True}
 
-        return MCPToolResult(content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}], is_error=True)
-
-    # ===== Connector =====
-
-    def get_connector_commands(self) -> list[ConnectorCommand]:
-        return [
-            ConnectorCommand(name="processes", description="Top processes by CPU", plugin_id="process-manager"),
-            ConnectorCommand(name="kill", description="Kill a process by PID", plugin_id="process-manager"),
-        ]
-
-    async def handle_connector_command(
-        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
-    ) -> ConnectorResponse | None:
-        if command == "processes":
+        # Command: processes
+        if name == "processes":
             data = self._latest
             if not data:
-                return ConnectorResponse.simple("No process data yet.")
+                return "No process data yet."
             procs = list(data.get("list", []))[:10]
             lines = [f"{'PID':>7} {'CPU%':>6} {'MEM%':>6} {'NAME'}"]
             for p in procs:
                 lines.append(f"{p['pid']:>7} {p['cpu']:>6.1f} {p['mem']:>6.1f} {p['name']}")
-            return ConnectorResponse.simple("\n".join(lines))
+            return "\n".join(lines)
 
-        if command == "kill":
-            if not self.config.is_feature_enabled("kill"):
-                return ConnectorResponse.simple("Kill feature is disabled.")
-            args = message.command_args.strip()
-            if not args:
-                return ConnectorResponse.simple("Usage: /kill <PID>")
+        # Command: kill
+        if name == "kill":
+            if not self.config.get("kill", True):
+                return "Kill feature is disabled."
+            cmd_args = args.get("args", "").strip()
+            if not cmd_args:
+                return "Usage: /kill <PID>"
             try:
-                pid = int(args.split()[0])
+                pid = int(cmd_args.split()[0])
             except ValueError:
-                return ConnectorResponse.simple(f"Invalid PID: {args}")
+                return f"Invalid PID: {cmd_args}"
             try:
                 os.kill(pid, signal.SIGTERM)
-                return ConnectorResponse.simple(f"Sent SIGTERM to PID {pid}.")
+                return f"Sent SIGTERM to PID {pid}."
             except ProcessLookupError:
-                return ConnectorResponse.simple(f"Process {pid} not found.")
+                return f"Process {pid} not found."
             except PermissionError:
-                return ConnectorResponse.simple(f"Permission denied for PID {pid}.")
+                return f"Permission denied for PID {pid}."
 
-        return None
+        return {"error": f"Unknown power: {name}"}

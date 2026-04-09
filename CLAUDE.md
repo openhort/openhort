@@ -6,7 +6,7 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 
 - **Llming** — an extension unit (plugin). The universal building block. Has up to five parts: Soul, Powers, Pulse, Cards, Envoy.
 - **Soul** (`SOUL.md`) — what a Llming knows and how it behaves. Markdown file with feature-gated sections.
-- **Powers** — what a Llming can do. MCP tools exposed via `MCPMixin`. Call-response.
+- **Powers** — what a Llming can do. Three types: MCP (AI tools), COMMAND (slash commands), ACTION (typed Python functions).
 - **Pulse** — what a Llming radiates. Live state (readable) + events (subscribable). Like Redis pub/sub.
 - **Cards** — how a Llming looks. Grid thumbnails, detail panels, widgets, float windows.
 - **Envoy** — where a Llming executes remotely. The execution agent inside a sub-hort (container/VM).
@@ -116,6 +116,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 ## Guidelines
 
+- **[Coding Guidelines](docs/ai/coding-guidelines.md)** — MUST follow: no private access, no if/elif dispatch, config over hardcoding, WS-first, error handling
 - [UX Guidelines](docs/manual/develop/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
 - [Plugin Ecosystem](docs/manual/develop/plugins.md) — plugin development guide, storage, scheduler, MCP, intents, widgets
 - [Extension System](docs/manual/develop/extensions.md) — provider interfaces, manifest, registry, creating extensions

@@ -1,4 +1,4 @@
-"""Extension manifest model (extension.json)."""
+"""Extension manifest model (manifest.json)."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class IntentManifest(BaseModel):
 
 
 class ExtensionManifest(BaseModel):
-    """Parsed ``extension.json`` manifest for a single extension.
+    """Parsed ``manifest.json`` manifest for a single extension.
 
     All new fields are optional with defaults — fully backward
     compatible with existing extensions.
@@ -68,7 +68,12 @@ class ExtensionManifest(BaseModel):
     license: str = ""
     homepage: str = ""
     icon: str = ""  # Phosphor icon class (e.g. "ph ph-thermometer")
-    plugin_type: str = ""  # "platform", "connector", "monitor", "tool", ""
+    llming_type: str = ""  # "platform", "connector", "monitor", "tool", ""
+
+    @property
+    def plugin_type(self) -> str:
+        """Backward-compatible alias for llming_type."""
+        return self.llming_type
 
     # === Feature toggles ===
     features: dict[str, FeatureToggle] = Field(default_factory=dict)
@@ -90,7 +95,7 @@ class ExtensionManifest(BaseModel):
 
     # === UI ===
     ui_widgets: list[str] = Field(default_factory=list)
-    ui_script: str = ""  # e.g. "static/panel.js"
+    ui_script: str = ""  # e.g. "static/cards.js"
 
     # === Dependencies ===
     depends_on: list[str] = Field(default_factory=list)

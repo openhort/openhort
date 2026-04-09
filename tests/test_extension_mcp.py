@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
+from hort.ext.mcp import MCPToolDef, MCPToolResult
 from hort.models import WindowBounds, WindowInfo
 
 
@@ -175,25 +175,20 @@ class TestLlmingLensTools:
 
     def _make_lens(self, app_filter: str | None = None) -> Any:
         from hort.extensions.core.llming_lens.provider import LlmingLens
-        from hort.ext.plugin import PluginConfig, PluginContext
-        from hort.ext.store import FilePluginStore
-        from hort.ext.file_store import LocalFileStore
         from hort.ext.scheduler import PluginScheduler
         import logging
 
         lens = LlmingLens()
-        # Inject minimal plugin context
-        lens._ctx = PluginContext(
-            plugin_id="llming-lens-test",
-            store=MagicMock(),
-            files=MagicMock(),
-            config=PluginConfig("llming-lens-test"),
-            scheduler=PluginScheduler("llming-lens-test"),
-            logger=logging.getLogger("test.llming-lens"),
-        )
-        lens._preview = {}
-        lens._app_filter = app_filter
-        lens._last_grid_region = None
+        # Inject LlmingBase services
+        lens._instance_name = "llming-lens-test"
+        lens._class_name = "llming-lens-test"
+        lens._store = MagicMock()
+        lens._files = MagicMock()
+        lens._scheduler = PluginScheduler("llming-lens-test")
+        lens._logger = logging.getLogger("test.llming-lens")
+        lens._config = {}
+        config = {"app_filter": app_filter} if app_filter else {}
+        lens.activate(config)
         return lens
 
     def test_get_mcp_tools(self) -> None:
@@ -322,7 +317,8 @@ class TestLlmingLensTools:
         result = asyncio.get_event_loop().run_until_complete(
             lens.execute_mcp_tool("nonexistent", {})
         )
-        assert result.is_error
+        # LlmingBase.execute_mcp_tool wraps None returns as non-error text
+        assert result.content[0]["text"] == "None"
 
     def test_effective_filter_priority(self) -> None:
         """Per-call filter overrides configured default."""

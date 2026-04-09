@@ -1,10 +1,10 @@
 """Connector framework — unified messaging interface for Telegram, Discord, etc.
 
-Connectors provide a command-based interface to openhort. Plugins register
-commands via ``ConnectorMixin``, and connectors route messages to them.
+Connectors provide a command-based interface to openhort. Llmings register
+commands via ``LlmingBase.get_powers()``, and connectors route messages to them.
 
 Architecture:
-  User → Connector (Telegram/Discord/...) → CommandRegistry → Plugin → ConnectorResponse → Connector → User
+  User → Connector (Telegram/Discord/...) → CommandRegistry → Llming → ConnectorResponse → Connector → User
 
 Key classes:
   - ``ConnectorCapabilities`` — what a connector can render (text, images, buttons)
@@ -12,7 +12,6 @@ Key classes:
   - ``ConnectorResponse`` — platform-agnostic output with fallback chain
   - ``ConnectorCommand`` — command registration
   - ``ConnectorBase`` — abstract base for connectors
-  - ``ConnectorMixin`` — plugin mixin for registering commands
   - ``CommandRegistry`` — central command aggregation and dispatch
 """
 
@@ -146,53 +145,36 @@ class ConnectorBase(ABC):
         return response.text or ""
 
 
-class ConnectorMixin:
-    """Mixin for plugins that provide connector commands.
-
-    Example::
-
-        class SystemMonitor(PluginBase, ConnectorMixin):
-            def get_connector_commands(self):
-                return [ConnectorCommand(name="cpu", description="CPU usage", plugin_id="system-monitor")]
-
-            async def handle_connector_command(self, command, message, capabilities):
-                if command == "cpu":
-                    return ConnectorResponse.simple(f"CPU: {self._latest.get('cpu_percent', '?')}%")
-    """
-
-    def get_connector_commands(self) -> list[ConnectorCommand]:
-        """Return commands this plugin provides."""
-        return []
-
-    async def handle_connector_command(
-        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
-    ) -> ConnectorResponse | None:
-        """Handle a command. Return None if not handled."""
-        return None
-
 
 class CommandRegistry:
     """Central registry of all commands from system + plugins."""
 
     def __init__(self) -> None:
-        self._commands: dict[str, tuple[str, ConnectorCommand]] = {}  # name → (plugin_id, cmd)
-        self._plugins: dict[str, ConnectorMixin] = {}  # plugin_id → instance
+        self._commands: dict[str, tuple[str, ConnectorCommand]] = {}  # name → (llming_id, cmd)
+        self._llmings: dict[str, Any] = {}  # llming_id → LlmingBase instance
+        self._plugins = self._llmings  # backward-compatible alias
 
     def register_system(self, commands: list[ConnectorCommand]) -> None:
         """Register system commands (cannot be overridden)."""
         for cmd in commands:
             self._commands[cmd.name] = ("", cmd)
 
-    def register_plugin(self, plugin_id: str, plugin: ConnectorMixin, commands: list[ConnectorCommand]) -> None:
-        """Register plugin commands. System commands take priority."""
-        self._plugins[plugin_id] = plugin
+    def register_llming(self, llming_id: str, llming: Any, commands: list[ConnectorCommand]) -> None:
+        """Register llming commands. System commands take priority.
+
+        Accepts any LlmingBase instance with handle_connector_command().
+        """
+        self._llmings[llming_id] = llming
         for cmd in commands:
             if cmd.name in self._commands and self._commands[cmd.name][1].system:
                 continue  # system command — cannot override
-            self._commands[cmd.name] = (plugin_id, ConnectorCommand(
-                name=cmd.name, description=cmd.description, plugin_id=plugin_id,
+            self._commands[cmd.name] = (llming_id, ConnectorCommand(
+                name=cmd.name, description=cmd.description, plugin_id=llming_id,
                 usage=cmd.usage, hidden=cmd.hidden, accept_images=cmd.accept_images,
             ))
+
+    # Backward-compatible alias
+    register_plugin = register_llming
 
     def get_command(self, name: str) -> tuple[str, ConnectorCommand] | None:
         """Look up a command by name. Returns (plugin_id, command) or None."""
@@ -205,9 +187,12 @@ class CommandRegistry:
             key=lambda c: c.name,
         )
 
-    def get_plugin(self, plugin_id: str) -> ConnectorMixin | None:
-        """Get the plugin instance for handling a command."""
-        return self._plugins.get(plugin_id)
+    def get_llming(self, llming_id: str) -> Any:
+        """Get the llming instance for handling a command."""
+        return self._llmings.get(llming_id)
+
+    # Backward-compatible alias
+    get_plugin = get_llming
 
     async def dispatch(
         self, message: IncomingMessage, capabilities: ConnectorCapabilities
@@ -225,9 +210,9 @@ class CommandRegistry:
             # System commands are handled by the connector itself
             return None  # caller handles system commands
 
-        plugin = self.get_plugin(plugin_id)
+        plugin = self.get_llming(plugin_id)
         if plugin is None:
-            return ConnectorResponse.simple(f"Plugin '{plugin_id}' not available.")
+            return ConnectorResponse.simple(f"Llming '{plugin_id}' not available.")
 
         result = await plugin.handle_connector_command(message.command, message, capabilities)
         return result or ConnectorResponse.simple(f"Command /{message.command} returned no response.")

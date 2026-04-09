@@ -2,7 +2,7 @@
 
 Integrates with the connector framework:
 - Registers system commands (help, link, status, targets)
-- Discovers plugin commands via ConnectorMixin (windows, screenshot, etc.)
+- Discovers plugin commands via LlmingBase powers (windows, screenshot, etc.)
 - Routes incoming messages through CommandRegistry
 - Non-command messages route to Claude Code AI chat (if enabled)
 - Sends responses adapted to Telegram capabilities
@@ -25,12 +25,11 @@ from hort.ext.connectors import (
     ConnectorBase,
     ConnectorCapabilities,
     ConnectorCommand,
-    ConnectorMixin,
     ConnectorResponse,
     IncomingMessage,
     ResponseButton,
 )
-from hort.ext.plugin import PluginBase
+from hort.llming import LlmingBase
 
 logger = logging.getLogger("hort.connector.telegram")
 
@@ -46,7 +45,7 @@ SYSTEM_COMMANDS = [
 ]
 
 
-class TelegramConnector(PluginBase, ConnectorBase):
+class TelegramConnector(LlmingBase, ConnectorBase):
     """Telegram bot connector for openhort."""
 
     _bot: Any = None
@@ -102,7 +101,7 @@ class TelegramConnector(PluginBase, ConnectorBase):
         self.log.info("Telegram connector activated (allowed: %s)", self._allowed_users)
 
     def get_status(self) -> dict[str, Any]:
-        """Status for /api/connectors and /api/plugins/{id}/status."""
+        """Status for connectors.list and llmings.pulse WS commands."""
         token_set = bool(os.environ.get("TELEGRAM_BOT_TOKEN", ""))
         task_error = ""
         if self._task and self._task.done():

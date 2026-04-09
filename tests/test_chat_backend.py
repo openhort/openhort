@@ -388,19 +388,17 @@ class TestSecurityGuard:
     def test_no_users_disables_chat(self) -> None:
         """Chat backend must not activate without allowed_users."""
         from hort.extensions.core.telegram_connector.provider import TelegramConnector
-        from hort.ext.plugin import PluginConfig, PluginContext
         from hort.ext.scheduler import PluginScheduler
         import logging
 
         connector = TelegramConnector()
-        connector._ctx = PluginContext(
-            plugin_id="telegram-test",
-            store=MagicMock(),
-            files=MagicMock(),
-            config=PluginConfig("telegram-test"),
-            scheduler=PluginScheduler("telegram-test"),
-            logger=logging.getLogger("test"),
-        )
+        connector._instance_name = "telegram-test"
+        connector._class_name = "telegram-test"
+        connector._store = MagicMock()
+        connector._files = MagicMock()
+        connector._scheduler = PluginScheduler("telegram-test")
+        connector._logger = logging.getLogger("test")
+        connector._config = {}
 
         connector.activate({
             "chat": {"enabled": True, "model": "sonnet"},
@@ -545,19 +543,17 @@ class TestE2ETelegramFlow:
     def test_connector_reads_shared_agent_config(self) -> None:
         """Telegram connector reads agent config from hort-config.yaml."""
         from hort.extensions.core.telegram_connector.provider import TelegramConnector
-        from hort.ext.plugin import PluginConfig, PluginContext
         from hort.ext.scheduler import PluginScheduler
         import logging
 
         connector = TelegramConnector()
-        connector._ctx = PluginContext(
-            plugin_id="telegram-test",
-            store=MagicMock(),
-            files=MagicMock(),
-            config=PluginConfig("telegram-test"),
-            scheduler=PluginScheduler("telegram-test"),
-            logger=logging.getLogger("test"),
-        )
+        connector._instance_name = "telegram-test"
+        connector._class_name = "telegram-test"
+        connector._store = MagicMock()
+        connector._files = MagicMock()
+        connector._scheduler = PluginScheduler("telegram-test")
+        connector._logger = logging.getLogger("test")
+        connector._config = {}
 
         with patch("hort.config.get_store") as mock_store:
             mock_store.return_value.get.return_value = {
@@ -578,19 +574,17 @@ class TestE2ETelegramFlow:
     def test_connector_overrides_model(self) -> None:
         """Connector-level model override takes precedence."""
         from hort.extensions.core.telegram_connector.provider import TelegramConnector
-        from hort.ext.plugin import PluginConfig, PluginContext
         from hort.ext.scheduler import PluginScheduler
         import logging
 
         connector = TelegramConnector()
-        connector._ctx = PluginContext(
-            plugin_id="telegram-test",
-            store=MagicMock(),
-            files=MagicMock(),
-            config=PluginConfig("telegram-test"),
-            scheduler=PluginScheduler("telegram-test"),
-            logger=logging.getLogger("test"),
-        )
+        connector._instance_name = "telegram-test"
+        connector._class_name = "telegram-test"
+        connector._store = MagicMock()
+        connector._files = MagicMock()
+        connector._scheduler = PluginScheduler("telegram-test")
+        connector._logger = logging.getLogger("test")
+        connector._config = {}
 
         with patch("hort.config.get_store") as mock_store:
             mock_store.return_value.get.return_value = {

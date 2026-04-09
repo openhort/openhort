@@ -333,20 +333,18 @@ class TestCodeWatchMCP:
     def extension(self):
         """Create a CodeWatch extension instance with minimal context."""
         from hort.extensions.core.code_watch.provider import CodeWatch
-        from hort.ext.plugin import PluginConfig, PluginContext
         from hort.ext.scheduler import PluginScheduler
         from unittest.mock import MagicMock
         import logging
 
         cw = CodeWatch()
-        cw._ctx = PluginContext(
-            plugin_id="code-watch-test",
-            store=MagicMock(),
-            files=MagicMock(),
-            config=PluginConfig("code-watch-test"),
-            scheduler=PluginScheduler("code-watch-test"),
-            logger=logging.getLogger("test.code-watch"),
-        )
+        cw._instance_name = "code-watch-test"
+        cw._class_name = "code-watch-test"
+        cw._store = MagicMock()
+        cw._files = MagicMock()
+        cw._scheduler = PluginScheduler("code-watch-test")
+        cw._logger = logging.getLogger("test.code-watch")
+        cw._config = {}
         cw.activate({})
         return cw
 

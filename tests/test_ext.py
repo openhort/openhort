@@ -397,7 +397,7 @@ def _make_ext_dir(
     """Create an extension directory with manifest and optional Python code."""
     ext_dir = tmp_path / provider / name
     ext_dir.mkdir(parents=True)
-    (ext_dir / "extension.json").write_text(json.dumps(manifest))
+    (ext_dir / "manifest.json").write_text(json.dumps(manifest))
     (ext_dir / "__init__.py").write_text("")
     if py_code:
         module_name = manifest.get("entry_point", "").partition(":")[0] or "provider"
@@ -431,7 +431,7 @@ class TestDiscover:
     def test_skips_invalid_manifest(self, tmp_path: Path) -> None:
         ext_dir = tmp_path / "core" / "broken"
         ext_dir.mkdir(parents=True)
-        (ext_dir / "extension.json").write_text("not valid json{{{")
+        (ext_dir / "manifest.json").write_text("not valid json{{{")
         assert ExtensionRegistry().discover(tmp_path) == []
 
     def test_skips_missing_manifest(self, tmp_path: Path) -> None:
@@ -704,7 +704,7 @@ class TestGetProvider:
 
 class TestParseManifest:
     def test_valid(self, tmp_path: Path) -> None:
-        f = tmp_path / "extension.json"
+        f = tmp_path / "manifest.json"
         f.write_text(json.dumps({"name": "hello"}))
         m = _parse_manifest(f, tmp_path)
         assert m is not None
@@ -712,31 +712,30 @@ class TestParseManifest:
         assert m.path == str(tmp_path)
 
     def test_invalid_json(self, tmp_path: Path) -> None:
-        f = tmp_path / "extension.json"
+        f = tmp_path / "manifest.json"
         f.write_text("{{bad")
         assert _parse_manifest(f, tmp_path) is None
 
     def test_missing_required_field(self, tmp_path: Path) -> None:
-        f = tmp_path / "extension.json"
+        f = tmp_path / "manifest.json"
         f.write_text(json.dumps({"version": "1.0"}))  # missing 'name'
         assert _parse_manifest(f, tmp_path) is None
 
 
-class TestPluginContextInjection:
-    """Tests for PluginBase context injection in load_extension."""
+class TestLlmingServiceInjection:
+    """Tests for LlmingBase service injection in load_extension."""
 
-    def test_injects_context_for_plugin_base(self, tmp_path: Path) -> None:
+    def test_injects_services_for_llming_base(self, tmp_path: Path) -> None:
         code = (
-            "from hort.ext.plugin import PluginBase\n"
-            "class MyPlugin(PluginBase):\n"
+            "from hort.llming.base import LlmingBase\n"
+            "class MyPlugin(LlmingBase):\n"
             "    def activate(self, config):\n"
             "        self.log.info('activated with %s', config)\n"
         )
         _make_ext_dir(
             tmp_path, "core", "test-plugin",
             {"name": "test-plugin", "platforms": [sys.platform],
-             "entry_point": "provider:MyPlugin", "capabilities": ["test"],
-             "features": {"alerts": {"description": "Alert", "default": True}}},
+             "entry_point": "provider:MyPlugin", "capabilities": ["test"]},
             py_code=code,
         )
         registry = ExtensionRegistry()
@@ -744,11 +743,10 @@ class TestPluginContextInjection:
         registry.load_compatible()
         instance = registry._instances.get("test-plugin")
         assert instance is not None
-        assert hasattr(instance, "_ctx")
         assert instance.plugin_id == "test-plugin"
-        assert instance.config.is_feature_enabled("alerts") is True
+        assert instance._instance_name == "test-plugin"
 
-    def test_no_context_for_extension_base(self, tmp_path: Path) -> None:
+    def test_no_services_for_plain_class(self, tmp_path: Path) -> None:
         code = "class OldExt:\n    def activate(self, config): self.cfg = config\n"
         _make_ext_dir(
             tmp_path, "core", "old-ext",
@@ -762,14 +760,14 @@ class TestPluginContextInjection:
         instance = registry._instances.get("old-ext")
         assert instance is not None
         assert instance.cfg == {"key": "val"}
-        assert not hasattr(instance, "_ctx")
+        assert not hasattr(instance, "_instance_name")
 
 
 class TestUnloadExtension:
     def test_unload_stops_and_removes(self, tmp_path: Path) -> None:
         code = (
-            "from hort.ext.plugin import PluginBase\n"
-            "class MyPlugin(PluginBase):\n"
+            "from hort.llming.base import LlmingBase\n"
+            "class MyPlugin(LlmingBase):\n"
             "    stopped = False\n"
             "    def deactivate(self):\n"
             "        self.stopped = True\n"
@@ -797,8 +795,8 @@ class TestUnloadExtension:
 
     def test_unload_deactivate_error(self, tmp_path: Path) -> None:
         code = (
-            "from hort.ext.plugin import PluginBase\n"
-            "class Bad(PluginBase):\n"
+            "from hort.llming.base import LlmingBase\n"
+            "class Bad(LlmingBase):\n"
             "    def deactivate(self):\n"
             "        raise RuntimeError('boom')\n"
         )
@@ -817,8 +815,8 @@ class TestUnloadExtension:
 class TestListPlugins:
     def test_lists_all(self, tmp_path: Path) -> None:
         code = (
-            "from hort.ext.plugin import PluginBase\n"
-            "class P(PluginBase): pass\n"
+            "from hort.llming.base import LlmingBase\n"
+            "class P(LlmingBase): pass\n"
         )
         _make_ext_dir(
             tmp_path, "core", "p1",
@@ -857,8 +855,8 @@ class TestSetApp:
         from unittest.mock import MagicMock
         code = (
             "from fastapi import APIRouter\n"
-            "from hort.ext.plugin import PluginBase\n"
-            "class WithRouter(PluginBase):\n"
+            "from hort.llming.base import LlmingBase\n"
+            "class WithRouter(LlmingBase):\n"
             "    def get_router(self):\n"
             "        r = APIRouter()\n"
             "        @r.get('/test')\n"
@@ -882,8 +880,8 @@ class TestSetApp:
         from unittest.mock import MagicMock
         code = (
             "from fastapi import APIRouter\n"
-            "from hort.ext.plugin import PluginBase\n"
-            "class Bad(PluginBase):\n"
+            "from hort.llming.base import LlmingBase\n"
+            "class Bad(LlmingBase):\n"
             "    def get_router(self):\n"
             "        return APIRouter()\n"
         )
@@ -903,8 +901,8 @@ class TestSetApp:
     def test_unload_removes_routes(self, tmp_path: Path) -> None:
         from unittest.mock import MagicMock
         code = (
-            "from hort.ext.plugin import PluginBase\n"
-            "class P(PluginBase): pass\n"
+            "from hort.llming.base import LlmingBase\n"
+            "class P(LlmingBase): pass\n"
         )
         _make_ext_dir(
             tmp_path, "core", "rt",
@@ -914,7 +912,7 @@ class TestSetApp:
         )
         # Simulate app with routes
         route1 = MagicMock()
-        route1.path = "/api/plugins/rt/test"
+        route1.path = "/api/llmings/rt/test"
         route2 = MagicMock()
         route2.path = "/api/other"
         app = MagicMock()

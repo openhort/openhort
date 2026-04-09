@@ -7,13 +7,10 @@ import subprocess
 import time
 from typing import Any
 
-from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
-from hort.ext.scheduler import ScheduledMixin
+from hort.llming import LlmingBase, Power, PowerType
 
 
-class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
+class ClipboardHistory(LlmingBase):
     """Polls the system clipboard and stores unique entries for search and review."""
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -24,7 +21,7 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     def deactivate(self) -> None:
         self.log.info("Clipboard history deactivated")
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         """Return in-memory clipboard data."""
         return {"clips": self._clips[-20:]}
 
@@ -32,7 +29,7 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
 
     def poll_clipboard(self) -> None:
         """Polls the macOS clipboard via pbpaste. Runs in executor thread."""
-        if not self.config.is_feature_enabled("auto_capture"):
+        if not self.config.get("auto_capture", True):
             return
 
         try:
@@ -89,12 +86,14 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             for old_key in keys[: len(keys) - 100]:
                 await self.store.delete(old_key)
 
-    # ===== MCP =====
+    # ===== Powers =====
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
+    def get_powers(self) -> list[Power]:
         return [
-            MCPToolDef(
+            # MCP tools
+            Power(
                 name="search_clipboard",
+                type=PowerType.MCP,
                 description="Search text in recent clipboard entries",
                 input_schema={
                     "type": "object",
@@ -107,8 +106,9 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                     "required": ["query"],
                 },
             ),
-            MCPToolDef(
+            Power(
                 name="get_clipboard_history",
+                type=PowerType.MCP,
                 description="List recent clipboard entries",
                 input_schema={
                     "type": "object",
@@ -121,18 +121,28 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                     },
                 },
             ),
+            # Connector commands
+            Power(
+                name="clipboard",
+                type=PowerType.COMMAND,
+                description="Recent clipboard entries",
+            ),
+            Power(
+                name="clip_search",
+                type=PowerType.COMMAND,
+                description="Search clipboard",
+            ),
         ]
 
-    async def execute_mcp_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> MCPToolResult:
-        if tool_name == "search_clipboard":
-            query = arguments.get("query", "")
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
+        # MCP: search_clipboard
+        if name == "search_clipboard":
+            query = args.get("query", "")
             if not query:
-                return MCPToolResult(
-                    content=[{"type": "text", "text": "Query is required"}],
-                    is_error=True,
-                )
+                return {
+                    "content": [{"type": "text", "text": "Query is required"}],
+                    "is_error": True,
+                }
             matches = []
             query_lower = query.lower()
             for entry in reversed(self._clips):
@@ -141,64 +151,47 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                     if len(matches) >= 20:
                         break
             if not matches:
-                return MCPToolResult(
-                    content=[{"type": "text", "text": f"No clipboard entries matching '{query}'"}]
-                )
+                return {"content": [{"type": "text", "text": f"No clipboard entries matching '{query}'"}]}
             lines = [f"Found {len(matches)} matching entries:"]
             for e in matches:
                 ts = e.get("timestamp", 0)
                 ts_str = time.strftime("%H:%M:%S", time.localtime(ts / 1000))
                 preview = e.get("text", "")[:100]
                 lines.append(f"  [{ts_str}] {preview}")
-            return MCPToolResult(content=[{"type": "text", "text": "\n".join(lines)}])
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        elif tool_name == "get_clipboard_history":
-            limit = arguments.get("limit", 20)
+        # MCP: get_clipboard_history
+        if name == "get_clipboard_history":
+            limit = args.get("limit", 20)
             entries = list(reversed(self._clips[-limit:]))
             if not entries:
-                return MCPToolResult(
-                    content=[{"type": "text", "text": "No clipboard history available yet"}]
-                )
+                return {"content": [{"type": "text", "text": "No clipboard history available yet"}]}
             lines = [f"{len(entries)} recent clipboard entries:"]
             for e in entries:
                 ts = e.get("timestamp", 0)
                 ts_str = time.strftime("%H:%M:%S", time.localtime(ts / 1000))
                 preview = e.get("text", "")[:100]
                 lines.append(f"  [{ts_str}] ({e.get('length', 0)} chars) {preview}")
-            return MCPToolResult(content=[{"type": "text", "text": "\n".join(lines)}])
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        return MCPToolResult(
-            content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}],
-            is_error=True,
-        )
-
-    # ===== Connector =====
-
-    def get_connector_commands(self) -> list[ConnectorCommand]:
-        return [
-            ConnectorCommand(name="clipboard", description="Recent clipboard entries", plugin_id="clipboard-history"),
-            ConnectorCommand(name="clip_search", description="Search clipboard", plugin_id="clipboard-history"),
-        ]
-
-    async def handle_connector_command(
-        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
-    ) -> ConnectorResponse | None:
-        if command == "clipboard":
+        # Command: clipboard
+        if name == "clipboard":
             entries = list(reversed(self._clips[-5:]))
             if not entries:
-                return ConnectorResponse.simple("No clipboard history yet.")
+                return "No clipboard history yet."
             lines = []
             for e in entries:
                 ts = e.get("timestamp", 0)
                 ts_str = time.strftime("%H:%M:%S", time.localtime(ts / 1000))
                 preview = e.get("text", "")[:100]
                 lines.append(f"[{ts_str}] {preview}")
-            return ConnectorResponse.simple("\n".join(lines))
+            return "\n".join(lines)
 
-        if command == "clip_search":
-            query = message.command_args.strip()
+        # Command: clip_search
+        if name == "clip_search":
+            query = args.get("args", "").strip()
             if not query:
-                return ConnectorResponse.simple("Usage: /clip_search <text>")
+                return "Usage: /clip_search <text>"
             query_lower = query.lower()
             matches = []
             for entry in reversed(self._clips):
@@ -207,13 +200,13 @@ class ClipboardHistory(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                     if len(matches) >= 10:
                         break
             if not matches:
-                return ConnectorResponse.simple(f"No clipboard entries matching '{query}'.")
+                return f"No clipboard entries matching '{query}'."
             lines = [f"Found {len(matches)} match(es):"]
             for e in matches:
                 ts = e.get("timestamp", 0)
                 ts_str = time.strftime("%H:%M:%S", time.localtime(ts / 1000))
                 preview = e.get("text", "")[:100]
                 lines.append(f"[{ts_str}] {preview}")
-            return ConnectorResponse.simple("\n".join(lines))
+            return "\n".join(lines)
 
-        return None
+        return {"error": f"Unknown power: {name}"}

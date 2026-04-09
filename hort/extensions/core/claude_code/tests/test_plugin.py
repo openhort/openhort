@@ -11,19 +11,15 @@ from hort.extensions.core.claude_code.provider import ClaudeCodePlugin
 
 @pytest.fixture
 def plugin():
-    """Create a ClaudeCodePlugin with minimal context."""
+    """Create a ClaudeCodePlugin with minimal LlmingBase context."""
     import logging
-    from hort.ext.plugin import PluginContext
     p = ClaudeCodePlugin()
-    # Inject a minimal context so self.log works
-    p._ctx = PluginContext(
-        plugin_id="claude-code",
-        store=MagicMock(),
-        files=MagicMock(),
-        config={},
-        scheduler=MagicMock(),
-        logger=logging.getLogger("test.claude-code"),
-    )
+    p._instance_name = "claude-code"
+    p._class_name = "claude-code"
+    p._store = MagicMock()
+    p._files = MagicMock()
+    p._scheduler = MagicMock()
+    p._logger = logging.getLogger("test.claude-code")
     p._chat_mgr = None
     p._started = False
     p._config = {}
@@ -38,7 +34,7 @@ def test_activate_stores_config(plugin):
 
 def test_status_before_start(plugin):
     plugin.activate({})
-    status = plugin.get_status()
+    status = plugin.get_pulse()
     assert status["started"] is False
     assert status["alive"] is False
     assert status["active_sessions"] == 0
@@ -47,7 +43,7 @@ def test_status_before_start(plugin):
 def test_get_mcp_tools(plugin):
     plugin.activate({})
     tools = plugin.get_mcp_tools()
-    names = [t["name"] for t in tools]
+    names = [t.name for t in tools]
     assert "send_message" in names
     assert "get_session_status" in names
     assert "reset_session" in names

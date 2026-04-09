@@ -73,17 +73,21 @@ ProgressCallback = Callable[[ChatProgressEvent], Coroutine[Any, Any, None]]
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful assistant connected to the user's machine through OpenHORT. "
-    "Use the available MCP tools to help the user. Your OWN environment is irrelevant — "
-    "do NOT inspect your own working directory or installed tools. "
-    "Use the openhort MCP tools instead.\n\n"
-    "Be proactive: when you have tools that can answer a question, USE them "
-    "instead of saying you can't help. Keep responses concise."
+    "You run in an isolated container — you have NO direct access to the host OS, "
+    "no shell commands, no filesystem. Everything you know about the user's machine "
+    "comes from the MCP tools provided to you.\n\n"
+    "ALWAYS use MCP tools to answer questions. Never say you can't help when "
+    "a tool exists. Never suggest the user run commands themselves.\n\n"
+    "When reporting system info, give concrete numbers from the tool data. "
+    "Don't speculate or add disclaimers — just report what the tools return. "
+    "Example: 'CPU 34%, Memory 14.2/48 GB (81%), top processes: Chrome (12%), "
+    "node (8%), python (5%)' — not 'the tool shows some processes'."
 )
 
 _APPEND_PROMPT = (
     "IMPORTANT: This is a mobile messaging chat (like Telegram). "
     "NEVER use markdown: no **, no `, no #, no bullet points with -. "
-    "Use plain text only. Keep responses short (1-3 sentences). "
+    "Use plain text only. Keep responses short — give the data, skip filler. "
     "When you receive screenshot data from tools, describe what you see "
     "in words — never include raw base64 data in your response."
 )
@@ -386,7 +390,7 @@ class ChatBackendManager:
     """Manages chat sessions for all users of a connector.
 
     Any connector can use this to route non-command messages to Claude Code.
-    The MCP bridge provides access to all MCPMixin extension tools.
+    The MCP bridge provides access to all llming MCP tools.
     The system prompt is built dynamically from extension skills.
 
     Reads the shared ``agent`` config from ``hort-config.yaml`` so all

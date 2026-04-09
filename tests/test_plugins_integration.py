@@ -18,10 +18,10 @@ from typing import Any
 import pytest
 
 from hort.ext.file_store import LocalFileStore
-from hort.ext.mcp import MCPMixin
-from hort.ext.plugin import PluginBase, PluginConfig, PluginContext
-from hort.ext.scheduler import PluginScheduler, ScheduledMixin
+from hort.ext.scheduler import PluginScheduler
 from hort.ext.store import FilePluginStore
+from hort.llming.base import LlmingBase
+from hort.llming.pulse import PulseBus
 
 EXTENSIONS_DIR = Path(__file__).parent.parent / "hort" / "extensions" / "core"
 
@@ -36,37 +36,20 @@ PLUGINS = [
 
 def load_test_plugin(
     plugin_name: str, tmp_path: Path
-) -> tuple[Any, PluginContext]:
-    """Load a plugin for testing. Returns (instance, context)."""
+) -> tuple[Any, Any]:
+    """Load a llming for testing. Returns (instance, store)."""
     plugin_dir = EXTENSIONS_DIR / plugin_name
-    manifest_data = json.loads((plugin_dir / "extension.json").read_text())
+    manifest_data = json.loads((plugin_dir / "manifest.json").read_text())
 
     plugin_id = manifest_data["name"]
     store = FilePluginStore(plugin_id, base_dir=tmp_path)
     files = LocalFileStore(plugin_id, base_dir=tmp_path)
-    feature_defaults = {
-        name: ft.get("default", True)
-        for name, ft in manifest_data.get("features", {}).items()
-    }
-    config = PluginConfig(
-        plugin_id=plugin_id,
-        _raw={},
-        _feature_defaults=feature_defaults,
-    )
     scheduler = PluginScheduler(plugin_id)
-    context = PluginContext(
-        plugin_id=plugin_id,
-        store=store,
-        files=files,
-        config=config,
-        scheduler=scheduler,
-        logger=logging.getLogger(f"test.{plugin_id}"),
-    )
 
     # Load Python module
     entry_point = manifest_data.get("entry_point", "")
     if not entry_point:
-        return None, context
+        return None, store
 
     module_name, class_name = entry_point.split(":")
     module_path = plugin_dir / f"{module_name}.py"
@@ -78,11 +61,20 @@ def load_test_plugin(
     spec.loader.exec_module(module)
     cls = getattr(module, class_name)
     instance = cls()
-    if isinstance(instance, PluginBase):
-        instance._ctx = context
+
+    # Inject LlmingBase services
+    assert isinstance(instance, LlmingBase)
+    instance._instance_name = plugin_id
+    instance._class_name = plugin_id
+    instance._store = store
+    instance._files = files
+    instance._scheduler = scheduler
+    instance._logger = logging.getLogger(f"test.{plugin_id}")
+    instance._pulse_bus = PulseBus.get()
+    instance._config = {}
     instance.activate({})
 
-    return instance, context
+    return instance, store
 
 
 @pytest.mark.integration
@@ -94,7 +86,7 @@ class TestSystemMonitor:
         # Run the polling job
         instance.poll_metrics()
 
-        # Check in-memory data
+        # Check in-memory data (v2 uses get_pulse(), v1 compat get_status())
         status = instance.get_status()
         latest = status["latest"]
         assert latest is not None
@@ -106,7 +98,8 @@ class TestSystemMonitor:
 
     def test_mcp_tools(self, tmp_path: Path) -> None:
         instance, ctx = load_test_plugin("system_monitor", tmp_path)
-        assert isinstance(instance, MCPMixin)
+        # v2 LlmingBase exposes tools via get_mcp_tools() compat layer
+        assert isinstance(instance, LlmingBase)
 
         # Poll first to populate data
         instance.poll_metrics()
@@ -121,6 +114,7 @@ class TestSystemMonitor:
             result = loop.run_until_complete(
                 instance.execute_mcp_tool("get_system_metrics", {})
             )
+            # v2 compat wraps in MCPToolResult
             assert not result.is_error
             assert len(result.content) > 0
             text = result.content[0]["text"]
@@ -241,7 +235,7 @@ class TestClipboardHistory:
         # Disk persistence should still work
         loop = asyncio.new_event_loop()
         try:
-            keys = loop.run_until_complete(ctx.store.list_keys("clip:"))
+            keys = loop.run_until_complete(ctx.list_keys("clip:"))
             # May or may not have entries depending on clipboard state
             assert isinstance(keys, list)
         finally:

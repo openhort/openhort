@@ -21,9 +21,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi.responses import Response
 
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
-from hort.ext.scheduler import ScheduledMixin
+from hort.llming import LlmingBase, Power, PowerType
 
 
 def _run_coro(coro):  # type: ignore[no-untyped-def]
@@ -35,7 +33,7 @@ def _run_coro(coro):  # type: ignore[no-untyped-def]
         new_loop.close()
 
 
-class ScreenshotCapture(PluginBase, ScheduledMixin, MCPMixin):
+class ScreenshotCapture(LlmingBase):
     """Captures screenshots and serves them to the browser."""
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -130,17 +128,19 @@ class ScreenshotCapture(PluginBase, ScheduledMixin, MCPMixin):
 
         return router
 
-    # ===== MCP =====
+    # ===== Powers =====
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
+    def get_powers(self) -> list[Power]:
         return [
-            MCPToolDef(
+            Power(
                 name="capture_screenshot",
+                type=PowerType.MCP,
                 description="Take a screenshot of the remote machine's screen",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="list_screenshots",
+                type=PowerType.MCP,
                 description="List recently captured screenshots",
                 input_schema={"type": "object", "properties": {
                     "limit": {"type": "integer", "default": 10},
@@ -148,24 +148,22 @@ class ScreenshotCapture(PluginBase, ScheduledMixin, MCPMixin):
             ),
         ]
 
-    async def execute_mcp_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> MCPToolResult:
-        if tool_name == "capture_screenshot":
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
+        if name == "capture_screenshot":
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, self.capture_screenshot)
             latest = await self.store.get("latest_screenshot")
             if latest:
-                return MCPToolResult(content=[{"type": "text", "text": f"Screenshot captured: {latest['filename']} ({latest['size']} bytes)"}])
-            return MCPToolResult(content=[{"type": "text", "text": "Screenshot capture failed"}], is_error=True)
+                return {"content": [{"type": "text", "text": f"Screenshot captured: {latest['filename']} ({latest['size']} bytes)"}]}
+            return {"content": [{"type": "text", "text": "Screenshot capture failed"}], "is_error": True}
 
-        elif tool_name == "list_screenshots":
-            limit = arguments.get("limit", 10)
+        if name == "list_screenshots":
+            limit = args.get("limit", 10)
             files = await self.files.list_files("screenshot_")
             files_sorted = sorted(files, key=lambda f: f.created_at, reverse=True)[:limit]
             if not files_sorted:
-                return MCPToolResult(content=[{"type": "text", "text": "No screenshots available"}])
+                return {"content": [{"type": "text", "text": "No screenshots available"}]}
             lines = [f"{f.name} ({f.size} bytes, {time.strftime('%H:%M:%S', time.localtime(f.created_at))})" for f in files_sorted]
-            return MCPToolResult(content=[{"type": "text", "text": "\n".join(lines)}])
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        return MCPToolResult(content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}], is_error=True)
+        return {"error": f"Unknown power: {name}"}

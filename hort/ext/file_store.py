@@ -1,4 +1,4 @@
-"""Plugin file store — per-plugin binary file storage with deprecation/TTL.
+"""Per-llming binary file storage with deprecation/TTL.
 
 Backed by ``LocalBlobStore`` — no locks, no deadlocks, atomic writes.
 For remote/cloud storage, a blob storage plugin can implement the same interface.

@@ -4,7 +4,7 @@ Provides a WhatsApp/Telegram-style chat interface in the browser.
 Messages are sent to the chat backend (Claude Code) and responses
 stream back as bubbles.
 
-The UI is entirely in ``static/panel.js`` — this provider just
+The UI is entirely in ``static/cards.js`` — this provider just
 exposes the REST API endpoints for sending messages and polling
 responses.
 """
@@ -21,14 +21,14 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from hort.ext.plugin import PluginBase
+from hort.llming import LlmingBase
 
 logger = logging.getLogger("hort.plugin.llming-wire")
 
 router = APIRouter()
 
 
-class LlmingWire(PluginBase):
+class LlmingWire(LlmingBase):
     """Chat UI llming — built-in messenger for your hort."""
 
     _conversations: dict[str, list[dict[str, Any]]] = {}

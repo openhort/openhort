@@ -1,4 +1,4 @@
-"""Standalone MCP server — discovers MCPMixin extensions and serves their tools.
+"""Standalone MCP server — discovers llming extensions and serves their tools.
 
 Usage::
 
@@ -23,8 +23,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from hort.ext.mcp import MCPMixin
-from hort.ext.plugin import PluginBase, PluginConfig, PluginContext
 from hort.ext.scheduler import PluginScheduler
 from hort.ext.skills import SoulSection, load_soul
 from hort.ext.store import FilePluginStore
@@ -37,7 +35,7 @@ logger = logging.getLogger(__name__)
 def _load_mcp_extensions(
     app_filter: str | None = None,
 ) -> tuple[list[Any], list[SkillDef]]:
-    """Discover and load all MCPMixin extensions.
+    """Discover and load all llming extensions with MCP tools.
 
     Returns (providers, skills) — provider instances and all skill
     definitions loaded from extension manifests.
@@ -51,7 +49,7 @@ def _load_mcp_extensions(
     if not extensions_dir.exists():
         return providers, all_skills
 
-    for manifest_path in extensions_dir.rglob("extension.json"):
+    for manifest_path in extensions_dir.rglob("manifest.json"):
         ext_dir = manifest_path.parent
         manifest = _parse_manifest(manifest_path, ext_dir)
         if manifest is None or not manifest.mcp:
@@ -87,16 +85,19 @@ def _load_mcp_extensions(
         if app_filter:
             config["app_filter"] = app_filter
 
-        if isinstance(instance, PluginBase):
-            ctx = PluginContext(
-                plugin_id=manifest.name,
-                store=FilePluginStore(manifest.name),
-                files=LocalFileStore(manifest.name),
-                config=PluginConfig(manifest.name, _raw=config),
-                scheduler=PluginScheduler(manifest.name),
-                logger=logging.getLogger(f"hort.mcp.{manifest.name}"),
-            )
-            instance._ctx = ctx
+        # Inject services for LlmingBase instances
+        from hort.llming.base import LlmingBase
+        from hort.llming.pulse import PulseBus
+
+        if isinstance(instance, LlmingBase):
+            instance._instance_name = manifest.name
+            instance._class_name = manifest.name
+            instance._store = FilePluginStore(manifest.name)
+            instance._files = LocalFileStore(manifest.name)
+            instance._scheduler = PluginScheduler(manifest.name)
+            instance._logger = logging.getLogger(f"hort.mcp.{manifest.name}")
+            instance._pulse_bus = PulseBus.get()
+            instance._config = config
 
         try:
             instance.activate(config)
@@ -104,7 +105,19 @@ def _load_mcp_extensions(
             logger.exception("Failed to activate %s", manifest.name)
             continue
 
-        if isinstance(instance, MCPMixin):
+        # Run run_on_activate jobs so tools have data immediately
+        for jm in manifest.jobs:
+            if jm.run_on_activate:
+                fn = getattr(instance, jm.method, None)
+                if fn:
+                    try:
+                        fn()
+                    except Exception:
+                        pass  # non-critical — tool will just return "no data yet"
+
+        from hort.llming.base import LlmingBase
+
+        if isinstance(instance, LlmingBase):
             tools = instance.get_mcp_tools()
             if tools:
                 providers.append(instance)

@@ -257,7 +257,7 @@ def list_llmings() -> None:
     import json
 
     for ext_path in sorted(ext_dir.iterdir()):
-        manifest_path = ext_path / "extension.json"
+        manifest_path = ext_path / "manifest.json"
         if not manifest_path.exists():
             continue
         try:
@@ -266,7 +266,7 @@ def list_llmings() -> None:
             continue
 
         name = f"openhort/{manifest.get('name', ext_path.name)}"
-        ptype = manifest.get("plugin_type", "")
+        ptype = manifest.get("llming_type", "")
         version = manifest.get("version", "")
         desc = manifest.get("description", "")
         has_mcp = "[green]yes[/]" if manifest.get("mcp") else "[dim]-[/]"
@@ -285,7 +285,7 @@ def list_llmings() -> None:
         llm_table.add_column("Description")
 
         for ext_path in sorted(llm_dir.iterdir()):
-            manifest_path = ext_path / "extension.json"
+            manifest_path = ext_path / "manifest.json"
             if not manifest_path.exists():
                 continue
             try:
@@ -462,7 +462,7 @@ def topology() -> None:
     if ext_dir.exists():
         ext_node = tree.add("[bold]📦 Llmings[/]")
         for ext_path in sorted(ext_dir.iterdir()):
-            manifest_path = ext_path / "extension.json"
+            manifest_path = ext_path / "manifest.json"
             if not manifest_path.exists():
                 continue
             try:

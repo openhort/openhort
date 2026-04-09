@@ -12,16 +12,14 @@ from hort.extensions.core.hort_chief.provider import HortChief
 
 @pytest.fixture
 def chief():
-    from hort.ext.plugin import PluginContext
     p = HortChief()
-    p._ctx = PluginContext(
-        plugin_id="hort-chief",
-        store=MagicMock(),
-        files=MagicMock(),
-        config={},
-        scheduler=MagicMock(),
-        logger=logging.getLogger("test.hort-chief"),
-    )
+    p._instance_name = "hort-chief"
+    p._class_name = "hort-chief"
+    p._store = MagicMock()
+    p._files = MagicMock()
+    p._scheduler = MagicMock()
+    p._logger = logging.getLogger("test.hort-chief")
+    p._config = {}
     p.activate({})
     return p
 
@@ -30,12 +28,11 @@ def test_connector_commands_registered(chief):
     cmds = chief.get_connector_commands()
     assert len(cmds) == 1
     assert cmds[0].name == "horts"
-    assert cmds[0].plugin_id == "hort-chief"
 
 
 def test_mcp_tools_registered(chief):
     tools = chief.get_mcp_tools()
-    names = [t["name"] for t in tools]
+    names = [t.name for t in tools]
     assert "hort_overview" in names
     assert "list_containers" in names
     assert "list_sessions" in names

@@ -3,7 +3,7 @@
 Key classes:
 - ``CredentialVault`` — encrypted storage (SQLite + Fernet)
 - ``CredentialManager`` — access control proxy
-- ``CredentialAccess`` — scoped access for a single llming (injected into PluginContext)
+- ``CredentialAccess`` — scoped access for a single llming (injected into LlmingBase)
 - ``CredentialSpec`` — what a llming needs (from manifest)
 """
 

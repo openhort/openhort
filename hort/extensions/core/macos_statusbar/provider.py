@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from hort.ext.plugin import PluginBase
+from hort.llming import LlmingBase
 
 # Project layout
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
@@ -78,7 +78,7 @@ def get_or_rotate_key() -> str:
     return key
 
 
-class MacOSStatusBarPlugin(PluginBase):
+class MacOSStatusBarPlugin(LlmingBase):
     """Plugin that auto-launches the macOS status bar companion."""
 
     def __init__(self) -> None:
@@ -88,7 +88,7 @@ class MacOSStatusBarPlugin(PluginBase):
         if sys.platform != "darwin":
             return
 
-        if not self.config.is_feature_enabled("autostart"):
+        if not self.config.get("features", {}).get("autostart", True):
             self.log.info("Status bar autostart disabled")
             return
 
@@ -100,7 +100,7 @@ class MacOSStatusBarPlugin(PluginBase):
     def deactivate(self) -> None:
         self._terminate()
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         alive = self._is_alive()
         return {
             "running": alive,

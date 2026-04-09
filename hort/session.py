@@ -72,8 +72,10 @@ class HortSessionManager(SessionManager["HortSessionEntry"]):
     def get(cls) -> HortSessionManager:
         """Get or create the singleton instance."""
         if cls._instance is None:
+            from llming_com import AuthManager
+            auth = AuthManager(app_name="openhort")
             registry = HortRegistry.get()
-            cls._instance = cls(registry)
+            cls._instance = cls(registry, auth=auth)
         return cls._instance
 
     @classmethod

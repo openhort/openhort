@@ -5,7 +5,7 @@
  * register Quasar/Vue components.  The host app loads extensions
  * dynamically and mounts their panels into the viewer.
  *
- * Usage (inside an extension's panel.js):
+ * Usage (inside an extension's cards.js):
  *
  *   class MyPanel extends HortExtension {
  *     static id   = 'my-panel';
@@ -76,13 +76,13 @@
     static deviceTypes = ['phone', 'tablet', 'desktop'];
 
     /**
-     * Float window sizing — read from extension.json ``ui_float`` field.
+     * Float window sizing — read from manifest.json ``ui_float`` field.
      * Values are viewport-relative (pct) with absolute minimums (px).
      * Set via manifest, not hardcoded in JS.
      *
      * Defaults: 30% width, 65% height, min 320x400.
      */
-    static ui_float = null;  // set from extension.json
+    static ui_float = null;  // set from manifest.json
 
     /** Unique extension identifier (kebab-case, must match server-side name). */
     static id = '';

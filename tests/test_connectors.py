@@ -8,11 +8,11 @@ from hort.ext.connectors import (
     CommandRegistry,
     ConnectorCapabilities,
     ConnectorCommand,
-    ConnectorMixin,
     ConnectorResponse,
     IncomingMessage,
     ResponseButton,
 )
+from hort.llming import LlmingBase
 
 
 class TestIncomingMessage:
@@ -79,7 +79,7 @@ class TestCommandRegistry:
         reg = CommandRegistry()
         reg.register_system([ConnectorCommand(name="help", description="System help", system=True)])
 
-        class FakePlugin(ConnectorMixin):
+        class FakePlugin(LlmingBase):
             pass
 
         reg.register_plugin("my-plugin", FakePlugin(), [ConnectorCommand(name="help", description="Plugin help")])
@@ -90,7 +90,7 @@ class TestCommandRegistry:
     def test_plugin_command(self) -> None:
         reg = CommandRegistry()
 
-        class FakePlugin(ConnectorMixin):
+        class FakePlugin(LlmingBase):
             pass
 
         reg.register_plugin("sys-mon", FakePlugin(), [ConnectorCommand(name="cpu", description="CPU usage")])
@@ -106,7 +106,7 @@ class TestCommandRegistry:
         reg = CommandRegistry()
         reg.register_system([ConnectorCommand(name="help", description="Help", system=True)])
 
-        class FakePlugin(ConnectorMixin):
+        class FakePlugin(LlmingBase):
             pass
 
         reg.register_plugin("p", FakePlugin(), [
@@ -122,7 +122,7 @@ class TestCommandRegistry:
     async def test_dispatch_plugin_command(self) -> None:
         reg = CommandRegistry()
 
-        class MyPlugin(ConnectorMixin):
+        class MyPlugin(LlmingBase):
             async def handle_connector_command(self, command, message, caps):
                 return ConnectorResponse.simple(f"handled: {command}")
 
@@ -156,7 +156,7 @@ class TestCommandRegistry:
     async def test_dispatch_plugin_not_found(self) -> None:
         reg = CommandRegistry()
 
-        class FakePlugin(ConnectorMixin):
+        class FakePlugin(LlmingBase):
             pass
 
         reg.register_plugin("ghost", FakePlugin(), [ConnectorCommand(name="ghost", description="Gone")])
@@ -245,13 +245,14 @@ class TestConnectorBase:
         assert c.render_text(r) == "plain"
 
 
-class TestConnectorMixin:
+class TestLlmingBaseConnectorCompat:
     def test_default_get_commands(self) -> None:
-        mixin = ConnectorMixin()
-        assert mixin.get_connector_commands() == []
+        llming = LlmingBase()
+        assert llming.get_connector_commands() == []
 
-    async def test_default_handle_returns_none(self) -> None:
-        mixin = ConnectorMixin()
+    async def test_default_handle_returns_response(self) -> None:
+        llming = LlmingBase()
         msg = IncomingMessage(connector_id="t", chat_id="1", user_id="1", text="/test")
-        result = await mixin.handle_connector_command("test", msg, ConnectorCapabilities())
-        assert result is None
+        result = await llming.handle_connector_command("test", msg, ConnectorCapabilities())
+        # Default execute_power returns {"error": ...} → ConnectorResponse
+        assert result is not None

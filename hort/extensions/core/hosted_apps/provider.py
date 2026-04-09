@@ -15,9 +15,7 @@ import logging
 import subprocess
 from typing import Any
 
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
-from hort.ext.scheduler import ScheduledMixin
+from hort.llming import LlmingBase, Power, PowerType
 
 # Lazy import to avoid relative import issues with plugin loader
 def _load_catalog():  # type: ignore[no-untyped-def]
@@ -76,7 +74,7 @@ def _docker_output(*args: str) -> str:
     return result.stdout.strip()
 
 
-class HostedAppsPlugin(PluginBase, ScheduledMixin, MCPMixin):
+class HostedAppsPlugin(LlmingBase):
     """Manages Docker containers for hosted web apps."""
 
     _instances: dict[str, dict[str, Any]]
@@ -381,9 +379,9 @@ class HostedAppsPlugin(PluginBase, ScheduledMixin, MCPMixin):
         except Exception as exc:
             self.log.debug("poll failed: %s", exc)
 
-    # ===== Status for thumbnail =====
+    # ===== Pulse (status for thumbnail) =====
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         running = sum(1 for i in self._instances.values() if i.get("status") == "running")
         return {
             "total": len(self._instances),
@@ -400,17 +398,19 @@ class HostedAppsPlugin(PluginBase, ScheduledMixin, MCPMixin):
             ],
         }
 
-    # ===== MCP Tools =====
+    # ===== Powers =====
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
+    def get_powers(self) -> list[Power]:
         return [
-            MCPToolDef(
+            Power(
                 name="hosted_apps_catalog",
+                type=PowerType.MCP,
                 description="List available app types that can be installed",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="hosted_apps_create",
+                type=PowerType.MCP,
                 description="Create a new hosted app instance (e.g., n8n, code-server, jupyter)",
                 input_schema={
                     "type": "object",
@@ -421,13 +421,15 @@ class HostedAppsPlugin(PluginBase, ScheduledMixin, MCPMixin):
                     "required": ["app_type"],
                 },
             ),
-            MCPToolDef(
+            Power(
                 name="hosted_apps_list",
+                type=PowerType.MCP,
                 description="List all hosted app instances with status",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="hosted_apps_stop",
+                type=PowerType.MCP,
                 description="Stop a running hosted app instance",
                 input_schema={
                     "type": "object",
@@ -435,8 +437,9 @@ class HostedAppsPlugin(PluginBase, ScheduledMixin, MCPMixin):
                     "required": ["name"],
                 },
             ),
-            MCPToolDef(
+            Power(
                 name="hosted_apps_start",
+                type=PowerType.MCP,
                 description="Start a stopped hosted app instance",
                 input_schema={
                     "type": "object",
@@ -444,8 +447,9 @@ class HostedAppsPlugin(PluginBase, ScheduledMixin, MCPMixin):
                     "required": ["name"],
                 },
             ),
-            MCPToolDef(
+            Power(
                 name="hosted_apps_destroy",
+                type=PowerType.MCP,
                 description="Destroy a hosted app instance and its data",
                 input_schema={
                     "type": "object",
@@ -455,38 +459,38 @@ class HostedAppsPlugin(PluginBase, ScheduledMixin, MCPMixin):
             ),
         ]
 
-    async def execute_mcp_tool(self, tool_name: str, arguments: dict[str, Any]) -> MCPToolResult:
-        if tool_name == "hosted_apps_catalog":
-            return MCPToolResult(content=[{"type": "text", "text": json.dumps(get_catalog(), indent=2)}])
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
+        if name == "hosted_apps_catalog":
+            return {"content": [{"type": "text", "text": json.dumps(get_catalog(), indent=2)}]}
 
-        if tool_name == "hosted_apps_create":
-            app_type = arguments.get("app_type", "")
-            name = arguments.get("name", app_type)
+        if name == "hosted_apps_create":
+            app_type = args.get("app_type", "")
+            inst_name = args.get("name", app_type)
             try:
                 result = await asyncio.get_event_loop().run_in_executor(
-                    None, self.create_instance, app_type, name
+                    None, self.create_instance, app_type, inst_name
                 )
-                return MCPToolResult(content=[{"type": "text", "text": f"Created: {result['name']} ({result['type']})\nURL: /app/{result['name']}/"}])
+                return {"content": [{"type": "text", "text": f"Created: {result['name']} ({result['type']})\nURL: /app/{result['name']}/"}]}
             except Exception as exc:
-                return MCPToolResult(content=[{"type": "text", "text": f"Error: {exc}"}], is_error=True)
+                return {"content": [{"type": "text", "text": f"Error: {exc}"}], "is_error": True}
 
-        if tool_name == "hosted_apps_list":
+        if name == "hosted_apps_list":
             instances = self.list_instances()
             if not instances:
-                return MCPToolResult(content=[{"type": "text", "text": "No instances"}])
+                return {"content": [{"type": "text", "text": "No instances"}]}
             lines = [f"{i['name']} ({i.get('type','')}) — {i.get('status','')}" for i in instances]
-            return MCPToolResult(content=[{"type": "text", "text": "\n".join(lines)}])
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        if tool_name == "hosted_apps_stop":
-            ok = await asyncio.get_event_loop().run_in_executor(None, self.stop_instance, arguments["name"])
-            return MCPToolResult(content=[{"type": "text", "text": "Stopped" if ok else "Not found"}])
+        if name == "hosted_apps_stop":
+            ok = await asyncio.get_event_loop().run_in_executor(None, self.stop_instance, args["name"])
+            return {"content": [{"type": "text", "text": "Stopped" if ok else "Not found"}]}
 
-        if tool_name == "hosted_apps_start":
-            ok = await asyncio.get_event_loop().run_in_executor(None, self.start_instance, arguments["name"])
-            return MCPToolResult(content=[{"type": "text", "text": "Started" if ok else "Not found"}])
+        if name == "hosted_apps_start":
+            ok = await asyncio.get_event_loop().run_in_executor(None, self.start_instance, args["name"])
+            return {"content": [{"type": "text", "text": "Started" if ok else "Not found"}]}
 
-        if tool_name == "hosted_apps_destroy":
-            ok = await asyncio.get_event_loop().run_in_executor(None, self.destroy_instance, arguments["name"])
-            return MCPToolResult(content=[{"type": "text", "text": "Destroyed" if ok else "Not found"}])
+        if name == "hosted_apps_destroy":
+            ok = await asyncio.get_event_loop().run_in_executor(None, self.destroy_instance, args["name"])
+            return {"content": [{"type": "text", "text": "Destroyed" if ok else "Not found"}]}
 
-        return MCPToolResult(content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}], is_error=True)
+        return {"error": f"Unknown power: {name}"}

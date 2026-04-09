@@ -98,63 +98,49 @@ class HortController(BaseController):
 
         return None, ""
 
-    async def handle_message(self, msg: dict[str, Any]) -> None:  # noqa: C901
-        """Route an incoming message to the appropriate handler."""
+    # Legacy message types → handler method names (flat, no namespace).
+    # New features use WSRouter with dot-namespaced types instead.
+    _HANDLERS: dict[str, str] = {
+        "list_targets": "_handle_list_targets",
+        "set_target": "_handle_set_target",
+        "list_windows": "_handle_list_windows",
+        "get_thumbnail": "_handle_get_thumbnail",
+        "subscribe_thumbnails": "_handle_subscribe_thumbnails",
+        "get_status": "_handle_get_status",
+        "get_spaces": "_handle_get_spaces",
+        "switch_space": "_handle_switch_space",
+        "stream_config": "_handle_stream_config",
+        "stream_ack": "_handle_stream_ack",
+        "stream_stop": "_handle_stream_stop",
+        "input": "_handle_input",
+        "terminal_spawn": "_handle_terminal_spawn",
+        "terminal_list": "_handle_terminal_list",
+        "terminal_close": "_handle_terminal_close",
+        "terminal_resize": "_handle_terminal_resize",
+        "token_create": "_handle_token_create",
+        "token_list": "_handle_token_list",
+        "token_verify": "_handle_token_verify",
+        "token_revoke": "_handle_token_revoke",
+        "tunnel_status": "_handle_tunnel_status",
+    }
+
+    async def handle_message(self, msg: dict[str, Any]) -> None:
+        """Route a message: legacy dict → WSRouter (namespaced) → base."""
         msg_type = msg.get("type", "")
         t0 = _time.monotonic()
 
-        if msg_type == "list_targets":
-            await self._handle_list_targets()
-        elif msg_type == "set_target":
-            await self._handle_set_target(msg)
-        elif msg_type == "list_windows":
-            await self._handle_list_windows(msg)
-        elif msg_type == "get_thumbnail":
-            await self._handle_get_thumbnail(msg)
-        elif msg_type == "subscribe_thumbnails":
-            await self._handle_subscribe_thumbnails(msg)
-        elif msg_type == "get_status":
-            await self._handle_get_status()
-        elif msg_type == "get_spaces":
-            await self._handle_get_spaces()
-        elif msg_type == "switch_space":
-            await self._handle_switch_space(msg)
-        elif msg_type == "stream_config":
-            await self._handle_stream_config(msg)
-        elif msg_type == "stream_ack":
-            from hort.stream import handle_stream_ack
-            if self._entry:
-                handle_stream_ack(self._entry, msg)
-        elif msg_type == "stream_stop":
-            if self._entry:
-                self._entry.stream_config = None
-                # Force-close the stream WS from server side
-                if self._entry.stream_ws is not None:
-                    try:
-                        await self._entry.stream_ws.close(code=4002, reason="stream_stop")
-                    except Exception:
-                        pass
-        elif msg_type == "input":
-            await self._handle_input(msg)
-        elif msg_type == "terminal_spawn":
-            await self._handle_terminal_spawn(msg)
-        elif msg_type == "terminal_list":
-            await self._handle_terminal_list()
-        elif msg_type == "terminal_close":
-            await self._handle_terminal_close(msg)
-        elif msg_type == "terminal_resize":
-            await self._handle_terminal_resize(msg)
-        elif msg_type == "token_create":
-            await self._handle_token_create(msg)
-        elif msg_type == "token_list":
-            await self._handle_token_list()
-        elif msg_type == "token_verify":
-            await self._handle_token_verify(msg)
-        elif msg_type == "token_revoke":
-            await self._handle_token_revoke(msg)
-        elif msg_type == "tunnel_status":
-            await self._handle_tunnel_status()
+        # 1. Legacy flat handlers (stream, input, terminals, tokens)
+        handler_name = self._HANDLERS.get(msg_type)
+        if handler_name:
+            handler = getattr(self, handler_name)
+            import inspect
+            if "msg" in inspect.signature(handler).parameters:
+                await handler(msg)
+            else:
+                await handler()
         else:
+            # 2. WSRouter dispatch (namespaced: llmings.list, config.get, etc.)
+            # 3. Falls through to BaseController.handle_message → heartbeat
             await super().handle_message(msg)
 
         elapsed = (_time.monotonic() - t0) * 1000
@@ -564,3 +550,4 @@ class HortController(BaseController):
             "active": tunnel_active,
             "server_url": server_url,
         })
+

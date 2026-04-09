@@ -92,11 +92,11 @@
 <script src="static/vendor/quasar.umd.prod.js"></script>
 <script src="static/vendor/hort-ext.js?v=6"></script>
 <script src="static/vendor/hort-widgets.js"></script>
-<script src="static/vendor/hort-plugins-ui.js"></script>
+<script src="static/vendor/hort-llmings-ui.js"></script>
 <!-- Connector extension panels -->
-<script src="ext/lan_connector/static/panel.js"></script>
-<script src="ext/cloud_connector/static/panel.js"></script>
-<script src="ext/telegram_connector/static/panel.js"></script>
+<script src="ext/lan_connector/static/cards.js"></script>
+<script src="ext/cloud_connector/static/cards.js"></script>
+<script src="ext/telegram_connector/static/cards.js"></script>
 <script>
 (function () {
   'use strict';
@@ -333,6 +333,9 @@
     });
   }
 
+  // Expose WS request function for vendor scripts (hort-llmings-ui.js, etc.)
+  window.hortWS = { request: sendControlRequest };
+
   // ===== DEEP-LINK URL PARSING =====
   // URL scheme: /view/{target}/{window}?codec=vp8&fps=15&quality=70&zoom=2&vx=0.25&vy=0.1
   // target: "local" (local machine), target ID, or omitted
@@ -402,16 +405,10 @@
 
   async function fetchConnectors() {
     try {
-      const resp = await fetch(apiUrl('/api/connectors'));
-      if (resp.ok) {
-        const data = await resp.json();
-        // Preserve optimistic cloud state while tunnel is still connecting
-        if (_cloudOptimisticUntil > Date.now() && !data.cloud.active) {
-          data.cloud = state.connectors.cloud;
-        }
-        if (!data.messaging) data.messaging = {};
-        state.connectors = data;
-      }
+      const msg = await sendControlRequest({ type: 'connectors.list' });
+      const messaging = msg ? msg.data : {};
+      // Merge messaging into existing connectors (lan/cloud come from other sources)
+      state.connectors.messaging = messaging || {};
     } catch {}
   }
 
@@ -3073,19 +3070,16 @@
       // Load general config from server
       async function loadGeneralConfig() {
         try {
-          const r = await fetch(apiUrl('/api/config/general'));
-          if (r.ok) Object.assign(generalConfig, await r.json());
+          const msg = await sendControlRequest({ type: 'config.get', section: 'general' });
+          if (msg && msg.data) Object.assign(generalConfig, msg.data);
         } catch {}
       }
       async function toggleGeneral(key, value) {
         generalConfig[key] = value;
-        await fetch(apiUrl('/api/config/general'), {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({...generalConfig}),
-        }).catch(() => {});
+        await sendControlRequest({ type: 'config.set', section: 'general', data: {...generalConfig} });
         // Apply caffeinate immediately
         if (key === 'caffeinate' || key === 'display_sleep_disabled') {
-          fetch(apiUrl('/api/system/apply-power'), { method: 'POST' }).catch(() => {});
+          sendControlRequest({ type: 'settings.apply' });
         }
       }
       loadGeneralConfig();
@@ -3115,9 +3109,9 @@
 
       async function refreshSpirits() {
         try {
-          const r = await fetch(apiUrl('/api/plugins'));
-          if (r.ok) {
-            const all = await r.json();
+          const msg = await sendControlRequest({ type: 'llmings.list' });
+          const all = msg ? msg.data : [];
+          if (all.length || !allPlugins.value.length) {
             allPlugins.value = all;
             spiritsList.value = all.filter(p => p.loaded && p.running_jobs && p.running_jobs.length);
           }
@@ -3128,8 +3122,8 @@
       async function refreshSpiritStores() {
         for (const sp of spiritsList.value) {
           try {
-            const r = await fetch(apiUrl(`/api/plugins/${sp.name}/store`));
-            if (r.ok) spiritStoreKeys[sp.name] = Object.keys(await r.json()).length;
+            const msg = await sendControlRequest({ type: 'llmings.store', name: sp.name });
+            if (msg && msg.data) spiritStoreKeys[sp.name] = Object.keys(msg.data).length;
           } catch {}
         }
       }
@@ -3139,10 +3133,9 @@
       const spiritUIVisible = ref([]);
       async function loadSpiritUIVisible() {
         try {
-          const r = await fetch(apiUrl('/api/config/ui.spirits'));
-          if (r.ok) {
-            const cfg = await r.json();
-            spiritUIVisible.value = cfg.visible || [];
+          const msg = await sendControlRequest({ type: 'config.get', section: 'ui.spirits' });
+          if (msg && msg.data) {
+            spiritUIVisible.value = msg.data.visible || [];
           }
         } catch {}
       }
@@ -3152,10 +3145,7 @@
         if (show && idx < 0) list.push(name);
         else if (!show && idx >= 0) list.splice(idx, 1);
         // Save to server (fire-and-forget)
-        fetch(apiUrl('/api/config/ui.spirits'), {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({visible: [...list]}),
-        }).catch(() => {});
+        sendControlRequest({ type: 'config.set', section: 'ui.spirits', data: {visible: [...list]} });
       }
       loadSpiritUIVisible().then(() => {
         // Migrate from localStorage if server has no data
@@ -3163,10 +3153,7 @@
           const local = JSON.parse(localStorage.getItem('hort-spirit-ui') || '[]');
           if (local.length) {
             spiritUIVisible.value = local;
-            fetch(apiUrl('/api/config/ui.spirits'), {
-              method: 'POST', headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({visible: local}),
-            }).catch(() => {});
+            sendControlRequest({ type: 'config.set', section: 'ui.spirits', data: {visible: local} });
           }
         }
       });
@@ -3183,10 +3170,7 @@
       }
 
       async function toggleSpiritFeature(pluginId, feature, enabled) {
-        await fetch(apiUrl(`/api/plugins/${pluginId}/features/${feature}`), {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({enabled}),
-        });
+        await sendControlRequest({ type: 'llmings.feature', name: pluginId, feature, enabled });
         await refreshSpirits();
       }
       const showTokenInput = ref(null);
@@ -3200,26 +3184,23 @@
           ok: { label: 'Disconnect', color: 'negative' },
           cancel: { label: 'Cancel', flat: true },
         }).onOk(async () => {
-          await fetch(apiUrl(`/api/plugins/${pluginId}/auth`), { method: 'DELETE' });
+          await sendControlRequest({ type: 'credentials.revoke', name: pluginId });
           await refreshSpirits();
         });
       }
       async function submitToken(pluginId, token) {
         if (!token) return;
-        await fetch(apiUrl(`/api/plugins/${pluginId}/auth/token`), {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({access_token: token}),
-        });
+        await sendControlRequest({ type: 'credentials.store', name: pluginId, token: {token: token} });
         await refreshSpirits();
       }
       async function startOAuth(pluginId) {
-        const r = await fetch(apiUrl(`/api/plugins/${pluginId}/auth/oauth-start`));
+        const r = await fetch(apiUrl(`/api/llmings/${pluginId}/auth/oauth-start`));
         if (!r.ok) return;
         const data = await r.json();
         if (data.auth_url) window.open(data.auth_url, '_blank');
       }
       async function startDeviceCode(pluginId) {
-        const r = await fetch(apiUrl(`/api/plugins/${pluginId}/auth/device-start`), { method: 'POST' });
+        const r = await fetch(apiUrl(`/api/llmings/${pluginId}/auth/device-start`), { method: 'POST' });
         if (!r.ok) return;
         const data = await r.json();
         Quasar.Dialog.create({
@@ -3232,7 +3213,7 @@
           // Poll for completion
           for (let i = 0; i < 30; i++) {
             await new Promise(r => setTimeout(r, (data.interval || 5) * 1000));
-            const pr = await fetch(apiUrl(`/api/plugins/${pluginId}/auth/device-poll`), { method: 'POST' });
+            const pr = await fetch(apiUrl(`/api/llmings/${pluginId}/auth/device-poll`), { method: 'POST' });
             if (!pr.ok) break;
             const poll = await pr.json();
             if (poll.complete) { await refreshSpirits(); return; }
@@ -3252,15 +3233,14 @@
       const pluginThumbs = reactive({});
       async function renderPluginThumbs() {
         if (typeof HortExtension === 'undefined' || typeof HortPlugins === 'undefined') return;
-        // Fetch lightweight status from each spirit (in-memory, no disk I/O)
+        // Fetch lightweight pulse data from each spirit (in-memory, no disk I/O)
         for (const sp of spiritsList.value) {
           const inst = HortExtension.get(sp.name);
           if (!inst) continue;
           try {
-            const r = await fetch(apiUrl(`/api/plugins/${sp.name}/status`));
-            if (r.ok) {
-              const status = await r.json();
-              if (inst._feedStore) inst._feedStore(status);
+            const msg = await sendControlRequest({ type: 'llmings.pulse', name: sp.name });
+            if (msg && msg.data) {
+              if (inst._feedStore) inst._feedStore(msg.data);
             }
           } catch {}
         }
@@ -3281,11 +3261,10 @@
       // Load from server
       async function loadUIState() {
         try {
-          const r = await fetch(apiUrl('/api/config/ui.state'));
-          if (r.ok) {
-            const cfg = await r.json();
-            Object.assign(lastInteraction, cfg.interactions || {});
-            Object.assign(favorites, cfg.favorites || {});
+          const msg = await sendControlRequest({ type: 'config.get', section: 'ui.state' });
+          if (msg && msg.data) {
+            Object.assign(lastInteraction, msg.data.interactions || {});
+            Object.assign(favorites, msg.data.favorites || {});
           }
         } catch {}
       }
@@ -3295,10 +3274,7 @@
         if (_saveTimer) return;
         _saveTimer = setTimeout(() => {
           _saveTimer = null;
-          fetch(apiUrl('/api/config/ui.state'), {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({interactions: {...lastInteraction}, favorites: {...favorites}}),
-          }).catch(() => {});
+          sendControlRequest({ type: 'config.set', section: 'ui.state', data: {interactions: {...lastInteraction}, favorites: {...favorites}} });
         }, 2000);
       }
 

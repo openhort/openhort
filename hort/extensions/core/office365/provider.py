@@ -14,13 +14,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hort.ext.mcp import MCPMixin
-from hort.ext.plugin import PluginBase
+from hort.llming import LlmingBase, Power, PowerType
 
 logger = logging.getLogger(__name__)
 
 
-class Office365Plugin(PluginBase, MCPMixin):
+class Office365Plugin(LlmingBase):
     """Microsoft 365 llming — mail, calendar, teams, files."""
 
     _office: Any = None  # OfficeUserInstance, created after auth
@@ -39,8 +38,8 @@ class Office365Plugin(PluginBase, MCPMixin):
         try:
             # Get credentials from the credential manager
             cred = None
-            if hasattr(self, "_ctx") and hasattr(self._ctx, "credentials"):
-                cred = self._ctx.credentials.get("ms_oauth")
+            if self.credentials is not None:
+                cred = self.credentials.get("ms_oauth")
 
             if not cred or "access_token" not in cred:
                 return False
@@ -58,7 +57,7 @@ class Office365Plugin(PluginBase, MCPMixin):
             self.log.exception("Failed to connect to Microsoft 365")
             return False
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         return {
             "connected": self._office is not None,
             "tenant": self._config.get("tenant", ""),
@@ -66,34 +65,37 @@ class Office365Plugin(PluginBase, MCPMixin):
 
     # ===== MCP Tools =====
 
-    def get_mcp_tools(self) -> list[dict[str, Any]]:
+    def get_powers(self) -> list[Power]:
         return [
-            {
-                "name": "list_emails",
-                "description": "List recent emails from inbox",
-                "inputSchema": {
+            Power(
+                name="list_emails",
+                type=PowerType.MCP,
+                description="List recent emails from inbox",
+                input_schema={
                     "type": "object",
                     "properties": {
                         "limit": {"type": "integer", "default": 10},
                         "folder": {"type": "string", "default": "inbox"},
                     },
                 },
-            },
-            {
-                "name": "read_email",
-                "description": "Read a specific email by ID",
-                "inputSchema": {
+            ),
+            Power(
+                name="read_email",
+                type=PowerType.MCP,
+                description="Read a specific email by ID",
+                input_schema={
                     "type": "object",
                     "properties": {
                         "message_id": {"type": "string"},
                     },
                     "required": ["message_id"],
                 },
-            },
-            {
-                "name": "send_email",
-                "description": "Send an email",
-                "inputSchema": {
+            ),
+            Power(
+                name="send_email",
+                type=PowerType.MCP,
+                description="Send an email",
+                input_schema={
                     "type": "object",
                     "properties": {
                         "to": {"type": "string"},
@@ -102,34 +104,36 @@ class Office365Plugin(PluginBase, MCPMixin):
                     },
                     "required": ["to", "subject", "body"],
                 },
-            },
-            {
-                "name": "list_events",
-                "description": "List upcoming calendar events",
-                "inputSchema": {
+            ),
+            Power(
+                name="list_events",
+                type=PowerType.MCP,
+                description="List upcoming calendar events",
+                input_schema={
                     "type": "object",
                     "properties": {
                         "days": {"type": "integer", "default": 7},
                     },
                 },
-            },
-            {
-                "name": "list_files",
-                "description": "List files in OneDrive",
-                "inputSchema": {
+            ),
+            Power(
+                name="list_files",
+                type=PowerType.MCP,
+                description="List files in OneDrive",
+                input_schema={
                     "type": "object",
                     "properties": {
                         "path": {"type": "string", "default": "/"},
                     },
                 },
-            },
+            ),
         ]
 
-    async def execute_mcp_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+    async def execute_power(self, name: str, arguments: dict[str, Any]) -> Any:
         if not self._ensure_connected():
             # Request credential update
-            if hasattr(self, "_ctx") and hasattr(self._ctx, "credentials"):
-                self._ctx.credentials.request_update(
+            if self.credentials is not None:
+                self.credentials.request_update(
                     "ms_oauth", "Microsoft account not authenticated",
                 )
             return {"error": "Not authenticated. Set up Microsoft credentials first."}

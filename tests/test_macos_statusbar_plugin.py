@@ -216,9 +216,9 @@ class TestVerifyEndpoint:
 
         app = FastAPI()
         plugin = _make_plugin()
-        app.include_router(plugin.get_router(), prefix="/api/plugins/macos-statusbar")
+        app.include_router(plugin.get_router(), prefix="/api/llmings/macos-statusbar")
         client = TestClient(app)
-        resp = client.post("/api/plugins/macos-statusbar/verify", headers={HEADER_NAME: "wrong"})
+        resp = client.post("/api/llmings/macos-statusbar/verify", headers={HEADER_NAME: "wrong"})
         assert resp.status_code == 403
 
     @patch(
@@ -231,9 +231,9 @@ class TestVerifyEndpoint:
 
         app = FastAPI()
         plugin = _make_plugin()
-        app.include_router(plugin.get_router(), prefix="/api/plugins/macos-statusbar")
+        app.include_router(plugin.get_router(), prefix="/api/llmings/macos-statusbar")
         client = TestClient(app)
-        resp = client.post("/api/plugins/macos-statusbar/verify", headers={HEADER_NAME: "correct-key"})
+        resp = client.post("/api/llmings/macos-statusbar/verify", headers={HEADER_NAME: "correct-key"})
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
 
@@ -247,9 +247,9 @@ class TestVerifyEndpoint:
 
         app = FastAPI()
         plugin = _make_plugin()
-        app.include_router(plugin.get_router(), prefix="/api/plugins/macos-statusbar")
+        app.include_router(plugin.get_router(), prefix="/api/llmings/macos-statusbar")
         client = TestClient(app)
-        resp = client.post("/api/plugins/macos-statusbar/verify")
+        resp = client.post("/api/llmings/macos-statusbar/verify")
         assert resp.status_code == 403
 
     def test_verify_timing_safe(self) -> None:

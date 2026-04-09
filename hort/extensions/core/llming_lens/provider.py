@@ -30,13 +30,10 @@ from typing import Any
 from hort.ext.connectors import (
     ConnectorCapabilities,
     ConnectorCommand,
-    ConnectorMixin,
     ConnectorResponse,
     IncomingMessage,
 )
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
-from hort.ext.scheduler import ScheduledMixin
+from hort.llming import LlmingBase, Power, PowerType
 
 logger = logging.getLogger(__name__)
 
@@ -160,8 +157,9 @@ def _user_recently_active(threshold: float = 2.0) -> bool:
 # ── Tool definitions ──────────────────────────────────────────────────
 
 TOOLS = [
-    MCPToolDef(
+    Power(
         name="list_windows",
+        type=PowerType.MCP,
         description=(
             "List visible windows on the desktop. Returns window names, IDs, "
             "app names, and which desktop Space they're on. Use app_filter to "
@@ -181,8 +179,9 @@ TOOLS = [
             },
         },
     ),
-    MCPToolDef(
+    Power(
         name="get_window_info",
+        type=PowerType.MCP,
         description=(
             "Get detailed OS-level metadata for all visible windows: bounds "
             "(x, y, width, height), desktop Space index, owner PID, on-screen "
@@ -198,8 +197,9 @@ TOOLS = [
             },
         },
     ),
-    MCPToolDef(
+    Power(
         name="screenshot",
+        type=PowerType.MCP,
         description=(
             "Capture a screenshot of the desktop or a specific window. "
             "Supports cropping to a region, zoom via grid-cell references "
@@ -262,8 +262,9 @@ TOOLS = [
             },
         },
     ),
-    MCPToolDef(
+    Power(
         name="click",
+        type=PowerType.MCP,
         description=(
             "Click at a position on the desktop or in a window. Coordinates "
             "are normalized (0.0-1.0) relative to the target bounds. "
@@ -300,8 +301,9 @@ TOOLS = [
             "required": ["x", "y"],
         },
     ),
-    MCPToolDef(
+    Power(
         name="type_text",
+        type=PowerType.MCP,
         description=(
             "Type a text string using keyboard events. The target app must "
             "be focused (use click first to focus a text field)."
@@ -317,8 +319,9 @@ TOOLS = [
             "required": ["text"],
         },
     ),
-    MCPToolDef(
+    Power(
         name="press_key",
+        type=PowerType.MCP,
         description=(
             "Press a special key (Return, Escape, Tab, arrow keys, F1-F12, etc.) "
             "with optional modifier keys."
@@ -361,7 +364,7 @@ CONNECTOR_COMMANDS = [
 ]
 
 
-class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
+class LlmingLens(LlmingBase):
     """Remote desktop viewer extension with MCP tools and connector commands."""
 
     _preview: dict[str, Any] = {}
@@ -377,7 +380,7 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     def deactivate(self) -> None:
         self.log.info("LlmingLens deactivated")
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         """Return desktop preview for the grid card thumbnail."""
         return self._preview
 
@@ -418,38 +421,50 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         except Exception as exc:
             self.log.debug("preview capture failed: %s", exc)
 
-    # ── MCP tools ─────────────────────────────────────────────────────
+    # ── Powers ────────────────────────────────────────────────────────
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
-        return TOOLS
+    def get_powers(self) -> list[Power]:
+        powers: list[Power] = list(TOOLS)
+        # Slash commands
+        for c in CONNECTOR_COMMANDS:
+            powers.append(Power(
+                name=c.name,
+                type=PowerType.COMMAND,
+                description=c.description,
+            ))
+        return powers
 
-    async def execute_mcp_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> MCPToolResult:
-        try:
-            if tool_name == "list_windows":
-                return self._tool_list_windows(arguments)
-            elif tool_name == "get_window_info":
-                return self._tool_get_window_info(arguments)
-            elif tool_name == "screenshot":
-                return self._tool_screenshot(arguments)
-            elif tool_name == "click":
-                return self._tool_click(arguments)
-            elif tool_name == "type_text":
-                return self._tool_type_text(arguments)
-            elif tool_name == "press_key":
-                return self._tool_press_key(arguments)
-            else:
-                return MCPToolResult(
-                    content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}],
-                    is_error=True,
-                )
-        except Exception as exc:
-            self.log.exception("MCP tool %s failed", tool_name)
-            return MCPToolResult(
-                content=[{"type": "text", "text": f"Error: {exc}"}],
-                is_error=True,
-            )
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
+        # MCP tools
+        mcp_tools = {
+            "list_windows": self._tool_list_windows,
+            "get_window_info": self._tool_get_window_info,
+            "screenshot": self._tool_screenshot,
+            "click": self._tool_click,
+            "type_text": self._tool_type_text,
+            "press_key": self._tool_press_key,
+        }
+        if name in mcp_tools:
+            try:
+                return mcp_tools[name](args)
+            except Exception as exc:
+                self.log.exception("MCP tool %s failed", name)
+                return {
+                    "content": [{"type": "text", "text": f"Error: {exc}"}],
+                    "is_error": True,
+                }
+
+        # Slash commands
+        message = args.get("_message")
+        capabilities = args.get("_capabilities")
+        if name == "windows" and message and capabilities:
+            return self._cmd_windows(message, capabilities)
+        if name == "screenshot" and message and capabilities:
+            return self._cmd_screenshot(message, capabilities)
+        if name == "_callback" and message and capabilities:
+            return self._handle_callback(message, capabilities)
+
+        return None
 
     def _get_effective_filter(self, args: dict[str, Any]) -> str | None:
         """Get the app filter — per-call override or configured default."""
@@ -501,7 +516,7 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
 
     # ── Tool implementations ──────────────────────────────────────────
 
-    def _tool_list_windows(self, args: dict[str, Any]) -> MCPToolResult:
+    def _tool_list_windows(self, args: dict[str, Any]) -> dict[str, Any]:
         app_filter = self._get_effective_filter(args)
         windows = self._get_windows(app_filter)
 
@@ -511,9 +526,9 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             lines.append(f"  {w.window_id}: {w.owner_name} — {w.window_name}{space}")
 
         text = f"Windows ({len(windows)}):\n" + "\n".join(lines) if lines else "No windows found."
-        return MCPToolResult(content=[{"type": "text", "text": text}])
+        return {"content": [{"type": "text", "text": text}]}
 
-    def _tool_get_window_info(self, args: dict[str, Any]) -> MCPToolResult:
+    def _tool_get_window_info(self, args: dict[str, Any]) -> dict[str, Any]:
         app_filter = self._get_effective_filter(args)
         windows = self._get_windows(app_filter)
 
@@ -536,9 +551,9 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
 
         import json
         text = json.dumps(info_list, indent=2)
-        return MCPToolResult(content=[{"type": "text", "text": text}])
+        return {"content": [{"type": "text", "text": text}]}
 
-    def _tool_screenshot(self, args: dict[str, Any]) -> MCPToolResult:
+    def _tool_screenshot(self, args: dict[str, Any]) -> dict[str, Any]:
         from hort.screen import (
             DESKTOP_WINDOW_ID,
             _cgimage_crop,
@@ -583,10 +598,10 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                 cg_image = _raw_capture(window_id)
 
             if cg_image is None:
-                return MCPToolResult(
-                    content=[{"type": "text", "text": f"Failed to capture {target}"}],
-                    is_error=True,
-                )
+                return {
+                    "content": [{"type": "text", "text": f"Failed to capture {target}"}],
+                    "is_error": True,
+                }
 
             try:
                 import Quartz  # type: ignore[import-untyped]
@@ -610,10 +625,10 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                 del cg_image
 
         if pil_image is None:
-            return MCPToolResult(
-                content=[{"type": "text", "text": "Failed to convert image"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "Failed to convert image"}],
+                "is_error": True,
+            }
 
         # Apply grid overlay
         if grid:
@@ -649,21 +664,21 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             **bounds_info,
         })
 
-        return MCPToolResult(content=[
+        return {"content": [
             {"type": "text", "text": coord_text},
             {"type": "image", "data": base64.b64encode(jpeg_bytes).decode(), "mimeType": "image/jpeg"},
-        ])
+        ]}
 
-    def _tool_click(self, args: dict[str, Any]) -> MCPToolResult:
+    def _tool_click(self, args: dict[str, Any]) -> dict[str, Any]:
         # Check user activity
         if _user_recently_active(1.5):
-            return MCPToolResult(
-                content=[{"type": "text", "text": (
+            return {
+                "content": [{"type": "text", "text": (
                     "User input detected — automation paused. "
                     "Wait for user to finish interacting."
                 )}],
-                is_error=True,
-            )
+                "is_error": True,
+            }
 
         target = args.get("target", "desktop")
         nx = float(args.get("x", 0.5))
@@ -690,10 +705,10 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             bounds = win_info.bounds
             pid = win_info.owner_pid
         else:
-            return MCPToolResult(
-                content=[{"type": "text", "text": f"Window {target} not found"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": f"Window {target} not found"}],
+                "is_error": True,
+            }
 
         event_type = {"left": "click", "right": "right_click", "double": "double_click"}.get(button, "click")
         event = InputEvent(type=event_type, nx=nx, ny=ny, modifiers=modifiers)
@@ -701,46 +716,46 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         from hort.input import handle_input
         handle_input(event, bounds, pid)
 
-        return MCPToolResult(content=[{"type": "text", "text": (
+        return {"content": [{"type": "text", "text": (
             f"Clicked at ({nx:.2f}, {ny:.2f}) on {target}"
-        )}])
+        )}]}
 
-    def _tool_type_text(self, args: dict[str, Any]) -> MCPToolResult:
+    def _tool_type_text(self, args: dict[str, Any]) -> dict[str, Any]:
         if _user_recently_active(1.5):
-            return MCPToolResult(
-                content=[{"type": "text", "text": "User input detected — automation paused."}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "User input detected — automation paused."}],
+                "is_error": True,
+            }
 
         text = args.get("text", "")
         if not text:
-            return MCPToolResult(
-                content=[{"type": "text", "text": "No text provided"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "No text provided"}],
+                "is_error": True,
+            }
 
         from hort.input import _post_key_char
         for char in text:
             _post_key_char(char)
             time.sleep(0.02)  # Small delay between keystrokes
 
-        return MCPToolResult(content=[{"type": "text", "text": f"Typed {len(text)} characters"}])
+        return {"content": [{"type": "text", "text": f"Typed {len(text)} characters"}]}
 
-    def _tool_press_key(self, args: dict[str, Any]) -> MCPToolResult:
+    def _tool_press_key(self, args: dict[str, Any]) -> dict[str, Any]:
         if _user_recently_active(1.5):
-            return MCPToolResult(
-                content=[{"type": "text", "text": "User input detected — automation paused."}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "User input detected — automation paused."}],
+                "is_error": True,
+            }
 
         key = args.get("key", "")
         modifiers = args.get("modifiers", [])
 
         if not key:
-            return MCPToolResult(
-                content=[{"type": "text", "text": "No key provided"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": "No key provided"}],
+                "is_error": True,
+            }
 
         from hort.input import KEYCODE_MAP, _modifier_mask, _post_key, _post_key_char
 
@@ -753,18 +768,15 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         elif len(key) == 1:
             _post_key_char(key, mod_mask)
         else:
-            return MCPToolResult(
-                content=[{"type": "text", "text": f"Unknown key: {key}"}],
-                is_error=True,
-            )
+            return {
+                "content": [{"type": "text", "text": f"Unknown key: {key}"}],
+                "is_error": True,
+            }
 
         mod_str = "+".join(modifiers) + "+" if modifiers else ""
-        return MCPToolResult(content=[{"type": "text", "text": f"Pressed {mod_str}{key}"}])
+        return {"content": [{"type": "text", "text": f"Pressed {mod_str}{key}"}]}
 
-    # ── Connector commands (Telegram, etc.) ───────────────────────
-
-    def get_connector_commands(self) -> list[ConnectorCommand]:
-        return CONNECTOR_COMMANDS
+    # ── Compat: pass full message/capabilities to execute_power ──
 
     async def handle_connector_command(
         self,
@@ -772,13 +784,20 @@ class LlmingLens(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         message: IncomingMessage,
         capabilities: ConnectorCapabilities,
     ) -> ConnectorResponse | None:
-        if command == "windows":
-            return self._cmd_windows(message, capabilities)
-        if command == "screenshot":
-            return self._cmd_screenshot(message, capabilities)
-        if command == "_callback":
-            return self._handle_callback(message, capabilities)
-        return None
+        """Override compat bridge to pass message and capabilities."""
+        cmd_args = getattr(message, "command_args", "") or ""
+        result = await self.execute_power(command, {
+            "args": cmd_args,
+            "_message": message,
+            "_capabilities": capabilities,
+        })
+        if result is None:
+            return None
+        if isinstance(result, ConnectorResponse):
+            return result
+        if isinstance(result, str):
+            return ConnectorResponse.simple(result)
+        return result
 
     def _handle_callback(
         self, message: IncomingMessage, capabilities: ConnectorCapabilities

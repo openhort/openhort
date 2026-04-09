@@ -26,8 +26,7 @@ from fastapi import APIRouter
 from fastapi.requests import Request
 from fastapi.responses import Response
 
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
+from hort.llming import LlmingBase, Power, PowerType
 
 
 def _run_coro(coro):  # type: ignore[no-untyped-def]
@@ -39,7 +38,7 @@ def _run_coro(coro):  # type: ignore[no-untyped-def]
         new_loop.close()
 
 
-class CameraScan(PluginBase, MCPMixin):
+class CameraScan(LlmingBase):
     """Receives images from the phone camera and processes them."""
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -132,7 +131,7 @@ class CameraScan(PluginBase, MCPMixin):
             result = await loop.run_in_executor(None, plugin.analyze_image, data, mime_type)
 
             # Optionally save the scan
-            if plugin.config.is_feature_enabled("save_scans"):
+            if plugin.config.get("features", {}).get("save_scans", True):
                 ts = int(time.time())
                 ext = "jpg" if "jpeg" in mime_type else "png"
                 filename = f"scan_{ts}.{ext}"
@@ -171,26 +170,28 @@ class CameraScan(PluginBase, MCPMixin):
         result = await loop.run_in_executor(
             None, self.analyze_image, intent_data.data, intent_data.mime_type
         )
-        if self.config.is_feature_enabled("save_scans"):
+        if self.config.get("features", {}).get("save_scans", True):
             ts = int(time.time())
             ext = "jpg" if "jpeg" in intent_data.mime_type else "png"
             await self.files.save(f"intent_{ts}.{ext}", intent_data.data, mime_type=intent_data.mime_type)
         return result
 
-    # ===== MCP =====
+    # ===== Powers =====
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
+    def get_powers(self) -> list[Power]:
         return [
-            MCPToolDef(
+            Power(
                 name="analyze_image",
+                type=PowerType.MCP,
                 description="Analyze an image (dimensions, color, QR codes). Provide base64-encoded image data.",
                 input_schema={"type": "object", "properties": {
                     "image_base64": {"type": "string", "description": "Base64-encoded image data"},
                     "mime_type": {"type": "string", "default": "image/jpeg"},
                 }, "required": ["image_base64"]},
             ),
-            MCPToolDef(
+            Power(
                 name="list_recent_scans",
+                type=PowerType.MCP,
                 description="List recently scanned/analyzed images",
                 input_schema={"type": "object", "properties": {
                     "limit": {"type": "integer", "default": 10},
@@ -198,21 +199,19 @@ class CameraScan(PluginBase, MCPMixin):
             ),
         ]
 
-    async def execute_mcp_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> MCPToolResult:
-        if tool_name == "analyze_image":
-            b64 = arguments.get("image_base64", "")
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
+        if name == "analyze_image":
+            b64 = args.get("image_base64", "")
             if not b64:
-                return MCPToolResult(content=[{"type": "text", "text": "No image data provided"}], is_error=True)
+                return {"content": [{"type": "text", "text": "No image data provided"}], "is_error": True}
             data = base64.b64decode(b64)
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, self.analyze_image, data, arguments.get("mime_type", "image/jpeg"))
+            result = await loop.run_in_executor(None, self.analyze_image, data, args.get("mime_type", "image/jpeg"))
             lines = [f"{k}: {v}" for k, v in result.items()]
-            return MCPToolResult(content=[{"type": "text", "text": "\n".join(lines)}])
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        elif tool_name == "list_recent_scans":
-            limit = arguments.get("limit", 10)
+        if name == "list_recent_scans":
+            limit = args.get("limit", 10)
             keys = await self.store.list_keys("scan:")
             keys.sort(reverse=True)
             entries = []
@@ -220,6 +219,6 @@ class CameraScan(PluginBase, MCPMixin):
                 e = await self.store.get(k)
                 if e:
                     entries.append(f"{e.get('width', '?')}x{e.get('height', '?')} {e.get('format', '?')} ({e.get('size_bytes', 0)} bytes)")
-            return MCPToolResult(content=[{"type": "text", "text": "\n".join(entries) or "No scans yet"}])
+            return {"content": [{"type": "text", "text": "\n".join(entries) or "No scans yet"}]}
 
-        return MCPToolResult(content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}], is_error=True)
+        return {"error": f"Unknown power: {name}"}

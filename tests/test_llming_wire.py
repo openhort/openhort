@@ -55,19 +55,17 @@ class TestButtonExtraction:
 class TestCommandHandling:
     @pytest.fixture()
     def wire(self) -> LlmingWire:
-        from hort.ext.plugin import PluginConfig, PluginContext
         from hort.ext.scheduler import PluginScheduler
         import logging
 
         w = LlmingWire()
-        w._ctx = PluginContext(
-            plugin_id="llming-wire-test",
-            store=MagicMock(),
-            files=MagicMock(),
-            config=PluginConfig("llming-wire-test"),
-            scheduler=PluginScheduler("llming-wire-test"),
-            logger=logging.getLogger("test.wire"),
-        )
+        w._instance_name = "llming-wire-test"
+        w._class_name = "llming-wire-test"
+        w._store = MagicMock()
+        w._files = MagicMock()
+        w._scheduler = PluginScheduler("llming-wire-test")
+        w._logger = logging.getLogger("test.wire")
+        w._config = {}
         w.activate({})
         return w
 
@@ -149,19 +147,17 @@ class TestCommandHandling:
 class TestRESTAPI:
     @pytest.fixture()
     def wire(self) -> LlmingWire:
-        from hort.ext.plugin import PluginConfig, PluginContext
         from hort.ext.scheduler import PluginScheduler
         import logging
 
         w = LlmingWire()
-        w._ctx = PluginContext(
-            plugin_id="llming-wire-test",
-            store=MagicMock(),
-            files=MagicMock(),
-            config=PluginConfig("llming-wire-test"),
-            scheduler=PluginScheduler("llming-wire-test"),
-            logger=logging.getLogger("test.wire"),
-        )
+        w._instance_name = "llming-wire-test"
+        w._class_name = "llming-wire-test"
+        w._store = MagicMock()
+        w._files = MagicMock()
+        w._scheduler = PluginScheduler("llming-wire-test")
+        w._logger = logging.getLogger("test.wire")
+        w._config = {}
         w.activate({})
         return w
 
@@ -190,19 +186,17 @@ class TestRESTAPI:
 class TestSessionResumption:
     @pytest.fixture()
     def wire(self) -> LlmingWire:
-        from hort.ext.plugin import PluginConfig, PluginContext
         from hort.ext.scheduler import PluginScheduler
         import logging
 
         w = LlmingWire()
-        w._ctx = PluginContext(
-            plugin_id="llming-wire-test",
-            store=MagicMock(),
-            files=MagicMock(),
-            config=PluginConfig("llming-wire-test"),
-            scheduler=PluginScheduler("llming-wire-test"),
-            logger=logging.getLogger("test.wire"),
-        )
+        w._instance_name = "llming-wire-test"
+        w._class_name = "llming-wire-test"
+        w._store = MagicMock()
+        w._files = MagicMock()
+        w._scheduler = PluginScheduler("llming-wire-test")
+        w._logger = logging.getLogger("test.wire")
+        w._config = {}
         w.activate({})
         return w
 

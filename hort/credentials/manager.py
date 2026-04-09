@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class CredentialAccess:
     """Scoped credential access for a single llming.
 
-    Injected into ``PluginContext`` so the llming can read/write
+    Injected into the llming instance so it can read/write
     only its own credentials. Cannot access the vault directly.
     """
 

@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from hort.ext.scheduler import JobSpec, PluginScheduler, ScheduledMixin
+from hort.ext.scheduler import JobSpec, PluginScheduler
 
 
 @pytest.fixture
@@ -104,7 +104,3 @@ class TestPluginScheduler:
         assert counter["n"] >= 2  # kept running after error
 
 
-class TestScheduledMixin:
-    def test_default_get_jobs(self) -> None:
-        mixin = ScheduledMixin()
-        assert mixin.get_jobs() == []

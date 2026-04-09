@@ -5,13 +5,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from hort.ext.connectors import ConnectorCapabilities, ConnectorCommand, ConnectorMixin, ConnectorResponse, IncomingMessage
-from hort.ext.mcp import MCPMixin, MCPToolDef, MCPToolResult
-from hort.ext.plugin import PluginBase
-from hort.ext.scheduler import ScheduledMixin
+from hort.llming import LlmingBase, Power, PowerType
 
 
-class DiskUsage(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
+class DiskUsage(LlmingBase):
     """Polls disk partition usage and stores it for the dashboard and AI."""
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -21,7 +18,7 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
     def deactivate(self) -> None:
         self.log.info("Disk usage monitor deactivated")
 
-    def get_status(self) -> dict[str, Any]:
+    def get_pulse(self) -> dict[str, Any]:
         """Return in-memory disk data."""
         return {"latest": self._latest}
 
@@ -34,7 +31,7 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
         now = time.time()
         partitions: list[dict[str, Any]] = []
 
-        if self.config.is_feature_enabled("partitions"):
+        if self.config.get("partitions", True):
             for part in psutil.disk_partitions(all=False):
                 try:
                     usage = psutil.disk_usage(part.mountpoint)
@@ -55,17 +52,20 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
             "partitions": partitions,
         }
 
-    # ===== MCP =====
+    # ===== Powers =====
 
-    def get_mcp_tools(self) -> list[MCPToolDef]:
+    def get_powers(self) -> list[Power]:
         return [
-            MCPToolDef(
+            # MCP tools
+            Power(
                 name="get_disk_usage",
+                type=PowerType.MCP,
                 description="Get disk usage for all partitions",
                 input_schema={"type": "object", "properties": {}},
             ),
-            MCPToolDef(
+            Power(
                 name="get_partition_details",
+                type=PowerType.MCP,
                 description="Get detailed disk usage for a specific mountpoint",
                 input_schema={
                     "type": "object",
@@ -78,17 +78,20 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                     "required": ["mountpoint"],
                 },
             ),
+            # Connector commands
+            Power(
+                name="disk",
+                type=PowerType.COMMAND,
+                description="Disk partition usage",
+            ),
         ]
 
-    async def execute_mcp_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> MCPToolResult:
-        if tool_name == "get_disk_usage":
+    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
+        # MCP: get_disk_usage
+        if name == "get_disk_usage":
             data = self._latest
             if not data:
-                return MCPToolResult(
-                    content=[{"type": "text", "text": "No disk data available yet"}]
-                )
+                return {"content": [{"type": "text", "text": "No disk data available yet"}]}
             lines = []
             for p in data.get("partitions", []):
                 lines.append(
@@ -97,17 +100,14 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                 )
             if not lines:
                 lines.append("No partitions found")
-            return MCPToolResult(
-                content=[{"type": "text", "text": "\n".join(lines)}]
-            )
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        elif tool_name == "get_partition_details":
-            mountpoint = arguments.get("mountpoint", "/")
+        # MCP: get_partition_details
+        if name == "get_partition_details":
+            mountpoint = args.get("mountpoint", "/")
             data = self._latest
             if not data:
-                return MCPToolResult(
-                    content=[{"type": "text", "text": "No disk data available yet"}]
-                )
+                return {"content": [{"type": "text", "text": "No disk data available yet"}]}
             for p in data.get("partitions", []):
                 if p["mountpoint"] == mountpoint:
                     lines = [
@@ -118,42 +118,26 @@ class DiskUsage(PluginBase, ScheduledMixin, MCPMixin, ConnectorMixin):
                         f"Used: {p['used_gb']} GB ({p['percent']}%)",
                         f"Free: {p['free_gb']} GB",
                     ]
-                    return MCPToolResult(
-                        content=[{"type": "text", "text": "\n".join(lines)}]
-                    )
-            return MCPToolResult(
-                content=[{
+                    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+            return {
+                "content": [{
                     "type": "text",
                     "text": f"Mountpoint '{mountpoint}' not found. "
                     f"Available: {', '.join(p['mountpoint'] for p in data.get('partitions', []))}",
                 }],
-                is_error=True,
-            )
+                "is_error": True,
+            }
 
-        return MCPToolResult(
-            content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}],
-            is_error=True,
-        )
-
-    # ===== Connector =====
-
-    def get_connector_commands(self) -> list[ConnectorCommand]:
-        return [
-            ConnectorCommand(name="disk", description="Disk partition usage", plugin_id="disk-usage"),
-        ]
-
-    async def handle_connector_command(
-        self, command: str, message: IncomingMessage, capabilities: ConnectorCapabilities
-    ) -> ConnectorResponse | None:
-        if command == "disk":
+        # Command: disk
+        if name == "disk":
             data = self._latest
             if not data:
-                return ConnectorResponse.simple("No disk data available yet.")
+                return "No disk data available yet."
             lines = []
             for p in data.get("partitions", []):
                 lines.append(f"{p['mountpoint']}: {p['used_gb']}/{p['total_gb']} GB ({p['percent']}%)")
             if not lines:
                 lines.append("No partitions found.")
-            return ConnectorResponse.simple("\n".join(lines))
+            return "\n".join(lines)
 
-        return None
+        return {"error": f"Unknown power: {name}"}
