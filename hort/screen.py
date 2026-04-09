@@ -130,8 +130,16 @@ def _encode_pil_to_jpeg(
     pil_image: Image.Image,
     max_width: int,
     quality: int,
+    *,
+    fmt: str = "WEBP",
 ) -> bytes:
-    """Resize (if needed) and encode a PIL image to JPEG bytes."""
+    """Resize (if needed) and encode a PIL image to WebP (or JPEG) bytes.
+
+    Default format is WebP for better quality at same file size.
+    ICC profile is preserved if present.
+    """
+    icc = pil_image.info.get("icc_profile")
+
     if pil_image.width > max_width:
         ratio = max_width / pil_image.width
         new_height = int(pil_image.height * ratio)
@@ -142,7 +150,12 @@ def _encode_pil_to_jpeg(
         pil_image = new_img
 
     buf = io.BytesIO()
-    pil_image.save(buf, format="JPEG", quality=quality)
+    save_kw: dict[str, Any] = {"format": fmt, "quality": quality}
+    if icc:
+        save_kw["icc_profile"] = icc
+    if fmt == "WEBP":
+        save_kw["method"] = 4  # high quality for AI screenshots
+    pil_image.save(buf, **save_kw)
     pil_image.close()
     result = buf.getvalue()
     buf.close()

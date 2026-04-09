@@ -218,13 +218,15 @@ class HortController(BaseController):
                     d["target_name"] = info.name
                     all_win.append(d)
 
-            # Feed the thumbnail scheduler with the full window list
+            # Feed the thumbnail scheduler (windows only, not screens)
             from hort.thumbnailer import ThumbnailScheduler
-            ThumbnailScheduler.get().set_windows(all_win)
+            ThumbnailScheduler.get().set_windows([w for w in all_win if w.get("source_type") != "screen"])
 
+            # UI gets windows only (screens filtered out — Desktop not in picker grid)
+            ui_windows = [w for w in all_win if w.get("source_type") != "screen"]
             await self.send({
                 "type": "windows_list",
-                "windows": all_win,
+                "windows": ui_windows,
                 "app_names": sorted(all_names),
             })
         else:
@@ -242,13 +244,14 @@ class HortController(BaseController):
                 d["target_id"] = self._target_id
                 d["target_name"] = target_info.name if target_info else self._target_id
                 win_dicts.append(d)
-            # Feed the thumbnail scheduler
+            # Feed the thumbnail scheduler (windows only)
             from hort.thumbnailer import ThumbnailScheduler
-            ThumbnailScheduler.get().set_windows(win_dicts)
+            ThumbnailScheduler.get().set_windows([w for w in win_dicts if w.get("source_type") != "screen"])
 
+            ui_windows = [w for w in win_dicts if w.get("source_type") != "screen"]
             await self.send({
                 "type": "windows_list",
-                "windows": win_dicts,
+                "windows": ui_windows,
                 "app_names": app_names,
             })
 

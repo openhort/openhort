@@ -65,6 +65,8 @@ class ThumbnailScheduler:
         """Update the window list. Called when the window list refreshes."""
         new_ids = {w["window_id"] for w in windows}
         old_ids = set(self._window_ids)
+        # Track which windows are on the current Space (capturable)
+        self._on_screen = {w["window_id"] for w in windows if w.get("is_on_screen", True)}
 
         # Add new windows
         for w in windows:
@@ -134,6 +136,11 @@ class ThumbnailScheduler:
                 # Capture the next window in rotation
                 window_id = self._window_ids[0]
                 self._window_ids.rotate(-1)  # move to back of queue
+
+                # Skip off-screen windows (other Spaces) — capture always returns NULL
+                on_screen = getattr(self, "_on_screen", None)
+                if on_screen is not None and window_id not in on_screen and window_id >= 0:
+                    continue
 
                 target_id = self._target_ids.get(window_id, "")
                 jpeg = await self._capture(window_id, target_id)

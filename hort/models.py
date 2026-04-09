@@ -27,6 +27,7 @@ class WindowInfo(BaseModel):
     owner_pid: int = 0
     is_on_screen: bool = True
     space_index: int = 0
+    source_type: str = "window"  # "window" or "screen"
 
 
 class WindowListResponse(BaseModel):

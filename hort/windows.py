@@ -171,12 +171,13 @@ def list_windows(app_filter: str | None = None) -> list[WindowInfo]:
     space_map = _get_space_index_map()
     windows: list[WindowInfo] = []
 
-    # Virtual Desktop entry — full-screen capture
+    # Virtual Desktop entry — full-screen composite capture.
+    # Tagged as source_type="screen" so the UI can filter it out
+    # while the MCP tool still includes it.
     if not app_filter:
         import Quartz  # type: ignore[import-untyped]
 
         from hort.screen import DESKTOP_WINDOW_ID
-        # Use actual main display dimensions for correct coordinate mapping
         main_display = Quartz.CGMainDisplayID()
         screen_w = Quartz.CGDisplayPixelsWide(main_display)
         screen_h = Quartz.CGDisplayPixelsHigh(main_display)
@@ -189,6 +190,7 @@ def list_windows(app_filter: str | None = None) -> list[WindowInfo]:
             owner_pid=0,
             is_on_screen=True,
             space_index=0,
+            source_type="screen",
         ))
 
     for raw in raw_list:
@@ -203,11 +205,11 @@ def list_windows(app_filter: str | None = None) -> list[WindowInfo]:
             continue
         windows.append(win)
 
-    # Sort real windows by space/app/name, Desktop stays first
-    real = [w for w in windows if w.window_id != -1]
+    # Sort: screens first, then windows by space/app/name
+    real = [w for w in windows if w.window_id >= 0]
     real.sort(key=lambda w: (w.space_index, w.owner_name.lower(), w.window_name.lower()))
-    desktop = [w for w in windows if w.window_id == -1]
-    return desktop + real
+    screens = [w for w in windows if w.window_id < 0]
+    return screens + real
 
 
 def get_app_names() -> list[str]:

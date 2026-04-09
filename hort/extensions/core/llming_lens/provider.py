@@ -201,10 +201,11 @@ TOOLS = [
         type=PowerType.MCP,
         description=(
             "Capture a screenshot of the desktop or a specific window. "
-            "Supports cropping to a region, zoom via grid-cell references "
-            "(e.g. 'B2' from a previous grid screenshot), and optional "
-            "grid overlay for spatial navigation (4x4 labeled cells A1-D4). "
-            "Returns a base64-encoded JPEG image with coordinate metadata."
+            "For ultrawide/high-res displays, ALWAYS use grid=true first to see "
+            "the overview with labeled cells (A1-D4), then grid_cell='B2' to zoom "
+            "into the area you need to read. Direct full-screen captures are too "
+            "small to read text on large displays. "
+            "Returns a base64-encoded WebP image with coordinate metadata."
         ),
         input_schema={
             "type": "object",
@@ -250,13 +251,13 @@ TOOLS = [
                 },
                 "max_width": {
                     "type": "integer",
-                    "description": "Maximum image width in pixels. Default: 1920.",
+                    "description": "Maximum image width in pixels. Default: 1920. Use higher for zoomed crops.",
                     "default": 1920,
                 },
                 "quality": {
                     "type": "integer",
-                    "description": "JPEG quality (1-100). Default: 85.",
-                    "default": 85,
+                    "description": "WebP quality (1-100). Default: 90.",
+                    "default": 90,
                 },
             },
         },
@@ -563,7 +564,7 @@ class LlmingLens(LlmingBase):
 
         target = args.get("target", "desktop")
         max_width = args.get("max_width", 1920)
-        quality = args.get("quality", 85)
+        quality = args.get("quality", 90)
         grid = args.get("grid", False)
         grid_cell = args.get("grid_cell")
         region = args.get("region")
@@ -665,7 +666,7 @@ class LlmingLens(LlmingBase):
 
         return {"content": [
             {"type": "text", "text": coord_text},
-            {"type": "image", "data": base64.b64encode(jpeg_bytes).decode(), "mimeType": "image/jpeg"},
+            {"type": "image", "data": base64.b64encode(jpeg_bytes).decode(), "mimeType": "image/webp"},
         ]}
 
     def _tool_click(self, args: dict[str, Any]) -> dict[str, Any]:
