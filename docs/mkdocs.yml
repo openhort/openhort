@@ -117,6 +117,7 @@ nav:
     - Tool System: internals/tool-system.md
     - Terminal Rendering: internals/terminal-rendering.md
     - UI Concepts: internals/ui-concepts.md
+    - New UI Concept: internals/new-ui-concept.md
     - Export / Import: internals/export-import.md
     - Permissions: internals/permissions.md
     - Access Sources: internals/source-policies.md
