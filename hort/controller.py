@@ -349,6 +349,20 @@ class HortController(BaseController):
         except Exception:
             await self.send({"type": "error", "message": "Invalid stream config"})
 
+    async def _handle_stream_ack(self, msg: dict[str, Any]) -> None:
+        from hort.stream import handle_stream_ack
+        if self._entry:
+            handle_stream_ack(self._entry, msg)
+
+    async def _handle_stream_stop(self, msg: dict[str, Any]) -> None:
+        if self._entry:
+            self._entry.stream_config = None
+            if self._entry.stream_ws is not None:
+                try:
+                    await self._entry.stream_ws.close(code=4002, reason="stream_stop")
+                except Exception:
+                    pass
+
     async def _handle_input(self, msg: dict[str, Any]) -> None:
         try:
             win = self._cached_window
