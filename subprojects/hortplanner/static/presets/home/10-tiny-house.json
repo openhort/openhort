@@ -1,0 +1,59 @@
+{
+  "name": "Tiny House",
+  "desc": "30 sqm compact, entry, kitchen-living combo, bathroom, lofted sleeping",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 24, 0],
+        [0, 0, 0, 40],
+        [24, 0, 24, 40],
+        [0, 40, 24, 40],
+        [16, 30, 16, 40],
+        [16, 30, 24, 30]
+      ],
+      "doors": [
+        { "x": 4, "z": 40, "o": "h", "type": "door-n" },
+        { "x": 16, "z": 34, "o": "v", "type": "door-s" }
+      ],
+      "windows": [
+        { "x": 4, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 16, "z": 0, "o": "h", "type": "window-s" },
+        { "x": 0, "z": 16, "o": "v", "type": "window-s" },
+        { "x": 24, "z": 16, "o": "v", "type": "window-s" }
+      ],
+      "furniture": [
+        { "type": "counter", "x": 21, "z": 1, "rot": 90 },
+        { "type": "stove", "x": 21, "z": 4, "rot": 90 },
+        { "type": "sink", "x": 21, "z": 7, "rot": 90 },
+        { "type": "fridge", "x": 20, "z": 10, "rot": 0 },
+        { "type": "tv", "x": 1, "z": 1, "rot": 0 },
+        { "type": "coffee-table", "x": 1, "z": 4, "rot": 0 },
+        { "type": "sofa", "x": 1, "z": 11, "rot": 0 },
+        { "type": "dining-table", "x": 2, "z": 22, "rot": 0 },
+        { "type": "chair", "x": 3, "z": 19, "rot": 0 },
+        { "type": "chair", "x": 3, "z": 29, "rot": 180 },
+        { "type": "stairs-straight", "x": 8, "z": 30, "rot": 0 },
+        { "type": "toilet", "x": 17, "z": 31, "rot": 0 },
+        { "type": "shower", "x": 17, "z": 35, "rot": 0 },
+        { "type": "basin", "x": 21, "z": 31, "rot": 0 }
+      ]
+    },
+    "0.5": {
+      "walls": [
+        [0, 24, 24, 24],
+        [0, 24, 0, 40],
+        [24, 24, 24, 40],
+        [0, 40, 24, 40]
+      ],
+      "doors": [],
+      "windows": [
+        { "x": 8, "z": 40, "o": "h", "type": "window-s" }
+      ],
+      "furniture": [
+        { "type": "bed-double", "x": 1, "z": 26, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 26, "rot": 0 },
+        { "type": "wardrobe", "x": 14, "z": 26, "rot": 0 }
+      ]
+    }
+  }
+}

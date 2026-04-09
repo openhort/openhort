@@ -1,0 +1,60 @@
+{
+  "name": "2-Bedroom Apartment",
+  "desc": "70 sqm, living room, kitchen, 2 bedrooms, bathroom, hallway",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 40, 0],
+        [0, 0, 0, 56],
+        [40, 0, 40, 56],
+        [0, 56, 40, 56],
+        [16, 24, 16, 56],
+        [0, 24, 16, 24],
+        [16, 0, 16, 24],
+        [16, 24, 40, 24],
+        [0, 40, 16, 40],
+        [28, 44, 40, 44],
+        [28, 44, 28, 56]
+      ],
+      "doors": [
+        { "x": 20, "z": 56, "o": "h", "type": "door-n" },
+        { "x": 8, "z": 24, "o": "h", "type": "door-n" },
+        { "x": 16, "z": 10, "o": "v", "type": "door-s" },
+        { "x": 8, "z": 40, "o": "h", "type": "door-n" },
+        { "x": 28, "z": 48, "o": "v", "type": "door-s" }
+      ],
+      "windows": [
+        { "x": 4, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 28, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 0, "z": 32, "o": "v", "type": "window-l" },
+        { "x": 0, "z": 48, "o": "v", "type": "window-s" },
+        { "x": 40, "z": 32, "o": "v", "type": "window-l" }
+      ],
+      "furniture": [
+        { "type": "bed-double", "x": 1, "z": 1, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 1, "rot": 0 },
+        { "type": "wardrobe", "x": 1, "z": 12, "rot": 0 },
+        { "type": "bed-single", "x": 17, "z": 1, "rot": 0 },
+        { "type": "desk", "x": 23, "z": 1, "rot": 0 },
+        { "type": "wardrobe", "x": 17, "z": 12, "rot": 0 },
+        { "type": "bookshelf", "x": 35, "z": 1, "rot": 0 },
+        { "type": "counter", "x": 1, "z": 41, "rot": 0 },
+        { "type": "stove", "x": 5, "z": 41, "rot": 0 },
+        { "type": "sink", "x": 9, "z": 41, "rot": 0 },
+        { "type": "fridge", "x": 12, "z": 41, "rot": 0 },
+        { "type": "tv", "x": 18, "z": 26, "rot": 0 },
+        { "type": "coffee-table", "x": 18, "z": 29, "rot": 0 },
+        { "type": "sofa", "x": 17, "z": 35, "rot": 0 },
+        { "type": "dining-table", "x": 26, "z": 30, "rot": 0 },
+        { "type": "chair", "x": 27, "z": 27, "rot": 0 },
+        { "type": "chair", "x": 27, "z": 37, "rot": 180 },
+        { "type": "chair", "x": 23, "z": 32, "rot": 270 },
+        { "type": "chair", "x": 31, "z": 32, "rot": 90 },
+        { "type": "toilet", "x": 29, "z": 45, "rot": 0 },
+        { "type": "shower", "x": 33, "z": 45, "rot": 0 },
+        { "type": "bathtub", "x": 29, "z": 49, "rot": 0 },
+        { "type": "basin", "x": 35, "z": 50, "rot": 0 }
+      ]
+    }
+  }
+}

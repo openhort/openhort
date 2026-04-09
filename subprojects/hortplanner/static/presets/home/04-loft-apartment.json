@@ -1,0 +1,64 @@
+{
+  "name": "Loft Apartment",
+  "desc": "80 sqm open space, bathroom, mezzanine bedroom",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 40, 0],
+        [0, 0, 0, 64],
+        [40, 0, 40, 64],
+        [0, 64, 40, 64],
+        [28, 54, 28, 64],
+        [28, 54, 40, 54]
+      ],
+      "doors": [
+        { "x": 16, "z": 64, "o": "h", "type": "door-n" },
+        { "x": 28, "z": 58, "o": "v", "type": "door-s" }
+      ],
+      "windows": [
+        { "x": 4, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 16, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 28, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 0, "z": 20, "o": "v", "type": "window-l" },
+        { "x": 40, "z": 20, "o": "v", "type": "window-l" }
+      ],
+      "furniture": [
+        { "type": "bookshelf", "x": 1, "z": 1, "rot": 0 },
+        { "type": "tv", "x": 1, "z": 5, "rot": 0 },
+        { "type": "coffee-table", "x": 1, "z": 9, "rot": 0 },
+        { "type": "sofa", "x": 1, "z": 16, "rot": 0 },
+        { "type": "armchair", "x": 8, "z": 16, "rot": 0 },
+        { "type": "counter", "x": 37, "z": 1, "rot": 90 },
+        { "type": "stove", "x": 37, "z": 4, "rot": 90 },
+        { "type": "sink", "x": 37, "z": 7, "rot": 90 },
+        { "type": "fridge", "x": 36, "z": 10, "rot": 0 },
+        { "type": "dining-table", "x": 18, "z": 8, "rot": 0 },
+        { "type": "chair", "x": 19, "z": 5, "rot": 0 },
+        { "type": "chair", "x": 19, "z": 15, "rot": 180 },
+        { "type": "chair", "x": 15, "z": 10, "rot": 270 },
+        { "type": "chair", "x": 23, "z": 10, "rot": 90 },
+        { "type": "stairs-straight", "x": 1, "z": 36, "rot": 0 },
+        { "type": "toilet", "x": 29, "z": 55, "rot": 0 },
+        { "type": "shower", "x": 35, "z": 55, "rot": 0 },
+        { "type": "basin", "x": 29, "z": 59, "rot": 0 }
+      ]
+    },
+    "0.5": {
+      "walls": [
+        [0, 32, 20, 32],
+        [20, 32, 20, 64],
+        [0, 32, 0, 64],
+        [0, 64, 20, 64]
+      ],
+      "doors": [],
+      "windows": [],
+      "furniture": [
+        { "type": "bed-double", "x": 1, "z": 34, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 34, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 40, "rot": 0 },
+        { "type": "wardrobe", "x": 13, "z": 34, "rot": 0 },
+        { "type": "desk", "x": 1, "z": 46, "rot": 0 }
+      ]
+    }
+  }
+}

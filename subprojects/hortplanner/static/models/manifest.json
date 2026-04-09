@@ -1,0 +1,356 @@
+{
+  "$schema": "hortplanner-models-v1",
+  "$comment": "Component visual definitions. Profile shapes use SVG-compatible path data. Materials use PBR properties. When a .glb file exists for a component, it takes precedence over the procedural definition. Animations are defined per-component and can be triggered programmatically.",
+
+  "components": {
+    "mac-mini": {
+      "displayName": "SnackMini",
+      "profile": {
+        "type": "rounded-rect",
+        "cornerRadius": 0.35
+      },
+      "body": {
+        "wallHeight": 1.0,
+        "wallThickness": 0.10,
+        "floorThickness": 0.08,
+        "container": true
+      },
+      "material": {
+        "color": "#a8b0bc",
+        "metalness": 0.85,
+        "roughness": 0.20,
+        "opacity": 1.0
+      },
+      "features": {
+        "feet": {
+          "enabled": true,
+          "radius": 0.12,
+          "height": 0.06,
+          "inset": 0.35,
+          "color": "#333333"
+        },
+        "led": {
+          "enabled": false,
+          "color": "#22c55e",
+          "emissiveIntensity": 3.0,
+          "radius": 0.06,
+          "positionYFactor": 0.4
+        }
+      },
+      "ports": { "in": 1, "out": 1 },
+      "animations": {
+        "idle": { "type": "none" }
+      }
+    },
+
+    "macbook": {
+      "displayName": "SnackBook Pro",
+      "profile": {
+        "type": "rounded-rect",
+        "cornerRadius": 0.20
+      },
+      "body": {
+        "wallHeight": 0.4,
+        "wallThickness": 0.10,
+        "floorThickness": 0.08,
+        "container": true
+      },
+      "material": {
+        "color": "#6b7280",
+        "metalness": 0.80,
+        "roughness": 0.25,
+        "opacity": 1.0
+      },
+      "features": {
+        "screen": {
+          "enabled": true,
+          "tiltAngle": -0.17,
+          "thickness": 0.05,
+          "displayColor": "#0c1829",
+          "displayEmissive": "#1a3050",
+          "displayEmissiveIntensity": 0.6
+        },
+        "led": {
+          "enabled": false,
+          "color": "#22c55e",
+          "emissiveIntensity": 3.0,
+          "radius": 0.06,
+          "positionYFactor": 0.4
+        }
+      },
+      "ports": { "in": 1, "out": 1 },
+      "animations": {
+        "open": {
+          "type": "rotation",
+          "target": "screen",
+          "property": "rotation.x",
+          "from": 0,
+          "to": -0.17,
+          "duration": 800,
+          "easing": "easeInOutCubic"
+        },
+        "close": {
+          "type": "rotation",
+          "target": "screen",
+          "property": "rotation.x",
+          "from": -0.17,
+          "to": -1.57,
+          "duration": 600,
+          "easing": "easeInOutCubic"
+        }
+      }
+    },
+
+    "rpi": {
+      "displayName": "Strawberry Pi",
+      "profile": {
+        "type": "rounded-rect",
+        "cornerRadius": 0.08
+      },
+      "body": {
+        "wallHeight": 0.5,
+        "wallThickness": 0.10,
+        "floorThickness": 0.08,
+        "container": true
+      },
+      "material": {
+        "color": "#16a34a",
+        "metalness": 0.30,
+        "roughness": 0.70,
+        "opacity": 1.0
+      },
+      "features": {
+        "led": {
+          "enabled": false,
+          "color": "#22c55e",
+          "emissiveIntensity": 3.0,
+          "radius": 0.06,
+          "positionYFactor": 0.4
+        }
+      },
+      "ports": { "in": 1, "out": 1 },
+      "animations": {}
+    },
+
+    "cloud-vm": {
+      "displayName": "Cloud VM",
+      "profile": {
+        "type": "rounded-rect",
+        "cornerRadius": 0.10
+      },
+      "body": {
+        "wallHeight": 1.2,
+        "wallThickness": 0.10,
+        "floorThickness": 0.08,
+        "container": true
+      },
+      "material": {
+        "color": "#3b82f6",
+        "metalness": 0.10,
+        "roughness": 0.90,
+        "opacity": 0.55
+      },
+      "features": {
+        "led": {
+          "enabled": false,
+          "color": "#22c55e",
+          "emissiveIntensity": 3.0,
+          "radius": 0.06,
+          "positionYFactor": 0.4
+        }
+      },
+      "ports": { "in": 1, "out": 1 },
+      "animations": {}
+    },
+
+    "docker": {
+      "displayName": "Docker",
+      "profile": {
+        "type": "rounded-rect",
+        "cornerRadius": 0.10
+      },
+      "body": {
+        "wallHeight": 1.0,
+        "wallThickness": 0.10,
+        "floorThickness": 0.08,
+        "container": true
+      },
+      "material": {
+        "color": "#0ea5e9",
+        "metalness": 0.40,
+        "roughness": 0.50,
+        "opacity": 1.0
+      },
+      "features": {
+        "led": {
+          "enabled": false,
+          "color": "#22c55e",
+          "emissiveIntensity": 3.0,
+          "radius": 0.06,
+          "positionYFactor": 0.4
+        }
+      },
+      "ports": { "in": 1, "out": 1 },
+      "animations": {}
+    },
+
+    "virtual-hort": {
+      "displayName": "Virtual Hort",
+      "profile": {
+        "type": "rounded-rect",
+        "cornerRadius": 0.10
+      },
+      "body": {
+        "wallHeight": 1.0,
+        "wallThickness": 0.10,
+        "floorThickness": 0.08,
+        "container": false
+      },
+      "material": {
+        "color": "#a855f7",
+        "metalness": 0.10,
+        "roughness": 0.90,
+        "opacity": 0.45
+      },
+      "features": {},
+      "ports": { "in": 1, "out": 1 },
+      "animations": {}
+    },
+
+    "mcp-server": {
+      "displayName": "MCP Server",
+      "profile": {
+        "type": "cylinder",
+        "sides": 6
+      },
+      "body": {
+        "height": 2.0,
+        "solid": true
+      },
+      "material": {
+        "color": "#f59e0b",
+        "metalness": 0.60,
+        "roughness": 0.30,
+        "emissive": "#f59e0b",
+        "emissiveIntensity": 0.25
+      },
+      "features": {},
+      "ports": { "in": 1, "out": 1 },
+      "animations": {}
+    },
+
+    "llming": {
+      "displayName": "LLMing",
+      "profile": {
+        "type": "icosphere",
+        "subdivisions": 1
+      },
+      "body": {
+        "height": 2.0,
+        "solid": true
+      },
+      "material": {
+        "color": "#8b5cf6",
+        "metalness": 0.30,
+        "roughness": 0.50,
+        "emissive": "#8b5cf6",
+        "emissiveIntensity": 0.35
+      },
+      "features": {
+        "spin": {
+          "enabled": true,
+          "speed": 0.6
+        }
+      },
+      "ports": { "in": 1, "out": 1 },
+      "animations": {
+        "idle": {
+          "type": "rotation",
+          "target": "body",
+          "property": "rotation.y",
+          "continuous": true,
+          "speed": 0.6
+        }
+      }
+    },
+
+    "program": {
+      "displayName": "Program",
+      "profile": {
+        "type": "box"
+      },
+      "body": {
+        "height": 2.0,
+        "solid": true
+      },
+      "material": {
+        "color": "#10b981",
+        "metalness": 0.50,
+        "roughness": 0.40
+      },
+      "features": {},
+      "ports": { "in": 1, "out": 1 },
+      "animations": {}
+    },
+
+    "agent": {
+      "displayName": "Agent",
+      "profile": {
+        "type": "octahedron"
+      },
+      "body": {
+        "height": 2.5,
+        "solid": true
+      },
+      "material": {
+        "color": "#06b6d4",
+        "metalness": 0.25,
+        "roughness": 0.35,
+        "emissive": "#06b6d4",
+        "emissiveIntensity": 0.5
+      },
+      "features": {
+        "spin": {
+          "enabled": true,
+          "speed": 0.3
+        }
+      },
+      "ports": { "in": 1, "out": 1 },
+      "animations": {
+        "idle": {
+          "type": "rotation",
+          "target": "body",
+          "property": "rotation.y",
+          "continuous": true,
+          "speed": 0.3
+        }
+      }
+    },
+
+    "fence": {
+      "displayName": "Fence",
+      "profile": {
+        "type": "fence"
+      },
+      "body": {
+        "height": 0.08,
+        "solid": true
+      },
+      "material": {
+        "color": "#f97316",
+        "metalness": 0.0,
+        "roughness": 1.0,
+        "opacity": 0.30,
+        "emissive": "#f97316",
+        "emissiveIntensity": 0.4
+      },
+      "features": {},
+      "ports": { "in": 0, "out": 0 },
+      "animations": {}
+    }
+  },
+
+  "glbOverrides": {
+    "$comment": "When .glb files are placed in static/models/{type}.glb, they override the procedural definitions above. The glTF models should include named nodes matching the feature names (screen, led, body, feet) for animation targeting."
+  }
+}

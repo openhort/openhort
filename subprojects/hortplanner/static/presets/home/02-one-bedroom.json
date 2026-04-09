@@ -1,0 +1,51 @@
+{
+  "name": "1-Bedroom Apartment",
+  "desc": "45 sqm, entry hall, open living/kitchen, bedroom, bathroom",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 36, 0],
+        [0, 0, 0, 48],
+        [36, 0, 36, 48],
+        [0, 48, 36, 48],
+        [0, 40, 14, 40],
+        [14, 0, 14, 24],
+        [26, 36, 26, 48],
+        [26, 36, 36, 36]
+      ],
+      "doors": [
+        { "x": 16, "z": 48, "o": "h", "type": "door-n" },
+        { "x": 14, "z": 10, "o": "v", "type": "door-s" },
+        { "x": 26, "z": 40, "o": "v", "type": "door-s" },
+        { "x": 6, "z": 40, "o": "h", "type": "door-n" }
+      ],
+      "windows": [
+        { "x": 4, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 22, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 36, "z": 14, "o": "v", "type": "window-l" }
+      ],
+      "furniture": [
+        { "type": "bed-double", "x": 1, "z": 1, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 1, "rot": 0 },
+        { "type": "wardrobe", "x": 1, "z": 11, "rot": 0 },
+        { "type": "desk", "x": 8, "z": 11, "rot": 0 },
+        { "type": "bookshelf", "x": 15, "z": 1, "rot": 0 },
+        { "type": "tv", "x": 15, "z": 4, "rot": 0 },
+        { "type": "coffee-table", "x": 15, "z": 7, "rot": 0 },
+        { "type": "sofa", "x": 15, "z": 14, "rot": 0 },
+        { "type": "counter", "x": 15, "z": 25, "rot": 0 },
+        { "type": "stove", "x": 19, "z": 25, "rot": 0 },
+        { "type": "sink", "x": 23, "z": 25, "rot": 0 },
+        { "type": "fridge", "x": 27, "z": 25, "rot": 0 },
+        { "type": "dining-table", "x": 20, "z": 32, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 29, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 39, "rot": 180 },
+        { "type": "chair", "x": 17, "z": 34, "rot": 270 },
+        { "type": "chair", "x": 25, "z": 34, "rot": 90 },
+        { "type": "toilet", "x": 27, "z": 37, "rot": 0 },
+        { "type": "shower", "x": 31, "z": 37, "rot": 0 },
+        { "type": "basin", "x": 27, "z": 42, "rot": 0 }
+      ]
+    }
+  }
+}

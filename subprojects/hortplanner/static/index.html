@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HortPlanner</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Icons" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/quasar@2.17.7/dist/quasar.prod.css" rel="stylesheet">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    html, body, #app { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
+    .q-page { padding: 0 !important; }
+    .canvas-wrap { position: absolute; inset: 0; }
+    .palette-item { border-left: 3px solid transparent; transition: all .15s; }
+    .palette-item:hover { background: rgba(255,255,255,.06); }
+    .palette-item.active-tool { border-left-color: var(--q-primary); background: rgba(59,130,246,.12); }
+    .palette-icon { width: 32px; height: 32px; border-radius: 6px; display: flex;
+      align-items: center; justify-content: center; font-size: 18px; }
+    .prop-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+    .conn-badge { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .status-bar { font-size: 12px; color: #64748b; padding: 4px 16px; background: #0f172a;
+      border-top: 1px solid #1e293b; display: flex; gap: 16px; align-items: center; }
+    .q-drawer { background: rgba(15, 23, 42, 0.92) !important; backdrop-filter: blur(8px); }
+    .label-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+    .label-3d { position: absolute; left: 0; top: 0; white-space: nowrap; pointer-events: none;
+      font: 500 11px -apple-system, 'Segoe UI', Roboto, sans-serif; color: #e2e8f0;
+      text-shadow: 0 0 4px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.7);
+      transform: translate(-50%, -100%); padding-bottom: 2px; }
+  </style>
+</head>
+<body>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/quasar@2.17.7/dist/quasar.umd.prod.js"></script>
+
+  <div id="app">
+    <q-layout view="hHh LpR fFf">
+      <!-- Header -->
+      <q-header elevated class="bg-dark" style="border-bottom:1px solid #1e293b">
+        <q-toolbar>
+          <q-btn flat dense round icon="menu" @click="leftOpen = !leftOpen"></q-btn>
+          <q-icon name="apartment" size="22px" color="primary" class="q-mx-sm"></q-icon>
+          <q-toolbar-title class="text-weight-bold" style="font-size:16px">
+            {{ activeMode === 'hort' ? 'HortPlanner' : 'HomePlanner' }}
+          </q-toolbar-title>
+
+          <!-- Mode switcher -->
+          <q-btn-toggle v-model="activeMode" flat no-caps size="sm" dense
+            :options="[
+              { value: 'hort', icon: 'apartment', label: 'Infra' },
+              { value: 'home', icon: 'home', label: 'Home' },
+            ]"
+            toggle-color="primary" color="grey-6" class="q-mr-sm"
+            @update:model-value="switchMode"
+            style="font-size:11px">
+          </q-btn-toggle>
+
+          <q-separator vertical dark class="q-mx-xs"></q-separator>
+
+          <!-- Breadcrumb: shows selection ancestry (with sibling dropdowns) or nav stack -->
+          <template v-if="selected && selected.ancestry && selected.ancestry.length">
+            <div class="row items-center no-wrap q-mr-md text-caption text-grey-4">
+              <span class="cursor-pointer text-grey-5" @click="goHome">Infrastructure</span>
+              <template v-for="(a, ai) in selected.ancestry" :key="a.id">
+                <q-icon name="chevron_right" size="16px" color="grey-6" class="q-mx-xs"></q-icon>
+                <q-btn flat dense no-caps size="sm" class="q-px-xs"
+                  :color="ai === selected.ancestry.length - 1 ? 'white' : 'grey-4'"
+                  :label="a.name" @click="selectById(a.id)"
+                  style="min-height:24px; font-size:12px">
+                  <q-icon v-if="a.siblings.length" name="arrow_drop_down" size="16px"
+                    color="grey-6" class="q-ml-none"></q-icon>
+                  <q-menu v-if="a.siblings.length" dark anchor="bottom left" self="top left">
+                    <q-list dense dark style="min-width:140px">
+                      <q-item v-for="s in a.siblings" :key="s.id" clickable v-close-popup
+                        @click="selectById(s.id)">
+                        <q-item-section>
+                          <q-item-label style="font-size:12px">{{ s.name }}</q-item-label>
+                          <q-item-label caption style="font-size:10px; color:#64748b">{{ s.type }}</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </q-list>
+                  </q-menu>
+                </q-btn>
+              </template>
+            </div>
+          </template>
+          <template v-else-if="levelStack.length">
+            <q-breadcrumbs active-color="white" separator=">" class="q-mr-md text-caption">
+              <q-breadcrumbs-el label="Infrastructure" icon="home" class="cursor-pointer"
+                @click="navigateToRoot"></q-breadcrumbs-el>
+              <q-breadcrumbs-el v-for="l in levelStack" :key="l.id" :label="l.name"
+                class="cursor-pointer" @click="navigateToLevel(l.id)"></q-breadcrumbs-el>
+            </q-breadcrumbs>
+          </template>
+
+          <q-space></q-space>
+
+          <!-- Home — jump to origin, see whole world -->
+          <q-btn flat dense round icon="home" @click="goHome" class="q-mr-xs">
+            <q-tooltip>Home — see whole world (H)</q-tooltip>
+          </q-btn>
+
+          <!-- Load Preset -->
+          <q-btn flat no-caps icon="folder_open" label="Presets" color="amber"
+            class="q-mr-sm" @click="presetsDialog = true">
+            <q-tooltip>Load a preset infrastructure</q-tooltip>
+          </q-btn>
+
+          <q-separator vertical dark class="q-mx-xs"></q-separator>
+
+          <!-- View toggle — prominent 3D / 2D buttons -->
+          <q-btn-group flat class="q-mx-sm">
+            <q-btn flat no-caps :color="viewMode === 'isometric' ? 'primary' : 'grey-6'"
+              icon="view_in_ar" label="3D"
+              @click="viewMode = 'isometric'; onViewChange('isometric')"></q-btn>
+            <q-btn flat no-caps :color="viewMode === 'flat' ? 'primary' : 'grey-6'"
+              icon="grid_on" label="2D"
+              @click="viewMode = 'flat'; onViewChange('flat')"></q-btn>
+          </q-btn-group>
+
+          <q-separator vertical dark class="q-mx-xs"></q-separator>
+
+          <!-- Floor selector (home mode only) -->
+          <template v-if="activeMode === 'home'">
+            <q-btn-group flat class="q-mx-sm">
+              <q-btn v-for="f in floorList" :key="f" flat dense no-caps size="sm"
+                :color="activeFloor === f ? 'primary' : 'grey-6'"
+                :label="'F' + f" @click="setFloor(f)"
+                style="min-width:32px; font-size:11px">
+              </q-btn>
+              <q-btn flat dense size="sm" icon="add" color="grey-6" @click="addFloor">
+                <q-tooltip>Add floor</q-tooltip>
+              </q-btn>
+            </q-btn-group>
+            <q-separator vertical dark class="q-mx-xs"></q-separator>
+          </template>
+
+          <!-- Undo / Redo -->
+          <q-btn flat dense round icon="undo" @click="doUndo">
+            <q-tooltip>Undo (Ctrl+Z)</q-tooltip>
+          </q-btn>
+          <q-btn flat dense round icon="redo" @click="doRedo">
+            <q-tooltip>Redo (Ctrl+Shift+Z)</q-tooltip>
+          </q-btn>
+
+          <q-separator vertical dark class="q-mx-xs"></q-separator>
+
+          <q-btn flat dense round icon="delete_outline" :disable="!selected"
+            @click="deleteSelected">
+            <q-tooltip>Delete (Del)</q-tooltip>
+          </q-btn>
+
+          <q-separator vertical dark class="q-mx-xs"></q-separator>
+          <q-btn flat dense round icon="info" @click="rightOpen = !rightOpen">
+            <q-tooltip>Toggle properties panel</q-tooltip>
+          </q-btn>
+        </q-toolbar>
+      </q-header>
+
+      <!-- Left Drawer — Component Palette (overlay, doesn't shrink canvas) -->
+      <q-drawer v-model="leftOpen" side="left" :width="250" bordered overlay
+        class="bg-dark" style="border-right:1px solid #1e293b">
+        <q-scroll-area class="fit">
+          <div class="q-pa-sm q-pb-none">
+            <div class="text-caption text-grey-6 q-px-sm q-py-xs">COMPONENTS</div>
+          </div>
+
+          <q-list dense>
+            <template v-for="cat in catalog" :key="cat.label">
+              <q-expansion-item :label="cat.label" :icon="cat.icon" dense
+                default-opened header-class="text-grey-3 text-caption"
+                expand-icon-class="text-grey-6">
+                <q-item v-for="item in cat.items" :key="item.type" dense clickable
+                  class="palette-item" :class="{ 'active-tool': activeTool === item.type }"
+                  :draggable="activeMode === 'hort'"
+                  @dragstart="onDragStart($event, item.type)"
+                  @click="setTool(item.type)">
+                  <q-item-section avatar>
+                    <div class="palette-icon" :style="{background: item.color + '22', color: item.color}">
+                      <q-icon :name="item.icon"></q-icon>
+                    </div>
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label class="text-grey-2" style="font-size:13px">{{ item.label }}</q-item-label>
+                    <q-item-label caption class="text-grey-6" style="font-size:11px">{{ item.desc }}</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-expansion-item>
+            </template>
+          </q-list>
+
+          <q-separator dark class="q-my-sm"></q-separator>
+          <div class="q-px-md q-pb-md text-grey-7" style="font-size:11px; line-height:1.5">
+            <template v-if="activeMode === 'home'">
+              <b>Click</b> a tool to activate it.<br>
+              <b>Wall</b>: click/drag grid edges to draw.<br>
+              <b>Door/Window</b>: click existing wall to place.<br>
+              <b>Furniture</b>: click to activate, click grid to place.<br>
+              <b>R</b> rotate &bull; <b>F</b> flip &bull; <b>Del</b> delete &bull; <b>Esc</b> deselect
+            </template>
+            <template v-else>
+              <b>Drag</b> a component onto the grid to place it.<br>
+              <b>Click</b> select &bull; <b>DblClick</b> enter container<br>
+              Click port &rarr; port to wire.<br>
+              <b>Click a wire</b> to set its security level.
+            </template>
+          </div>
+        </q-scroll-area>
+      </q-drawer>
+
+      <!-- Right Drawer — Properties (overlay, doesn't shrink canvas) -->
+      <q-drawer v-model="rightOpen" side="right" :width="280" bordered overlay
+        class="bg-dark" style="border-left:1px solid #1e293b">
+        <q-scroll-area class="fit">
+
+          <!-- ─── Component Properties (hort mode only) ─── -->
+          <template v-if="selected && activeMode !== 'home'">
+            <div class="q-pa-md">
+              <div class="text-caption text-grey-6 q-mb-sm">PROPERTIES</div>
+              <q-input v-model="selected.name" label="Name" dark dense filled
+                bg-color="grey-10" class="q-mb-md"
+                @update:model-value="updateProp('name', $event)"></q-input>
+
+              <div class="q-mb-sm">
+                <div class="prop-label q-mb-xs">Type</div>
+                <q-badge :color="typeColor(selected.type)" :label="selected.type"></q-badge>
+              </div>
+
+              <div class="q-mb-sm" v-if="selected.isContainer">
+                <div class="prop-label q-mb-xs">Children</div>
+                <span class="text-grey-3">{{ selected.children }} items inside</span>
+              </div>
+
+              <div class="q-mb-md" v-if="selected.ports && (selected.ports.in || selected.ports.out)">
+                <div class="prop-label q-mb-xs">Ports</div>
+                <span class="text-grey-3">
+                  <span class="conn-badge" style="background:#3b82f6"></span>{{ selected.ports.in }} in
+                  &nbsp;
+                  <span class="conn-badge" style="background:#22c55e"></span>{{ selected.ports.out }} out
+                </span>
+              </div>
+
+              <!-- Trust Level (horts only) -->
+              <div class="q-mb-md" v-if="selected.isContainer">
+                <div class="prop-label q-mb-xs">Trust Level</div>
+                <div class="row q-gutter-xs">
+                  <q-btn v-for="t in TRUST_LEVELS" :key="t.value"
+                    dense no-caps size="sm" :color="selected.trust === t.value ? t.color : 'grey-8'"
+                    :outline="selected.trust !== t.value"
+                    :label="t.label"
+                    @click="setTrust(t.value)"
+                    style="font-size:10px; min-height:26px">
+                  </q-btn>
+                </div>
+              </div>
+
+              <q-separator dark class="q-my-md"></q-separator>
+
+              <q-btn v-if="selected.isContainer" color="primary" label="Enter"
+                icon="login" no-caps class="full-width q-mb-sm" @click="enterSelected"></q-btn>
+              <q-btn color="negative" label="Delete" icon="delete_outline"
+                flat no-caps class="full-width" @click="deleteSelected"></q-btn>
+            </div>
+          </template>
+
+          <!-- ─── Connection (Wire) Properties ─── -->
+          <template v-else-if="selectedConn">
+            <div class="q-pa-md">
+              <div class="text-caption text-grey-6 q-mb-sm">WIRE PROPERTIES</div>
+
+              <div class="q-mb-md">
+                <div class="prop-label q-mb-xs">From</div>
+                <div class="text-grey-2" style="font-size:13px">
+                  <q-badge :color="typeColor(selectedConn.fromType)" :label="selectedConn.fromType"
+                    class="q-mr-xs" style="font-size:9px"></q-badge>
+                  {{ selectedConn.fromName }}
+                </div>
+              </div>
+
+              <div class="q-mb-md">
+                <div class="prop-label q-mb-xs">To</div>
+                <div class="text-grey-2" style="font-size:13px">
+                  <q-badge :color="typeColor(selectedConn.toType)" :label="selectedConn.toType"
+                    class="q-mr-xs" style="font-size:9px"></q-badge>
+                  {{ selectedConn.toName }}
+                </div>
+              </div>
+
+              <q-separator dark class="q-my-sm"></q-separator>
+
+              <div class="q-mb-md">
+                <div class="prop-label q-mb-xs">Security Level</div>
+                <div class="column q-gutter-xs">
+                  <q-btn v-for="s in SECURITY_LEVELS" :key="s.value"
+                    dense no-caps size="sm" align="left" class="full-width"
+                    :style="{
+                      borderLeft: '3px solid ' + s.color,
+                      background: selectedConn.security === s.value ? s.color + '22' : 'transparent',
+                    }"
+                    @click="setConnSecurity(s.value)">
+                    <q-icon :name="s.icon" size="16px" :style="{color: s.color}" class="q-mr-sm"></q-icon>
+                    <span :style="{color: selectedConn.security === s.value ? '#fff' : '#94a3b8'}">
+                      {{ s.label }}
+                    </span>
+                    <q-space></q-space>
+                    <q-icon v-if="selectedConn.security === s.value" name="check" size="14px"
+                      color="white"></q-icon>
+                  </q-btn>
+                </div>
+              </div>
+
+              <q-separator dark class="q-my-sm"></q-separator>
+
+              <!-- Wire Ruleset Summary -->
+              <div class="q-mb-md" v-if="selectedConn.security !== 'none'">
+                <div class="prop-label q-mb-xs">Wire Ruleset</div>
+                <div class="text-grey-5" style="font-size:11px; line-height:1.6">
+                  <template v-if="selectedConn.security === 'read'">
+                    <b style="color:#22c55e">allow_groups:</b> [read]<br>
+                    <b style="color:#ef4444">deny_groups:</b> [write, send, destroy]
+                  </template>
+                  <template v-else-if="selectedConn.security === 'write'">
+                    <b style="color:#22c55e">allow_groups:</b> [read, write]<br>
+                    <b style="color:#ef4444">deny_groups:</b> [send, destroy]
+                  </template>
+                  <template v-else-if="selectedConn.security === 'send'">
+                    <b style="color:#22c55e">allow_groups:</b> [read, write, send]<br>
+                    <b style="color:#ef4444">deny_groups:</b> [destroy]
+                  </template>
+                  <template v-else-if="selectedConn.security === 'destroy'">
+                    <b style="color:#22c55e">allow_groups:</b> [read, write, send, destroy]<br>
+                    <span style="color:#ef4444">Full access — no restrictions</span>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ─── Home Mode: Furniture Properties ─── -->
+          <template v-else-if="selected && activeMode === 'home'">
+            <div class="q-pa-md">
+              <div class="text-caption text-grey-6 q-mb-sm">FURNITURE</div>
+
+              <div class="q-mb-sm">
+                <div class="prop-label q-mb-xs">Type</div>
+                <span class="text-grey-2" style="font-size:14px">{{ selected.label || selected.type }}</span>
+              </div>
+
+              <div class="q-mb-sm">
+                <div class="prop-label q-mb-xs">Position</div>
+                <span class="text-grey-4" style="font-size:12px">
+                  x: {{ selected.x }} &bull; z: {{ selected.z }}
+                </span>
+              </div>
+
+              <div class="q-mb-md">
+                <div class="prop-label q-mb-xs">Rotation</div>
+                <span class="text-grey-4" style="font-size:12px">{{ selected.rotation || 0 }}°</span>
+              </div>
+
+              <q-separator dark class="q-my-sm"></q-separator>
+
+              <div class="column q-gutter-xs q-mt-sm">
+                <q-btn flat no-caps dense icon="rotate_right" label="Rotate 90° (R)"
+                  color="primary" class="full-width" @click="rotateSelected"
+                  style="justify-content:flex-start"></q-btn>
+                <q-btn flat no-caps dense icon="flip" label="Flip direction (F)"
+                  color="amber" class="full-width" @click="flipSelected"
+                  style="justify-content:flex-start"></q-btn>
+                <q-btn flat no-caps dense icon="delete_outline" label="Delete (Del)"
+                  color="negative" class="full-width" @click="deleteSelected"
+                  style="justify-content:flex-start"></q-btn>
+              </div>
+            </div>
+          </template>
+
+          <!-- ─── Active Tool Info ─── -->
+          <template v-else-if="activeTool && activeMode === 'home'">
+            <div class="q-pa-md text-grey-5 text-center" style="margin-top:30%">
+              <q-icon :name="activeTool === 'wall' ? 'border_all' : activeTool.startsWith('door') ? 'door_front' : activeTool.startsWith('window') ? 'window' : 'chair'"
+                size="40px" color="primary"></q-icon>
+              <div class="text-grey-3 q-mt-sm" style="font-size:14px; font-weight:500">
+                {{ activeTool.replace('-s', ' (50cm)').replace('-n', ' (75cm)').replace('-l', ' (100cm)') }}
+              </div>
+              <div class="q-mt-xs" style="font-size:11px">
+                <template v-if="activeTool === 'wall'">Click/drag grid edges to draw walls</template>
+                <template v-else-if="activeTool.startsWith('door') || activeTool.startsWith('window')">Click an existing wall to place</template>
+                <template v-else>Click on the floor to place</template>
+              </div>
+              <div class="q-mt-md" style="font-size:11px">
+                Press <b>Esc</b> to deselect tool
+              </div>
+            </div>
+          </template>
+
+          <!-- ─── Empty State ─── -->
+          <div v-else class="q-pa-md text-grey-7 text-center" style="margin-top:40%">
+            <q-icon name="touch_app" size="48px" color="grey-8"></q-icon><br>
+            <span style="font-size:13px">Select a component or wire<br>to see its properties</span>
+          </div>
+        </q-scroll-area>
+      </q-drawer>
+
+      <!-- Main — Three.js Canvas -->
+      <q-page-container>
+        <q-page class="relative-position">
+          <div ref="canvasWrap" class="canvas-wrap"
+            @dragover.prevent="onDragOver" @drop.prevent="onDrop">
+            <div ref="labelOverlay" class="label-overlay"></div>
+          </div>
+        </q-page>
+      </q-page-container>
+
+      <!-- Status bar -->
+      <q-footer class="status-bar">
+        <template v-if="activeMode === 'hort'">
+          <span><q-icon name="grid_on" size="14px" class="q-mr-xs"></q-icon>
+            {{ componentCount }} components</span>
+          <span><q-icon name="link" size="14px" class="q-mr-xs"></q-icon>
+            {{ connectionCount }} wires</span>
+        </template>
+        <template v-else>
+          <span><q-icon name="border_all" size="14px" class="q-mr-xs"></q-icon>
+            {{ componentCount }} walls</span>
+          <span><q-icon name="chair" size="14px" class="q-mr-xs"></q-icon>
+            {{ connectionCount }} items</span>
+          <span><q-icon name="layers" size="14px" class="q-mr-xs"></q-icon>
+            Floor {{ activeFloor }}</span>
+          <span v-if="activeTool" style="color:#60a5fa">
+            <q-icon name="build" size="14px" class="q-mr-xs"></q-icon>
+            Tool: {{ activeTool }}
+          </span>
+        </template>
+        <q-space></q-space>
+        <span>{{ viewMode === 'isometric' ? '3D Isometric' : '2D Flat' }}</span>
+      </q-footer>
+
+      <!-- Presets Dialog -->
+      <q-dialog v-model="presetsDialog" position="standard">
+        <q-card style="width:750px; max-width:92vw" class="bg-dark text-white">
+          <q-card-section class="row items-center q-pb-none">
+            <div class="text-h6"><q-icon name="folder_open" class="q-mr-sm"></q-icon>Load Preset</div>
+            <q-space></q-space>
+            <q-btn flat round dense icon="close" @click="presetsDialog = false"></q-btn>
+          </q-card-section>
+          <q-card-section style="max-height:70vh; overflow:auto">
+            <div class="row q-col-gutter-sm">
+              <div v-for="(p, i) in presetList" :key="i" class="col-12 col-sm-6 col-md-4">
+                <q-card flat bordered class="bg-grey-10 cursor-pointer full-height"
+                  style="transition:border-color .15s"
+                  @mouseenter="$event.currentTarget.style.borderColor='#3b82f6'"
+                  @mouseleave="$event.currentTarget.style.borderColor=''"
+                  @click="loadPreset(i)">
+                  <q-card-section class="q-py-sm q-px-md">
+                    <div class="text-subtitle2 text-grey-2" style="font-size:13px">
+                      {{ i + 1 }}. {{ p.name }}
+                    </div>
+                    <div class="text-caption text-grey-6" style="font-size:11px">{{ p.desc }}</div>
+                    <div class="text-caption text-grey-7 q-mt-xs" style="font-size:10px">
+                      <template v-if="p.components">
+                        <q-icon name="widgets" size="12px"></q-icon> {{ p.components.length }} components
+                        &nbsp;<q-icon name="link" size="12px"></q-icon> {{ p.connections.length }} connections
+                      </template>
+                      <template v-else-if="p.floors">
+                        <q-icon name="layers" size="12px"></q-icon> {{ Object.keys(p.floors).length }} floors
+                      </template>
+                    </div>
+                  </q-card-section>
+                </q-card>
+              </div>
+            </div>
+          </q-card-section>
+        </q-card>
+      </q-dialog>
+
+    </q-layout>
+  </div>
+
+  <script type="module">
+    import { PRESETS } from './static/js/presets.js';
+
+    // Load both engines dynamically
+    let HortPlannerEngine = null, HomePlannerEngine = null;
+    const engineReady = Promise.all([
+      import('./static/js/engine.js').then(m => { HortPlannerEngine = m.HortPlannerEngine; }),
+      import('./static/js/engine-home.js').then(m => { HomePlannerEngine = m.HomePlannerEngine; }),
+    ]).catch(err => console.error('Engine load failed:', err));
+
+    const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
+
+    const HORT_CATALOG = [
+      { label: 'Machine Horts', icon: 'dns', items: [
+        { type: 'mac-mini', label: 'SnackMini', icon: 'computer', color: '#94a3b8', desc: 'Compact desktop server' },
+        { type: 'macbook', label: 'SnackBook Pro', icon: 'laptop_mac', color: '#71717a', desc: 'Portable workstation' },
+        { type: 'rpi', label: 'Strawberry Pi', icon: 'developer_board', color: '#22c55e', desc: 'Single-board computer' },
+        { type: 'cloud-vm', label: 'Cloud VM', icon: 'cloud', color: '#60a5fa', desc: 'Cloud virtual machine' },
+      ]},
+      { label: 'Sub-Horts', icon: 'inventory_2', items: [
+        { type: 'docker', label: 'Docker', icon: 'view_in_ar', color: '#38bdf8', desc: 'Docker container sandbox' },
+        { type: 'virtual-hort', label: 'Virtual Hort', icon: 'bubble_chart', color: '#a855f7', desc: 'Logical boundary' },
+      ]},
+      { label: 'Llmings', icon: 'build', items: [
+        { type: 'mcp-server', label: 'MCP Server', icon: 'hub', color: '#f59e0b', desc: 'MCP protocol server' },
+        { type: 'llming', label: 'LLMing', icon: 'psychology', color: '#8b5cf6', desc: 'AI tool provider' },
+        { type: 'program', label: 'Program', icon: 'terminal', color: '#10b981', desc: 'Script / pipeline step' },
+      ]},
+      { label: 'Security', icon: 'security', items: [
+        { type: 'agent', label: 'Agent', icon: 'smart_toy', color: '#06b6d4', desc: 'AI controller (central hub)' },
+        { type: 'fence', label: 'Fence', icon: 'fence', color: '#f97316', desc: 'Virtual security boundary' },
+      ]},
+    ];
+
+    const TYPE_COLORS = {
+      'mac-mini': 'blue-grey', 'macbook': 'grey', 'rpi': 'green',
+      'cloud-vm': 'blue', 'docker': 'cyan', 'virtual-hort': 'purple',
+      'mcp-server': 'amber', 'llming': 'deep-purple', 'program': 'teal',
+      'agent': 'cyan', 'fence': 'orange',
+      'wall': 'blue-grey', 'door-s': 'brown', 'door-n': 'brown',
+      'window-s': 'light-blue', 'window-l': 'light-blue',
+    };
+
+    const SECURITY_LEVELS = [
+      { value: 'none', label: 'None', color: '#eab308', icon: 'link' },
+      { value: 'read', label: 'Read', color: '#22c55e', icon: 'visibility' },
+      { value: 'write', label: 'Write', color: '#eab308', icon: 'edit' },
+      { value: 'send', label: 'Send', color: '#f97316', icon: 'send' },
+      { value: 'destroy', label: 'Destroy', color: '#ef4444', icon: 'delete_forever' },
+    ];
+
+    const TRUST_LEVELS = [
+      { value: null, label: 'Not set', color: 'grey' },
+      { value: 'trusted', label: 'Trusted', color: 'green' },
+      { value: 'sandboxed', label: 'Sandboxed', color: 'amber' },
+      { value: 'untrusted', label: 'Untrusted', color: 'red' },
+    ];
+
+    const app = createApp({
+      setup() {
+        const canvasWrap = ref(null);
+        const labelOverlay = ref(null);
+        const leftOpen = ref(false);
+        const rightOpen = ref(false);
+        const viewMode = ref('isometric');
+        const selected = ref(null);
+        const selectedConn = ref(null);
+        const activeTool = ref(null);
+        const levelStack = ref([]);
+        const componentCount = ref(0);
+        const connectionCount = ref(0);
+        const presetsDialog = ref(false);
+        const activeMode = ref('hort');   // 'hort' or 'home'
+        const activeFloor = ref(0);
+        const floorList = ref([0]);
+        let engine = null;
+
+        // Dynamic catalog and presets based on active mode
+        const catalog = computed(() => {
+          if (activeMode.value === 'home' && engine?.getCatalog) return engine.getCatalog();
+          return HORT_CATALOG;
+        });
+        const presetList = computed(() => {
+          return activeMode.value === 'home' ? (engine?.getPresets?.() || []) : PRESETS;
+        });
+
+        const callbacks = {
+          onSelect(data) { selected.value = { ...data }; selectedConn.value = null; rightOpen.value = true; },
+          onDeselect() { selected.value = null; },
+          onSelectConnection(data) { selectedConn.value = { ...data }; selected.value = null; rightOpen.value = true; },
+          onDeselectConnection() { selectedConn.value = null; },
+          onLevelChange(stack) { levelStack.value = stack.map(s => ({ ...s })); },
+          onCountChange(comps, conns) { componentCount.value = comps; connectionCount.value = conns; },
+          onFloorChange(idx) { activeFloor.value = idx; },
+        };
+
+        // ── State persistence (localStorage) ──
+        const STORAGE_KEY = 'hortplanner-state';
+        let _lastPresetIdx = -1;
+        let _saveTimer = null;
+
+        function saveState() {
+          if (!engine) return;
+          const cam = engine.camera;
+          const ctrl = engine.controls;
+          const state = {
+            mode: activeMode.value,
+            presetIndex: _lastPresetIdx,
+            viewMode: viewMode.value,
+            floor: activeFloor.value,
+            camera: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+            target: { x: ctrl.target.x, y: ctrl.target.y, z: ctrl.target.z },
+            zoom: cam.zoom,
+          };
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+        }
+
+        function debouncedSave() {
+          clearTimeout(_saveTimer);
+          _saveTimer = setTimeout(saveState, 500);
+        }
+
+        function loadSavedState() {
+          try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
+        }
+
+        onMounted(async () => {
+          await engineReady;
+          const params = new URLSearchParams(window.location.search);
+          const saved = loadSavedState();
+
+          // URL params override saved state
+          const urlMode = params.get('mode');
+          const urlPreset = params.get('preset');
+          const mode = urlMode || saved?.mode || 'hort';
+          activeMode.value = mode;
+          createEngine(mode);
+
+          // Load preset
+          const presetIdx = urlPreset !== null ? parseInt(urlPreset) : saved?.presetIndex ?? -1;
+          if (presetIdx >= 0) {
+            if (engine?._ready) {
+              await engine._ready;
+            }
+            loadPreset(presetIdx);
+          }
+
+          // Restore camera state (after a short delay for preset to render)
+          if (!urlMode && !urlPreset && saved) {
+            setTimeout(() => {
+              if (!engine) return;
+              if (saved.viewMode) { viewMode.value = saved.viewMode; engine.setViewMode?.(saved.viewMode); }
+              if (saved.floor !== undefined) { activeFloor.value = saved.floor; engine.setActiveFloor?.(saved.floor); }
+              if (saved.camera && saved.target) {
+                engine.camera.position.set(saved.camera.x, saved.camera.y, saved.camera.z);
+                engine.controls.target.set(saved.target.x, saved.target.y, saved.target.z);
+                engine.camera.zoom = saved.zoom || 1;
+                engine.camera.updateProjectionMatrix();
+                engine.camera.lookAt(engine.controls.target);
+              }
+            }, 500);
+          }
+
+          // Save on camera changes
+          engine?.controls?.addEventListener?.('change', debouncedSave);
+
+          document.addEventListener('keydown', onKey);
+
+          window.__hortplanner = {
+            get engine() { return engine; },
+            switchMode: (m) => switchMode(m),
+            loadPreset: (i) => loadPreset(i),
+          };
+        });
+
+        function createEngine(mode) {
+          if (engine) { engine.dispose(); engine = null; }
+          // Remove old canvas elements left by the previous engine
+          if (canvasWrap.value) {
+            canvasWrap.value.querySelectorAll('canvas').forEach(c => c.remove());
+          }
+          if (labelOverlay.value) labelOverlay.value.innerHTML = '';
+          selected.value = null; selectedConn.value = null;
+
+          if (mode === 'home' && HomePlannerEngine && canvasWrap.value) {
+            engine = new HomePlannerEngine(canvasWrap.value, callbacks, labelOverlay.value);
+            if (engine.getFloorIndices) floorList.value = engine.getFloorIndices();
+          } else if (HortPlannerEngine && canvasWrap.value) {
+            engine = new HortPlannerEngine(canvasWrap.value, callbacks, labelOverlay.value);
+          }
+        }
+
+        function switchMode(mode) {
+          activeTool.value = null;
+          createEngine(mode);
+          engine?.controls?.addEventListener?.('change', debouncedSave);
+          saveState();
+        }
+
+        onBeforeUnmount(() => {
+          engine?.dispose();
+          document.removeEventListener('keydown', onKey);
+        });
+
+        function onKey(e) {
+          if (e.key === 'Escape') { activeTool.value = null; engine?.setActiveTool?.(null); }
+          if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
+          if (e.key === 'h' || e.key === 'H') goHome();
+          if (e.key === 'r' || e.key === 'R') { if (activeMode.value === 'home') rotateSelected(); }
+          if (e.key === 'f' || e.key === 'F') { if (activeMode.value === 'home') flipSelected(); }
+          if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); engine?.undo?.(); }
+          if ((e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) ||
+              (e.key === 'y' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); engine?.redo?.(); }
+        }
+
+        function setTool(type) {
+          // Toggle tool — click same tool again to deselect
+          const newTool = activeTool.value === type ? null : type;
+          activeTool.value = newTool;
+          engine?.setActiveTool?.(newTool);
+          // Open right panel to show tool info in home mode
+          if (newTool && activeMode.value === 'home') { selected.value = null; selectedConn.value = null; rightOpen.value = true; }
+        }
+
+        function onDragStart(event, type) {
+          event.dataTransfer.setData('text/plain', type);
+          event.dataTransfer.effectAllowed = 'copy';
+          document.body.dataset.hortDragType = type;
+        }
+        function onDragOver(event) { event.dataTransfer.dropEffect = 'copy'; }
+        function onDrop(event) {
+          const type = event.dataTransfer.getData('text/plain');
+          if (type) engine?.handleDrop?.(type, event.clientX, event.clientY);
+        }
+
+        function onViewChange(mode) { engine?.setViewMode?.(mode); saveState(); }
+        function typeColor(t) { return TYPE_COLORS[t] || 'grey'; }
+
+        function deleteSelected() {
+          if (!selected.value) return;
+          if (activeMode.value === 'home') { engine?.removeSelected?.(); }
+          else { engine?.removeComponent?.(selected.value.id); }
+          selected.value = null;
+          rightOpen.value = false;
+        }
+
+        function rotateSelected() {
+          engine?.rotateSelected?.();
+        }
+
+        function flipSelected() {
+          engine?.flipSelected?.();
+        }
+
+        function enterSelected() {
+          if (selected.value?.isContainer) engine?.enterComponent?.(selected.value.id);
+        }
+
+        function doUndo() { engine?.undo?.(); }
+        function doRedo() { engine?.redo?.(); }
+
+        function navigateToRoot() { engine?.navigateToRoot?.(); }
+        function goHome() { engine?.goHome?.(); }
+        function navigateToLevel(id) { engine?.navigateToLevel?.(id); }
+        function updateProp(key, val) {
+          if (selected.value) engine?.updateProperty?.(selected.value.id, key, val);
+        }
+        function loadPreset(index) {
+          const list = activeMode.value === 'home' ? (engine?.getPresets?.() || []) : PRESETS;
+          const preset = list[index];
+          if (!preset) return;
+          _lastPresetIdx = index;
+          engine?.loadPreset?.(preset);
+          presetsDialog.value = false;
+          if (engine?.getFloorIndices) floorList.value = engine.getFloorIndices();
+          setTimeout(saveState, 1000); // save after render settles
+        }
+
+        function selectById(id) { engine?.selectComponent?.(id); }
+
+        function setConnSecurity(level) {
+          if (!selectedConn.value) return;
+          engine?.setConnectionSecurity?.(selectedConn.value.id, level);
+          selectedConn.value = { ...selectedConn.value, security: level };
+        }
+
+        function setTrust(trust) {
+          if (!selected.value) return;
+          engine?.setTrust?.(selected.value.id, trust);
+          selected.value = { ...selected.value, trust };
+        }
+
+        function deleteConnection() {
+          if (!selectedConn.value) return;
+          engine?.removeConnection?.(selectedConn.value.id);
+          selectedConn.value = null;
+        }
+
+        function securityColor(level) {
+          return SECURITY_LEVELS.find(s => s.value === level)?.color || '#eab308';
+        }
+
+        function setFloor(idx) {
+          engine?.setActiveFloor?.(idx);
+          activeFloor.value = idx;
+          saveState();
+        }
+
+        function addFloor() {
+          const indices = engine?.getFloorIndices?.() || [0];
+          const next = Math.max(...indices) + 1;
+          engine?.addFloor?.(next);
+          floorList.value = engine?.getFloorIndices?.() || [0];
+          setFloor(next);
+        }
+
+        return {
+          canvasWrap, labelOverlay, leftOpen, rightOpen, viewMode, selected, selectedConn, activeTool,
+          levelStack, componentCount, connectionCount,
+          presetsDialog, presetList, catalog,
+          activeMode, switchMode, activeFloor, floorList, setFloor, addFloor,
+          setTool, onDragStart, onDragOver, onDrop,
+          onViewChange, typeColor,
+          deleteSelected, enterSelected, rotateSelected, flipSelected, navigateToRoot, navigateToLevel, updateProp, loadPreset, goHome, selectById,
+          doUndo, doRedo,
+          setConnSecurity, setTrust, deleteConnection, securityColor,
+          SECURITY_LEVELS, TRUST_LEVELS,
+        };
+      },
+    });
+
+    app.use(Quasar, { config: { dark: true } });
+    app.mount('#app');
+  </script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+{
+  "name": "Small House",
+  "desc": "90 sqm single floor, living, kitchen, 2 bedrooms, bathroom, hallway",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 40, 0],
+        [0, 0, 0, 72],
+        [40, 0, 40, 72],
+        [0, 72, 40, 72],
+        [16, 28, 16, 72],
+        [0, 28, 16, 28],
+        [16, 0, 16, 28],
+        [16, 28, 40, 28],
+        [0, 56, 16, 56],
+        [16, 56, 40, 56],
+        [28, 56, 28, 72]
+      ],
+      "doors": [
+        { "x": 20, "z": 72, "o": "h", "type": "door-n" },
+        { "x": 8, "z": 28, "o": "h", "type": "door-n" },
+        { "x": 16, "z": 12, "o": "v", "type": "door-s" },
+        { "x": 8, "z": 56, "o": "h", "type": "door-n" },
+        { "x": 24, "z": 56, "o": "h", "type": "door-n" },
+        { "x": 28, "z": 62, "o": "v", "type": "door-s" }
+      ],
+      "windows": [
+        { "x": 4, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 28, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 0, "z": 38, "o": "v", "type": "window-l" },
+        { "x": 40, "z": 38, "o": "v", "type": "window-l" },
+        { "x": 0, "z": 50, "o": "v", "type": "window-s" }
+      ],
+      "furniture": [
+        { "type": "bed-double", "x": 1, "z": 1, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 1, "rot": 0 },
+        { "type": "wardrobe", "x": 1, "z": 14, "rot": 0 },
+        { "type": "bed-single", "x": 17, "z": 1, "rot": 0 },
+        { "type": "desk", "x": 23, "z": 1, "rot": 0 },
+        { "type": "wardrobe", "x": 17, "z": 12, "rot": 0 },
+        { "type": "bookshelf", "x": 35, "z": 1, "rot": 0 },
+        { "type": "bookshelf", "x": 1, "z": 29, "rot": 0 },
+        { "type": "tv", "x": 1, "z": 32, "rot": 0 },
+        { "type": "coffee-table", "x": 1, "z": 35, "rot": 0 },
+        { "type": "sofa", "x": 1, "z": 42, "rot": 0 },
+        { "type": "armchair", "x": 8, "z": 42, "rot": 0 },
+        { "type": "counter", "x": 37, "z": 29, "rot": 90 },
+        { "type": "stove", "x": 37, "z": 32, "rot": 90 },
+        { "type": "sink", "x": 37, "z": 35, "rot": 90 },
+        { "type": "fridge", "x": 36, "z": 38, "rot": 0 },
+        { "type": "dining-table", "x": 20, "z": 38, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 35, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 45, "rot": 180 },
+        { "type": "chair", "x": 17, "z": 40, "rot": 270 },
+        { "type": "chair", "x": 25, "z": 40, "rot": 90 },
+        { "type": "toilet", "x": 29, "z": 57, "rot": 0 },
+        { "type": "bathtub", "x": 29, "z": 62, "rot": 0 },
+        { "type": "basin", "x": 35, "z": 57, "rot": 0 }
+      ]
+    }
+  }
+}
