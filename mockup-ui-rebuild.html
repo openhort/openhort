@@ -166,7 +166,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .edit-mode .widget .size-label{display:flex;position:absolute;bottom:4px;right:4px;padding:2px 7px;background:rgba(0,0,0,.6);border-radius:6px;font-size:9px;color:var(--dim);z-index:4;pointer-events:none}
 
 .term-output{font-family:'SF Mono','Fira Code',monospace;font-size:10px;color:#c8d0dc;padding:8px;line-height:1.4;white-space:pre-wrap;word-break:break-all;flex:1;overflow:hidden;background:rgba(0,0,0,.3);border-radius:6px;text-align:left;width:100%}
-.term-state{display:flex;align-items:center;gap:6px;padding:4px 8px;font-size:10px;font-weight:600}
+.term-state{display:flex;align-items:center;gap:6px;padding:4px 8px;font-size:12px;font-weight:600}
 .pdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 .pdot.thinking{background:var(--purple);animation:pulse 1s infinite}
 .pdot.idle{background:var(--dim)}
@@ -385,10 +385,94 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .size-opt{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:var(--bg);border:1px solid var(--border);color:var(--dim);transition:all .15s}
 .size-opt:hover{border-color:var(--primary);color:var(--text)}
 .size-opt.active{background:var(--primary);border-color:var(--primary);color:#fff}
+
+/* === Simulation Toolbar === */
+.sim-toolbar{position:fixed;top:0;left:0;right:0;z-index:999;display:flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(10,14,26,.88);border-bottom:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px);font-size:11px;color:var(--dim);transition:transform .2s ease;flex-wrap:wrap}
+.sim-toolbar.collapsed{transform:translateY(-100%)}
+.sim-toggle{position:fixed;top:4px;right:10px;z-index:1000;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--dim);font-size:14px;transition:all .15s}
+.sim-toggle:hover{background:rgba(255,255,255,.12);color:var(--text)}
+.sim-toggle.active{top:36px}
+.sim-btn{padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:var(--dim);font-size:10px;cursor:pointer;transition:all .12s;white-space:nowrap;font-weight:500}
+.sim-btn:hover{background:rgba(255,255,255,.1);color:var(--text);border-color:rgba(255,255,255,.2)}
+.sim-btn.active{background:rgba(59,130,246,.15);border-color:var(--primary);color:var(--primary)}
+.sim-btn.warn{background:rgba(239,68,68,.1);border-color:var(--danger);color:var(--danger)}
+.sim-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,.25);margin-left:4px}
+.sim-sep{width:1px;height:18px;background:rgba(255,255,255,.08);margin:0 2px}
+
+/* === Widget data-change pulse === */
+@keyframes data-pulse{0%{transform:scale(1)}50%{transform:scale(1.02)}100%{transform:scale(1)}}
+.widget.data-changed{animation:data-pulse .3s ease-out}
+
+/* === Claude terminal pulsing purple glow === */
+.widget.claude-thinking{animation:claude-pulse 2s ease-in-out infinite!important;border-color:rgba(167,139,250,.6)!important}
+@keyframes claude-pulse{
+  0%,100%{box-shadow:0 0 15px rgba(167,139,250,.3),0 0 30px rgba(167,139,250,.15)}
+  50%{box-shadow:0 0 25px rgba(167,139,250,.6),0 0 50px rgba(167,139,250,.3)}
+}
+
+/* === Widget icon badge accent colors === */
+.widget-icon-badge.accent-orange{color:#f59e0b}
+.widget-icon-badge.accent-purple{color:#a855f7}
+.widget-icon-badge.accent-blue{color:#3b82f6}
+.widget-icon-badge.accent-cyan{color:#06b6d4}
+.widget-icon-badge.accent-n8n-orange{color:#ff6d00}
+.widget-icon-badge.accent-red{color:#ef4444}
+.widget-icon-badge.accent-green{color:#22c55e}
+.widget-icon-badge.accent-amber{color:#f59e0b}
+.widget-icon-badge.accent-codewatch{color:#a855f7}
+.widget-icon-badge.accent-sysmon{color:#06b6d4}
+.widget-icon-badge.accent-clip{color:#3b82f6}
+
+/* === Camera canvas styles === */
+.cam-canvas{width:100%;height:100%;border-radius:6px;image-rendering:pixelated}
+
+/* === Music progress bar seekable === */
+.music-progress{position:relative;cursor:pointer;flex:1;height:6px}
+.music-progress-bg{position:absolute;inset:0;background:rgba(255,255,255,.12);border-radius:3px}
+.music-progress-fill{position:absolute;left:0;top:0;bottom:0;background:var(--purple);border-radius:3px;transition:width .1s linear}
+.music-progress-dot{position:absolute;top:50%;width:10px;height:10px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);opacity:0;transition:opacity .15s}
+.music-progress:hover .music-progress-dot{opacity:1}
+
+/* === LLming Lens mini screenshots === */
+.lens-mini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:6px;padding:6px;overflow:hidden}
+.lens-win{width:30%;height:85%;border-radius:4px;overflow:hidden;border:1px solid rgba(255,255,255,.08);position:relative}
+/* IDE mini */
+.lens-ide{background:#1e1e2e}
+.lens-ide-sidebar{position:absolute;left:0;top:0;bottom:0;width:18%;background:#181825}
+.lens-ide-sidebar span{display:block;width:60%;height:2px;border-radius:1px;margin:4px auto 0;opacity:.3}
+.lens-ide-code{position:absolute;left:20%;top:12%;right:4%;display:flex;flex-direction:column;gap:2px}
+.lens-ide-code span{display:block;height:1.5px;border-radius:1px;opacity:.5}
+/* Browser mini */
+.lens-browser{background:#1a1a2e}
+.lens-browser-tab{position:absolute;top:0;left:0;right:0;height:14%;background:#111;display:flex;align-items:center;padding:0 3px;gap:2px}
+.lens-browser-tab span{width:30%;height:50%;border-radius:1px;background:rgba(255,255,255,.08)}
+.lens-browser-tab span:first-child{background:rgba(59,130,246,.25)}
+.lens-browser-content{position:absolute;top:16%;left:4%;right:4%;display:flex;flex-direction:column;gap:3px}
+.lens-browser-content span{display:block;height:1.5px;border-radius:1px;background:rgba(255,255,255,.15)}
+.lens-browser-content .img-placeholder{width:70%;height:12px;border-radius:2px;background:rgba(59,130,246,.08);margin-top:2px}
+/* Terminal mini */
+.lens-term{background:#0d0d0d}
+.lens-term-lines{position:absolute;top:8%;left:6%;right:6%;display:flex;flex-direction:column;gap:2px}
+.lens-term-lines span{display:block;height:1.5px;border-radius:1px}
 </style>
 </head>
 <body>
 <div id="app">
+  <!-- Simulation Toolbar -->
+  <div class="sim-toggle" :class="{active:!simCollapsed}" @click="simCollapsed=!simCollapsed">
+    <i class="ph ph-flask"></i>
+  </div>
+  <div class="sim-toolbar" :class="{collapsed:simCollapsed}">
+    <span class="sim-label">SIM</span>
+    <button class="sim-btn" @click="simClaudeFinish">Claude finishes</button>
+    <button class="sim-btn" :class="{warn:simMotionActive}" @click="simMotionDetected">Motion detected</button>
+    <button class="sim-btn" :class="{active:simWashingMachine}" @click="simWashingMachine=!simWashingMachine">Washing {{ simWashingMachine ? 'ON' : 'OFF' }}</button>
+    <div class="sim-sep"></div>
+    <button class="sim-btn" @click="simSunToggle">{{ simIsDaytime ? 'Sunset' : 'Sunrise' }}</button>
+    <button class="sim-btn" @click="simNewEmail">New email</button>
+    <button class="sim-btn" :class="{warn:simN8nFail}" @click="simWorkflowFail">Workflow fails</button>
+  </div>
+
   <div class="toast" v-if="toast">{{ toast }}</div>
 
   <!-- Navbar -->
@@ -469,7 +553,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <div v-if="dragGhost" class="drag-ghost" :style="dragGhost"></div>
           <!-- All widgets with explicit or auto positioning -->
           <template v-for="(w,wi) in getWidgets(desk)" :key="w.id">
-                <div class="widget" :class="['w-'+w.size,{selected:selectedWidget===w.id,dragging:dragW===w}]"
+                <div class="widget" :class="['w-'+w.size,{selected:selectedWidget===w.id,dragging:dragW===w,'claude-thinking':w.type==='terminal'&&w.c.state==='thinking'}]"
                      :style="widgetGridStyle(w,desk)"
                      :draggable="editMode" @dragstart="onDragStart($event,w,desk)" @dragover.prevent @drop="onDrop($event,w,desk)"
                      @click="!editMode&&onWidgetClick(w)" @contextmenu.prevent.stop="onWCtx($event,w,desk)"
@@ -520,8 +604,49 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                   </div>
                 </template>
                 <template v-else-if="w.extId==='llming-lens'">
-                  <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:6px;background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);border-radius:6px;padding:6px">
-                    <div v-for="wn in ['VS Code','Chrome','Terminal']" :key="wn" style="width:30%;height:85%;background:#111;border-radius:4px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--dim)">{{ wn }}</div>
+                  <div class="lens-mini" style="background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)">
+                    <!-- IDE mini -->
+                    <div class="lens-win lens-ide">
+                      <div class="lens-ide-sidebar">
+                        <span style="background:#007acc"></span>
+                        <span style="background:#888"></span>
+                        <span style="background:#888"></span>
+                        <span style="background:#888"></span>
+                      </div>
+                      <div class="lens-ide-code">
+                        <span style="width:70%;background:#569cd6"></span>
+                        <span style="width:50%;background:#d4d4d4"></span>
+                        <span style="width:85%;background:#ce9178"></span>
+                        <span style="width:40%;background:#4ec9b0"></span>
+                        <span style="width:65%;background:#d4d4d4"></span>
+                        <span style="width:55%;background:#dcdcaa"></span>
+                        <span style="width:75%;background:#569cd6"></span>
+                        <span style="width:30%;background:#6a9955"></span>
+                      </div>
+                    </div>
+                    <!-- Browser mini -->
+                    <div class="lens-win lens-browser">
+                      <div class="lens-browser-tab"><span></span><span></span></div>
+                      <div class="lens-browser-content">
+                        <span style="width:60%"></span>
+                        <span style="width:80%"></span>
+                        <div class="img-placeholder"></div>
+                        <span style="width:90%"></span>
+                        <span style="width:45%"></span>
+                      </div>
+                    </div>
+                    <!-- Terminal mini -->
+                    <div class="lens-win lens-term">
+                      <div class="lens-term-lines">
+                        <span style="width:40%;background:rgba(0,255,100,.4)"></span>
+                        <span style="width:70%;background:rgba(255,255,255,.15)"></span>
+                        <span style="width:55%;background:rgba(0,255,100,.3)"></span>
+                        <span style="width:80%;background:rgba(255,255,255,.12)"></span>
+                        <span style="width:30%;background:rgba(0,255,100,.4)"></span>
+                        <span style="width:65%;background:rgba(255,255,255,.1)"></span>
+                        <span style="width:45%;background:rgba(0,255,100,.25)"></span>
+                      </div>
+                    </div>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='process-manager'">
@@ -570,10 +695,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                       <div style="font-size:11px;color:rgba(255,255,255,.5)">M83 &mdash; Hurry Up, We're Dreaming</div>
                       <div style="display:flex;align-items:center;gap:14px;margin-top:10px">
                         <i class="ph ph-skip-back" style="font-size:16px;color:rgba(255,255,255,.4);cursor:pointer"></i>
-                        <div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;cursor:pointer"><i class="ph-fill ph-pause" style="font-size:16px;color:#fff"></i></div>
+                        <div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;cursor:pointer" @click.stop="musicPlaying=!musicPlaying"><i :class="musicPlaying?'ph-fill ph-pause':'ph-fill ph-play'" style="font-size:16px;color:#fff"></i></div>
                         <i class="ph ph-skip-forward" style="font-size:16px;color:rgba(255,255,255,.4);cursor:pointer"></i>
-                        <div style="flex:1;height:3px;background:rgba(255,255,255,.12);border-radius:2px;margin-left:4px"><div style="width:65%;height:100%;background:var(--purple);border-radius:2px"></div></div>
-                        <span style="font-size:9px;color:rgba(255,255,255,.3)">2:47</span>
+                        <div class="music-progress" @click.stop="seekMusic($event)">
+                          <div class="music-progress-bg"></div>
+                          <div class="music-progress-fill" :style="{width:musicPct+'%'}"></div>
+                          <div class="music-progress-dot" :style="{left:musicPct+'%'}"></div>
+                        </div>
+                        <span style="font-size:9px;color:rgba(255,255,255,.3)">{{ musicTimeStr }}</span>
                       </div>
                     </div>
                   </div>
@@ -596,53 +725,46 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                 </template>
                 <template v-else-if="w.extId==='email'">
                   <div style="text-align:left;width:100%">
-                    <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:4px"><span style="font-size:24px;font-weight:700;color:var(--accent)">7</span><span style="font-size:10px;color:var(--dim)">unread</span></div>
-                    <div style="font-size:10px;border-top:1px solid var(--border);padding:3px 0"><div style="color:var(--dim)">Alex Chen</div><div style="color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Re: Deployment pipeline update</div></div>
-                    <div style="font-size:10px;border-top:1px solid var(--border);padding:3px 0"><div style="color:var(--dim)">Sarah Kim</div><div style="color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Q2 OKR draft for review</div></div>
-                    <div style="font-size:10px;border-top:1px solid var(--border);padding:3px 0"><div style="color:var(--dim)">GitHub</div><div style="color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">[openhort] PR #42 merged</div></div>
+                    <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:4px"><span style="font-size:24px;font-weight:700;color:var(--accent)">{{ unreadCount }}</span><span style="font-size:11px;color:var(--dim)">unread</span></div>
+                    <template v-for="ml in emails.slice(0,3)" :key="ml.id">
+                      <div style="font-size:11px;border-top:1px solid var(--border);padding:3px 0"><div style="color:var(--dim)">{{ ml.from }}</div><div :style="{color:ml.unread?'var(--text)':'var(--dim)',fontWeight:ml.unread?500:400,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}">{{ ml.subject }}</div></div>
+                    </template>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='n8n'">
                   <div style="text-align:left;width:100%">
                     <div style="display:flex;gap:14px;margin-bottom:6px">
-                      <div style="text-align:center"><span style="font-size:20px;font-weight:700;color:var(--success)">12</span><div style="font-size:9px;color:var(--dim)">passed</div></div>
-                      <div style="text-align:center"><span style="font-size:20px;font-weight:700;color:var(--danger)">1</span><div style="font-size:9px;color:var(--dim)">failed</div></div>
-                      <div style="text-align:center"><span style="font-size:20px;font-weight:700;color:var(--accent)">3</span><div style="font-size:9px;color:var(--dim)">active</div></div>
+                      <div style="text-align:center"><span style="font-size:20px;font-weight:700;color:var(--success)">{{ n8nPassed }}</span><div style="font-size:10px;color:var(--dim)">passed</div></div>
+                      <div style="text-align:center"><span style="font-size:20px;font-weight:700;color:var(--danger)">{{ n8nFailed }}</span><div style="font-size:10px;color:var(--dim)">failed</div></div>
+                      <div style="text-align:center"><span style="font-size:20px;font-weight:700;color:var(--accent)">{{ n8nRunning }}</span><div style="font-size:10px;color:var(--dim)">active</div></div>
                     </div>
-                    <div style="font-size:10px;color:var(--dim)">
-                      <div style="display:flex;align-items:center;gap:4px;padding:2px 0"><span class="pdot" style="background:var(--danger);width:5px;height:5px"></span> Deploy webhook &mdash; failed 3m ago</div>
-                      <div style="display:flex;align-items:center;gap:4px;padding:2px 0"><span class="pdot" style="background:var(--success);width:5px;height:5px"></span> Backup sync &mdash; 12m ago</div>
-                      <div style="display:flex;align-items:center;gap:4px;padding:2px 0"><span class="pdot" style="background:var(--success);width:5px;height:5px"></span> Slack notify &mdash; 18m ago</div>
+                    <div style="font-size:11px;color:var(--dim)">
+                      <template v-for="wf in n8nWorkflows.slice(0,3)" :key="wf.id">
+                        <div style="display:flex;align-items:center;gap:4px;padding:2px 0"><span class="pdot" :style="{background:wf.status==='failed'?'var(--danger)':wf.status==='running'?'var(--accent)':'var(--success)',width:'5px',height:'5px'}"></span> {{ wf.name }} &mdash; {{ wf.time }}</div>
+                      </template>
                     </div>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='cameras'">
                   <div style="width:100%;display:flex;gap:4px;height:100%">
-                    <div style="flex:1;background:var(--bg);border-radius:6px;border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative">
-                      <i class="ph ph-security-camera" style="font-size:22px;color:var(--dim);opacity:.35"></i>
-                      <span style="font-size:9px;color:var(--dim);margin-top:4px">Front Door</span>
-                      <span style="position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:var(--danger);animation:pulse 1s infinite" title="Motion"></span>
-                    </div>
-                    <div style="flex:1;background:var(--bg);border-radius:6px;border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center">
-                      <i class="ph ph-security-camera" style="font-size:22px;color:var(--dim);opacity:.35"></i>
-                      <span style="font-size:9px;color:var(--dim);margin-top:4px">Backyard</span>
-                    </div>
-                    <div style="flex:1;background:var(--bg);border-radius:6px;border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center">
-                      <i class="ph ph-security-camera" style="font-size:22px;color:var(--dim);opacity:.35"></i>
-                      <span style="font-size:9px;color:var(--dim);margin-top:4px">Garage</span>
+                    <div v-for="(cam,ci) in [{name:'Front Door',key:'front'},{name:'Backyard',key:'back'},{name:'Garage',key:'garage'}]" :key="cam.key"
+                         style="flex:1;border-radius:6px;overflow:hidden;position:relative">
+                      <canvas :ref="el=>setCamCanvas(w.id+'_'+cam.key,el)" class="cam-canvas"></canvas>
+                      <span style="position:absolute;bottom:2px;left:3px;font-size:8px;color:rgba(0,255,100,.6);font-family:monospace;text-shadow:0 0 4px rgba(0,0,0,.8)">{{ cam.name }}</span>
+                      <span v-if="cam.key==='front'&&simMotionActive" style="position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--danger);animation:pulse 1s infinite"></span>
                     </div>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='energy'">
                   <div style="text-align:left;width:100%">
                     <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-                      <div><div style="font-size:10px;color:var(--success)"><i class="ph ph-sun" style="font-size:12px"></i> Solar</div><div style="font-size:22px;font-weight:700;color:var(--success)">3.2 kW</div></div>
+                      <div><div style="font-size:11px;color:var(--success)"><i class="ph ph-sun" style="font-size:12px"></i> Solar</div><div style="font-size:22px;font-weight:700;color:var(--success)">{{ energySolar.toFixed(1) }} kW</div></div>
                       <div style="font-size:18px;color:var(--dim);align-self:center"><i class="ph ph-arrow-right"></i></div>
-                      <div style="text-align:right"><div style="font-size:10px;color:var(--accent)"><i class="ph ph-plug" style="font-size:12px"></i> Usage</div><div style="font-size:22px;font-weight:700;color:var(--accent)">2.1 kW</div></div>
+                      <div style="text-align:right"><div style="font-size:11px;color:var(--accent)"><i class="ph ph-plug" style="font-size:12px"></i> Usage</div><div style="font-size:22px;font-weight:700;color:var(--accent)">{{ energyUsage.toFixed(1) }} kW</div></div>
                     </div>
-                    <div style="height:3px;background:var(--border);border-radius:2px;margin-bottom:6px"><div style="width:60%;height:100%;background:linear-gradient(to right,var(--success),var(--accent));border-radius:2px"></div></div>
-                    <div style="font-size:10px;color:var(--dim)">
-                      <div style="display:flex;justify-content:space-between"><span>Grid export</span><span style="color:var(--success)">+1.1 kW</span></div>
+                    <div style="height:3px;background:var(--border);border-radius:2px;margin-bottom:6px"><div :style="{width:energyBarPct+'%',height:'100%',background:'linear-gradient(to right,var(--success),var(--accent))',borderRadius:'2px',transition:'width .5s'}"></div></div>
+                    <div style="font-size:11px;color:var(--dim)">
+                      <div style="display:flex;justify-content:space-between"><span>Grid export</span><span :style="{color:energyExport>=0?'var(--success)':'var(--danger)'}">{{ energyExport>=0?'+':'' }}{{ energyExport.toFixed(1) }} kW</span></div>
                       <div style="display:flex;justify-content:space-between"><span>Battery</span><span>87% <i class="ph ph-arrow-up" style="font-size:10px"></i></span></div>
                     </div>
                   </div>
@@ -650,11 +772,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                 <template v-else-if="w.extId==='weather'">
                   <div style="text-align:left;width:100%">
                     <div style="display:flex;align-items:flex-start;gap:8px">
-                      <i class="ph ph-cloud-sun" style="font-size:38px;color:#f59e0b;flex-shrink:0"></i>
-                      <div><div style="font-size:32px;font-weight:200;color:var(--text);line-height:1">18°</div><div style="font-size:10px;color:var(--dim)">Partly cloudy</div></div>
+                      <i :class="simIsDaytime?'ph ph-cloud-sun':'ph ph-moon-stars'" :style="{fontSize:'38px',color:simIsDaytime?'#f59e0b':'#94a3b8',flexShrink:0}"></i>
+                      <div><div style="font-size:32px;font-weight:200;color:var(--text);line-height:1">{{ simIsDaytime ? '18' : '11' }}°</div><div style="font-size:11px;color:var(--dim)">{{ simIsDaytime ? 'Partly cloudy' : 'Clear night' }}</div></div>
                     </div>
-                    <div style="font-size:11px;color:var(--accent);margin-top:6px"><i class="ph ph-drop" style="font-size:12px"></i> Rain in 45 min</div>
-                    <div style="display:flex;gap:6px;margin-top:6px;font-size:9px;color:var(--dim)"><span>12p 19°</span><span>3p 17°</span><span>6p 14°</span><span>9p 12°</span></div>
+                    <div style="font-size:11px;color:var(--accent);margin-top:6px"><i class="ph ph-drop" style="font-size:12px"></i> {{ simIsDaytime ? 'Rain in 45 min' : 'No rain tonight' }}</div>
+                    <div style="display:flex;gap:6px;margin-top:6px;font-size:10px;color:var(--dim)"><span>12p 19°</span><span>3p 17°</span><span>6p 14°</span><span>9p 12°</span></div>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='code-watch'">
@@ -705,7 +827,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
             </template>
 
             <!-- Floating icon badge (top-right, over content) -->
-            <div v-if="w.type!=='quick-chat'" class="widget-icon-badge" @click.stop="editMode?(showT(w.c.title+' settings')):null" :title="w.c.title">
+            <div v-if="w.type!=='quick-chat'" class="widget-icon-badge" :class="widgetAccentClass(w)" @click.stop="editMode?(showT(w.c.title+' settings')):null" :title="w.c.title">
               <template v-if="w.extId==='openclaw'"><svg viewBox="0 0 32 32"><path d="M7.5 11.5c-.8-1.2-2-2.5-3.2-3 .8-.5 2-.3 3 .5.5-1.5 1.5-2.8 2.8-2.5-.5 1-.5 2.2 0 3.2M24.5 11.5c.8-1.2 2-2.5 3.2-3-.8-.5-2-.3-3 .5-.5-1.5-1.5-2.8-2.8-2.5.5 1 .5 2.2 0 3.2M16 10c-4 0-7 2-7 5 0 2 1 3.5 2.5 4.5L10 23c0 .5.4 1 1 1h1.5c.4 0 .7-.2.8-.5l.7-1.5h4l.7 1.5c.1.3.4.5.8.5H21c.6 0 1-.5 1-1l-1.5-3.5C22 18.5 23 17 23 15c0-3-3-5-7-5zm-3 6c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1zm6 0c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1z"/></svg></template>
               <i v-else :class="w.c.iconClass||'ph ph-gear'"></i>
               <div v-if="w.hortConnections&&w.hortConnections.length" class="hort-dots">
@@ -766,10 +888,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                     <template v-else-if="w.extId==='clipboard-history'"><div style="text-align:left;width:100%"><div style="font-size:20px;font-weight:700;color:var(--accent)">12</div><div style="font-size:9px;color:var(--dim)">entries</div></div></template>
                     <template v-else-if="w.extId==='now-playing'"><div style="width:100%;height:100%;background:linear-gradient(135deg,#1a0a2e,#2d1b4e);border-radius:4px;display:flex;align-items:flex-end;padding:4px"><span style="font-size:8px;color:#fff;font-weight:600">M83</span></div></template>
                     <template v-else-if="w.extId==='calendar'"><div style="text-align:left;width:100%"><div style="font-size:9px;font-weight:600;color:var(--accent)">3 events</div><div style="font-size:8px;color:var(--dim)">next: 23m</div></div></template>
-                    <template v-else-if="w.extId==='email'"><div style="text-align:left;width:100%"><div style="font-size:16px;font-weight:700;color:var(--accent)">7</div><div style="font-size:8px;color:var(--dim)">unread</div></div></template>
-                    <template v-else-if="w.extId==='n8n'"><div style="display:flex;gap:6px"><span style="font-size:12px;font-weight:700;color:var(--success)">12</span><span style="font-size:12px;font-weight:700;color:var(--danger)">1</span></div></template>
+                    <template v-else-if="w.extId==='email'"><div style="text-align:left;width:100%"><div style="font-size:16px;font-weight:700;color:var(--accent)">{{unreadCount}}</div><div style="font-size:8px;color:var(--dim)">unread</div></div></template>
+                    <template v-else-if="w.extId==='n8n'"><div style="display:flex;gap:6px"><span style="font-size:12px;font-weight:700;color:var(--success)">{{n8nPassed}}</span><span style="font-size:12px;font-weight:700;color:var(--danger)">{{n8nFailed}}</span></div></template>
                     <template v-else-if="w.extId==='cameras'"><div style="display:flex;gap:2px;width:100%;height:80%"><div v-for="n in 3" :key="n" style="flex:1;background:var(--bg);border-radius:2px;border:1px solid var(--border)"></div></div></template>
-                    <template v-else-if="w.extId==='energy'"><div style="text-align:left;width:100%"><div style="font-size:12px;font-weight:700;color:var(--success)">3.2kW</div><div style="font-size:8px;color:var(--dim)">&rarr; 2.1kW</div></div></template>
+                    <template v-else-if="w.extId==='energy'"><div style="text-align:left;width:100%"><div style="font-size:12px;font-weight:700;color:var(--success)">{{energySolar.toFixed(1)}}kW</div><div style="font-size:8px;color:var(--dim)">&rarr; {{energyUsage.toFixed(1)}}kW</div></div></template>
                     <template v-else-if="w.extId==='weather'"><div style="text-align:left;width:100%"><div style="font-size:18px;font-weight:200">18°</div></div></template>
                     <template v-else-if="w.extId==='openclaw'"><div style="text-align:left;width:100%"><div style="font-size:9px;color:var(--dim)">3 rooms</div></div></template>
                     <template v-else-if="w.extId==='code-watch'"><div style="text-align:left;width:100%"><div style="display:flex;gap:3px;margin-bottom:2px"><span class="pdot thinking" style="width:4px;height:4px"></span><span class="pdot idle" style="width:4px;height:4px"></span><span class="pdot" style="background:var(--success);width:4px;height:4px"></span></div><div style="font-size:8px;color:var(--dim)">3 sessions</div></div></template>
@@ -1134,14 +1256,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
               <div style="font-size:20px;font-weight:700">Midnight City</div>
               <div style="font-size:14px;color:var(--dim);margin-top:2px">M83 &mdash; Hurry Up, We're Dreaming</div>
               <div style="margin:16px 0;display:flex;align-items:center;gap:6px">
-                <span style="font-size:10px;color:var(--dim)">1:48</span>
-                <div style="flex:1;height:4px;background:var(--border);border-radius:2px"><div style="width:45%;height:100%;background:var(--purple);border-radius:2px"></div></div>
-                <span style="font-size:10px;color:var(--dim)">4:03</span>
+                <span style="font-size:11px;color:var(--dim)">{{ musicCurrentStr }}</span>
+                <div class="music-progress" @click.stop="seekMusic($event)" style="height:6px">
+                  <div class="music-progress-bg"></div>
+                  <div class="music-progress-fill" :style="{width:musicPct+'%'}"></div>
+                  <div class="music-progress-dot" :style="{left:musicPct+'%'}"></div>
+                </div>
+                <span style="font-size:11px;color:var(--dim)">4:03</span>
               </div>
               <div style="display:flex;align-items:center;justify-content:center;gap:24px;margin:8px 0">
                 <i class="ph ph-shuffle" style="font-size:20px;color:var(--dim);cursor:pointer"></i>
                 <i class="ph-fill ph-skip-back" style="font-size:28px;color:var(--text);cursor:pointer"></i>
-                <div style="width:56px;height:56px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 16px rgba(59,130,246,.4)"><i class="ph-fill ph-pause" style="font-size:24px;color:#fff"></i></div>
+                <div style="width:56px;height:56px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 16px rgba(59,130,246,.4)" @click="musicPlaying=!musicPlaying"><i :class="musicPlaying?'ph-fill ph-pause':'ph-fill ph-play'" style="font-size:24px;color:#fff"></i></div>
                 <i class="ph-fill ph-skip-forward" style="font-size:28px;color:var(--text);cursor:pointer"></i>
                 <i class="ph ph-repeat" style="font-size:20px;color:var(--dim);cursor:pointer"></i>
               </div>
@@ -1178,7 +1304,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <template v-else-if="detailWidget.extId==='email'">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
               <span style="font-size:18px;font-weight:600">Inbox</span>
-              <span style="background:var(--primary);color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:700">7</span>
+              <span style="background:var(--primary);color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:700">{{ unreadCount }}</span>
             </div>
             <div v-for="ml in emails" :key="ml.id" class="detail-mail" :class="{unread:ml.unread}">
               <div class="ml-avatar" :style="{background:ml.avatarBg,color:ml.avatarColor||'var(--dim)'}">{{ ml.initials }}</div>
@@ -1225,12 +1351,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
             <div style="display:flex;gap:12px;margin-bottom:4px">
               <div style="flex:1;background:var(--bg);border-radius:12px;padding:14px;text-align:center">
                 <i class="ph-fill ph-sun" style="font-size:32px;color:#f59e0b"></i>
-                <div style="font-size:24px;font-weight:700;color:var(--success);margin-top:4px">3.2 kW</div>
+                <div style="font-size:24px;font-weight:700;color:var(--success);margin-top:4px">{{ energySolar.toFixed(1) }} kW</div>
                 <div style="font-size:11px;color:var(--dim)">Producing</div>
               </div>
               <div style="flex:1;background:var(--bg);border-radius:12px;padding:14px;text-align:center">
                 <i class="ph-fill ph-plug" style="font-size:32px;color:var(--accent)"></i>
-                <div style="font-size:24px;font-weight:700;color:var(--accent);margin-top:4px">2.1 kW</div>
+                <div style="font-size:24px;font-weight:700;color:var(--accent);margin-top:4px">{{ energyUsage.toFixed(1) }} kW</div>
                 <div style="font-size:11px;color:var(--dim)">Using</div>
               </div>
             </div>
@@ -1487,8 +1613,172 @@ createApp({
     }
     let _lp=null,_tt=null;
 
-    const cpu=ref(23),cpuH=reactive([20,22,18,20,15,22,12,18,10,14,8,23]);
-    setInterval(()=>{const v=Math.max(5,Math.min(95,cpu.value+(Math.random()-.5)*15));cpu.value=v;cpuH.push(v);if(cpuH.length>12)cpuH.shift()},2000);
+    // === Simulation state ===
+    const simCollapsed=ref(true);
+    const simMotionActive=ref(false);
+    const simWashingMachine=ref(false);
+    const simIsDaytime=ref(true);
+    const simN8nFail=ref(false);
+    const musicPlaying=ref(true);
+    const musicPos=ref(158); // seconds into track (start at ~2:38)
+    const MUSIC_DURATION=243; // 4:03
+
+    // Music computed
+    const musicPct=computed(()=>(musicPos.value/MUSIC_DURATION)*100);
+    const musicTimeStr=computed(()=>{const r=MUSIC_DURATION-musicPos.value;const m=Math.floor(r/60);const s=Math.floor(r%60);return m+':'+String(s).padStart(2,'0')});
+    const musicCurrentStr=computed(()=>{const m=Math.floor(musicPos.value/60);const s=Math.floor(musicPos.value%60);return m+':'+String(s).padStart(2,'0')});
+    function seekMusic(e){
+      const rect=e.currentTarget.getBoundingClientRect();
+      const pct=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+      musicPos.value=Math.floor(pct*MUSIC_DURATION);
+    }
+    // Music tick
+    setInterval(()=>{if(musicPlaying.value){musicPos.value=(musicPos.value+1)%MUSIC_DURATION}},1000);
+
+    // Energy reactive data
+    const energySolar=ref(3.2);
+    const energyUsage=ref(2.1);
+    const energyExport=computed(()=>energySolar.value-energyUsage.value);
+    const energyBarPct=computed(()=>Math.min(100,Math.max(5,(energySolar.value/(energyUsage.value+0.1))*50)));
+
+    // Watch washing machine state
+    watch(()=>simWashingMachine.value,on=>{
+      if(on){energyUsage.value=3.8}else{energyUsage.value=2.1}
+    });
+    // Watch sun state
+    watch(()=>simIsDaytime.value,day=>{
+      if(day){energySolar.value=3.2}else{energySolar.value=0.1}
+    });
+
+    // Unread email count
+    const unreadCount=computed(()=>emails.filter(e=>e.unread).length);
+
+    // n8n computed counts
+    const n8nPassed=computed(()=>n8nWorkflows.filter(w=>w.status==='success').length);
+    const n8nFailed=computed(()=>n8nWorkflows.filter(w=>w.status==='failed').length);
+    const n8nRunning=computed(()=>n8nWorkflows.filter(w=>w.status==='running').length);
+
+    // Simulation event handlers
+    function simClaudeFinish(){
+      // Find the claude_dev terminal widget and change it to done
+      for(const d of desktops){
+        for(const w of d.widgets){
+          if(w.type==='terminal'&&w.subId==='claude_dev'){
+            w.c.state='idle';
+            w.c.output='$ claude --dangerously-skip\n\nRefactored session manager.\nAll 47 tests passing.\n\nDone in 23m. 14.2k tokens used.';
+            w.c.idle=0;
+          }
+        }
+      }
+      // Also update code watch session
+      const s=codeWatchSessions.find(s=>s.name==='claude_dev');
+      if(s){s.statusColor='var(--success)';s.output='Refactored controller.py\nAll 47 tests passing.'}
+      showT('Claude finished task');
+    }
+    function simMotionDetected(){
+      simMotionActive.value=true;
+      cameras[0].motion=true;
+      showT('Motion detected at Front Door');
+      setTimeout(()=>{simMotionActive.value=false;cameras[0].motion=false},8000);
+    }
+    function simSunToggle(){
+      simIsDaytime.value=!simIsDaytime.value;
+      showT(simIsDaytime.value?'Sunrise':'Sunset');
+    }
+    function simNewEmail(){
+      const names=['Jordan Lee','Pat Morgan','Taylor Swift Bot','OpenAI','Docker Hub','Vercel'];
+      const subjects=['Action required: review PR #67','Lunch tomorrow?','Weekly digest','Build succeeded','Security alert','Invoice ready'];
+      const n=names[Math.floor(Math.random()*names.length)];
+      const subj=subjects[Math.floor(Math.random()*subjects.length)];
+      emails.unshift({
+        id:Date.now(),from:n,initials:n.split(' ').map(w=>w[0]).join('').slice(0,2),
+        avatarBg:'rgba(59,130,246,.15)',subject:subj,preview:'This is a new email preview...',
+        time:'Just now',unread:true
+      });
+      showT('New email from '+n);
+    }
+    function simWorkflowFail(){
+      simN8nFail.value=true;
+      n8nWorkflows.unshift({id:Date.now(),name:'Data pipeline',status:'failed',time:'just now'});
+      showT('Workflow "Data pipeline" failed');
+      setTimeout(()=>{simN8nFail.value=false},5000);
+    }
+
+    // Widget accent color classes
+    function widgetAccentClass(w){
+      const map={
+        'openclaw':'accent-orange',
+        'now-playing':'accent-purple',
+        'calendar':'accent-blue',
+        'email':'accent-cyan',
+        'n8n':'accent-n8n-orange',
+        'cameras':'accent-red',
+        'energy':'accent-green',
+        'weather':'accent-amber',
+        'code-watch':'accent-codewatch',
+        'system-monitor':'accent-sysmon',
+        'network-monitor':'accent-green',
+        'clipboard-history':'accent-clip',
+      };
+      return map[w.extId]||'';
+    }
+
+    // === Camera canvas rendering ===
+    const camCanvases={};
+    function setCamCanvas(key,el){if(el)camCanvases[key]=el}
+    let camAnimFrame=null;
+    function renderCameraFeeds(){
+      const now=Date.now();
+      for(const[key,canvas] of Object.entries(camCanvases)){
+        if(!canvas||!canvas.parentElement)continue;
+        const w=canvas.parentElement.offsetWidth||100;
+        const h=canvas.parentElement.offsetHeight||80;
+        if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
+        const ctx=canvas.getContext('2d');
+        // Dark green-tinted background
+        ctx.fillStyle='#0a120a';
+        ctx.fillRect(0,0,w,h);
+        // Noise
+        const imgData=ctx.getImageData(0,0,w,h);
+        const d=imgData.data;
+        const seed=now*0.001+({'front':0,'back':100,'garage':200}[key]||0);
+        for(let i=0;i<d.length;i+=4){
+          const px=i/4;
+          const x=px%w,y=Math.floor(px/w);
+          // Slow-moving noise pattern with visible green night vision
+          const n1=Math.sin(x*0.08+seed*0.8)*Math.cos(y*0.06+seed*0.5)*25;
+          const n2=Math.sin(x*0.2+seed*1.3)*Math.sin(y*0.15-seed*0.3)*15;
+          const rnd=Math.random()*20;
+          const base=Math.max(0,Math.min(80,25+n1+n2+rnd));
+          d[i]=Math.floor(base*0.15);   // R (low)
+          d[i+1]=Math.floor(base*0.7);  // G (green tint, dominant)
+          d[i+2]=Math.floor(base*0.1);  // B (very low)
+          d[i+3]=255;
+          // Scan line effect (every 2nd row dimmed)
+          if(y%2===0){d[i]=Math.floor(d[i]*0.5);d[i+1]=Math.floor(d[i+1]*0.5);d[i+2]=Math.floor(d[i+2]*0.5)}
+        }
+        ctx.putImageData(imgData,0,0);
+        // Timestamp overlay
+        const ts=new Date();
+        const timeText=ts.toLocaleTimeString();
+        ctx.font='bold 8px monospace';
+        ctx.fillStyle='rgba(0,255,100,0.5)';
+        ctx.fillText(timeText,w-ctx.measureText(timeText).width-3,h-3);
+        // Motion indicator for front door
+        if(key.endsWith('_front')&&simMotionActive.value){
+          ctx.strokeStyle='rgba(255,60,60,0.6)';
+          ctx.lineWidth=1;
+          ctx.strokeRect(w*0.3,h*0.2,w*0.4,h*0.5);
+          ctx.font='bold 7px monospace';
+          ctx.fillStyle='rgba(255,60,60,0.7)';
+          ctx.fillText('MOTION',w*0.32,h*0.18);
+        }
+      }
+      camAnimFrame=requestAnimationFrame(renderCameraFeeds);
+    }
+
+    const cpu=ref(23),cpuH=reactive([20,22,18,20,15,22,12,18,10,14,8,23,20,18,15,22,19,21,17,20]);
+    setInterval(()=>{const v=Math.max(5,Math.min(95,cpu.value+(Math.random()-.5)*12));cpu.value=v;cpuH.push(v);if(cpuH.length>20)cpuH.shift()},1000);
     const spark=computed(()=>cpuH.map((v,i)=>`${i*(100/(cpuH.length-1))},${28-v*.28}`).join(' '));
 
     const timeStr=ref('');
@@ -1571,7 +1861,7 @@ createApp({
       {id:'system-monitor',name:'System Monitor',desc:'CPU, RAM, disk metrics',iconClass:'ph ph-chart-line-up',active:true},
       {id:'llming-lens',name:'Llming Lens',desc:'Desktop capture & streaming',iconClass:'ph ph-monitor',active:true},
       {id:'llming-wire',name:'Llming Wire',desc:'Chat interface',iconClass:'ph ph-chat-dots',active:true},
-      {id:'code-watch',name:'Code Watch',desc:'Claude session monitor',iconClass:'ph ph-eye',active:true},
+      {id:'code-watch',name:'Code Watch',desc:'Claude session monitor',iconClass:'ph ph-pulse',active:true},
       {id:'clipboard-history',name:'Clipboard History',desc:'Track clipboard entries',iconClass:'ph ph-clipboard-text',active:true},
       {id:'network-monitor',name:'Network Monitor',desc:'Bandwidth & connections',iconClass:'ph ph-wifi-high',active:true},
       {id:'process-manager',name:'Process Manager',desc:'Running processes',iconClass:'ph ph-gear-six',active:false},
@@ -1605,8 +1895,8 @@ createApp({
          {id:'screen:finder',name:'Finder',desc:'Window preview',size:'1\u00d71',iconClass:'ph ph-folder-open'},
          {id:'screen:safari',name:'Safari',desc:'Window preview',size:'1\u00d71',iconClass:'ph ph-compass'},
        ]},
-      {id:'code-watch',name:'Code Watch',desc:'Claude session tracker',iconClass:'ph ph-eye',defaultSize:'1\u00d72',
-       extId:'code-watch',c:{title:'Code Watch',iconClass:'ph ph-eye'},
+      {id:'code-watch',name:'Code Watch',desc:'Claude session tracker',iconClass:'ph ph-pulse',defaultSize:'1\u00d72',
+       extId:'code-watch',c:{title:'Code Watch',iconClass:'ph ph-pulse'},
        children:[
          {id:'session:claude_dev',name:'claude_dev',desc:'Active session',size:'1\u00d72',iconClass:'ph ph-terminal-window'},
          {id:'session:claude_test',name:'claude_test',desc:'Active session',size:'1\u00d72',iconClass:'ph ph-terminal-window'},
@@ -1705,7 +1995,7 @@ createApp({
         {id:wid(),type:'extension',extId:'email',subId:null,size:'1x1',order:9,hpiort:null,
          c:{title:'Email',iconClass:'ph ph-envelope'}},
         {id:wid(),type:'extension',extId:'code-watch',subId:null,size:'1x2',order:10,hpiort:'sandboxed',
-         c:{title:'Code Watch',iconClass:'ph ph-eye'}},
+         c:{title:'Code Watch',iconClass:'ph ph-pulse'}},
         {id:wid(),type:'extension',extId:'openclaw',subId:null,size:'2x1',order:11,hpiort:null,
          c:{title:'OpenClaw',iconClass:'ph ph-house-line'}},
         {id:wid(),type:'extension',extId:'cameras',subId:null,size:'2x1',order:12,hpiort:null,
@@ -2566,8 +2856,13 @@ createApp({
     }
     onMounted(()=>{
       document.addEventListener('keydown',onKey);
+      // Start camera feed animation
+      setTimeout(()=>renderCameraFeeds(),500);
     });
-    onUnmounted(()=>document.removeEventListener('keydown',onKey));
+    onUnmounted(()=>{
+      document.removeEventListener('keydown',onKey);
+      if(camAnimFrame)cancelAnimationFrame(camAnimFrame);
+    });
 
     return{drawer,picker,pickerSearch,pickerCat,dwSearch,editMode,deskIdx,toast,nameEd,viewers,wctx,gridCtx,
       fabOpen,screenPicker,screens,
@@ -2582,7 +2877,22 @@ createApp({
       addW,addFromCat,addFromFav,addFromRecent,addSubWidget,addScreenWidget,addSelectedWindows,addMultiFilterWidget,addFilterTag,rmW,
       spawnClaude,spawnTerm,addDesk,editDesktopName,showT,
       dropToDesktop,dropToNewDesktop,dropToTrash,resizeStart,
-      detailWidget,clawRooms,speakers,calEvents,emails,n8nWorkflows,cameras,weatherHours,codeWatchSessions}
+      detailWidget,clawRooms,speakers,calEvents,emails,n8nWorkflows,cameras,weatherHours,codeWatchSessions,
+      // Simulation
+      simCollapsed,simMotionActive,simWashingMachine,simIsDaytime,simN8nFail,
+      simClaudeFinish,simMotionDetected,simSunToggle,simNewEmail,simWorkflowFail,
+      // Music
+      musicPlaying,musicPos,musicPct,musicTimeStr,musicCurrentStr,seekMusic,
+      // Energy
+      energySolar,energyUsage,energyExport,energyBarPct,
+      // Email
+      unreadCount,
+      // n8n
+      n8nPassed,n8nFailed,n8nRunning,
+      // Widget accent
+      widgetAccentClass,
+      // Camera
+      setCamCanvas}
   }
 }).mount('#app');
 </script>

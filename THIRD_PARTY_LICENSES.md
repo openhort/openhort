@@ -186,3 +186,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Pexels Demo Videos
+
+- **Source:** https://www.pexels.com
+- **License:** Pexels License (free for commercial use, no attribution required)
+- **Bundled at:** `hort/static/vendor/demo/cam-*.mp4`
+- **Videos used:**
+  - `cam-frontdoor.mp4` — Pexels video 7603848 by PNW Production
+  - `cam-backyard.mp4` — Pexels video 36958001 by Arto Suraj
+  - `cam-garage.mp4` — Pexels video 8079133 by MART PRODUCTION
+
+All content on Pexels is free to use for personal and commercial purposes.
+No attribution is required, though credit to the original creators is appreciated.
+Full license: https://www.pexels.com/license/

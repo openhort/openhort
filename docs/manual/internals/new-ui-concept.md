@@ -542,3 +542,68 @@ flowchart LR
 | **Edit mode** | None | Wiggle, resize handles, drag-to-reorder, desktop overview drop zones |
 | **Persistence** | None (server state) | localStorage per device class (phone/tablet/desktop) |
 | **Widget content** | Screenshot thumbnail | Live sparklines, inline chat, state indicators, canvas rendering |
+
+---
+
+## Design Rules
+
+Mandatory constraints for all widget UI development. These rules ensure the UI feels alive, readable, and consistent across devices.
+
+### Typography
+
+- **Minimum font size on widgets:** 11px. Nothing smaller, except timestamps which may use 10px.
+- **Minimum font size in detail cards:** 13px for body text, 11px for labels and secondary info.
+- **Terminal state text:** at least 12px for state labels like "THINKING" or "IDLE".
+
+### Touch & Interaction
+
+- **Touch targets:** minimum 44x44px for all interactive elements (buttons, dots, toggles). Use invisible padding if the visual element is smaller.
+- **Icons over text:** prefer icons when meaning is clear from the icon alone. Use text labels only when the icon's meaning would be ambiguous.
+- **No JavaScript dialogs:** never use `alert()`, `confirm()`, or `prompt()`. Use in-UI modals or toast notifications instead.
+
+### Widget Visual Identity
+
+- **Widget icon badges:** each widget type has its own accent color for its floating icon badge. Never use the same color for all widgets.
+
+    | Widget | Accent Color |
+    |--------|-------------|
+    | OpenClaw | Warm orange `#f59e0b` |
+    | Now Playing | Purple `#a855f7` |
+    | Calendar | Blue `#3b82f6` |
+    | Email | Cyan `#06b6d4` |
+    | n8n | Orange `#ff6d00` |
+    | Cameras | Red `#ef4444` |
+    | Energy | Green `#22c55e` |
+    | Weather | Yellow/Amber `#f59e0b` |
+    | Code Watch | Purple `#a855f7` |
+    | System Monitor | Cyan `#06b6d4` |
+    | Network | Green `#22c55e` |
+    | Clipboard | Blue `#3b82f6` |
+
+- **Icon badge glow:** each badge uses `filter: drop-shadow(0 0 6px currentColor)` for a subtle colored glow matching its accent.
+- **Claude terminal pulsing:** when a Claude session is in "thinking" state, the widget border pulses with a purple glow (2s animation cycle).
+
+### Liveness
+
+- **Every widget must have animation or live data.** Nothing static. If a widget shows data, that data must change over time:
+    - Music: progress bar ticks every second, seekable
+    - Energy: usage/production values react to simulation state (washing machine, sun)
+    - CPU sparkline: updates every 1 second
+    - Cameras: canvas-rendered animated security feeds (green night-vision, scan lines, timestamps)
+    - Weather: reacts to day/night state
+    - Email: unread count updates dynamically
+    - n8n: workflow counts react to events
+- **Subtle scale pulse on data changes:** widgets briefly scale to 1.02x when their data updates, providing tactile feedback.
+- **All data is reactive:** state changes cascade. Washing machine ON increases energy usage. Sunset reduces solar production. New email increments unread count.
+
+### Layout & Spacing
+
+- **No Quasar standard components in desktop widgets.** Quasar components (q-btn, q-card, etc.) are acceptable in detail cards and modals, but widget thumbnails must use custom lightweight markup.
+- **Readability:** all widget content must be readable on a smartphone held at arm's length in bright sunlight. Test with reduced contrast and small screens.
+- **Apple-style minimalism:** less is more. Whitespace is a feature, not waste. Prefer fewer, more impactful elements over dense information.
+- **Color field backgrounds:** the per-pixel blended canvas behind widgets should be subtle enough to enhance readability, not compete with widget content.
+
+### Security Visualization
+
+- **Hort group colors are sacred.** The five default group colors (blue, amber, red, green, purple) must never be changed or used for non-security purposes.
+- **Connection dots in labels:** widgets bridging multiple zones show one dot per connected hort group, making cross-zone data flows visible at a glance.
