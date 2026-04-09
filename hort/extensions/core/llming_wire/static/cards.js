@@ -558,7 +558,7 @@
           apiUrl(path) {
             const base = document.querySelector('base');
             const prefix = base ? base.getAttribute('href') : '/';
-            return prefix + 'api/plugins/llming-wire/' + path;
+            return prefix + 'api/llmings/llming-wire/' + path;
           },
         },
       });
