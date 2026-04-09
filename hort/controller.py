@@ -415,7 +415,7 @@ class HortController(BaseController):
 
         # Also include tmux hort_ sessions (shown alongside PTY terminals)
         try:
-            from hort.tmux import list_sessions, is_busy
+            from hort.tmux import list_sessions
             from hort.targets import TargetRegistry
             # Use the first registered target so tmux sessions appear
             # in the same grid as regular terminals

@@ -11,15 +11,13 @@ responses.
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import time
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from hort.llming import LlmingBase
 
@@ -262,9 +260,6 @@ class LlmingWire(LlmingBase):
                 self._chat_mgr = ChatBackendManager(agent_cfg=cfg)
                 self._chat_mgr.start()
 
-            # Resolve user session from hort-config.yaml
-            from hort.hort_config import get_hort_config
-            hort_cfg = get_hort_config()
             # Wire uses conversation ID as session key by default
             # TODO: resolve user identity from auth once wire has login
             session_key = f"llming-wire:{cid}"

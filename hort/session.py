@@ -12,8 +12,6 @@ from typing import Any, Optional
 from llming_com import (
     BaseSessionEntry,
     BaseSessionRegistry,
-    ConnectionType,
-    SessionContext,
     SessionManager,
 )
 

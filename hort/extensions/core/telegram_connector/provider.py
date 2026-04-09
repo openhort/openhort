@@ -14,7 +14,6 @@ AI chat requires: claude CLI installed.
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import os
 import time
@@ -27,7 +26,6 @@ from hort.ext.connectors import (
     ConnectorCommand,
     ConnectorResponse,
     IncomingMessage,
-    ResponseButton,
 )
 from hort.llming import LlmingBase
 
@@ -81,7 +79,7 @@ class TelegramConnector(LlmingBase, ConnectorBase):
             if not self._allowed_users:
                 self.log.error("Chat backend DISABLED: allowed_users must be set for security")
             else:
-                from hort.agent import AgentConfig, get_agent_config
+                from hort.agent import get_agent_config
                 from hort.ext.chat_backend import ChatBackendManager
 
                 agent_cfg = get_agent_config()
@@ -133,8 +131,8 @@ class TelegramConnector(LlmingBase, ConnectorBase):
             return
 
         try:
-            from aiogram import Bot, Dispatcher, F
-            from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+            from aiogram import Bot, Dispatcher
+            from aiogram.types import Message, CallbackQuery
         except ImportError:
             self.log.warning("aiogram not installed — Telegram connector disabled")
             return
@@ -497,6 +495,6 @@ class TelegramConnector(LlmingBase, ConnectorBase):
                 except Exception:
                     pass  # Best effort for intermediate chunks
             return ConnectorResponse.simple(chunks[-1])
-        except Exception as exc:
+        except Exception:
             self.log.exception("Chat backend error")
             return ConnectorResponse.simple("Something went wrong. Try /new to reset.")

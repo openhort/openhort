@@ -15,7 +15,6 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes
 import io
-import struct
 from typing import Any
 
 from hort.ext.types import (
@@ -248,7 +247,6 @@ class WindowsNativeExtension(ExtensionBase, PlatformProvider):
     def capture_window(
         self, window_id: int, max_width: int = 800, quality: int = 70
     ) -> bytes | None:
-        from PIL import Image
 
         if window_id == DESKTOP_WINDOW_ID:
             return self._capture_desktop(max_width, quality)
@@ -257,7 +255,6 @@ class WindowsNativeExtension(ExtensionBase, PlatformProvider):
 
     def _capture_desktop(self, max_width: int, quality: int) -> bytes | None:
         """Capture the full desktop using BitBlt from the screen DC."""
-        from PIL import Image
 
         sw, sh = self._get_screen_size()
         hdc_screen = user32.GetDC(0)
@@ -279,7 +276,6 @@ class WindowsNativeExtension(ExtensionBase, PlatformProvider):
 
     def _capture_hwnd(self, hwnd: int, max_width: int, quality: int) -> bytes | None:
         """Capture a specific window using PrintWindow."""
-        from PIL import Image
 
         rect = ctypes.wintypes.RECT()
         user32.GetWindowRect(hwnd, ctypes.byref(rect))

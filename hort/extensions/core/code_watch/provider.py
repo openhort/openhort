@@ -24,7 +24,7 @@ def _detect_session_state(session_name: str, current_command: str) -> dict[str, 
 
     Returns a dict with state, mode, detail, border_color, idle_seconds.
     """
-    from .detect import ClaudeState, detect_state
+    from .detect import detect_state
 
     shells = {"bash", "zsh", "fish", "sh", "-bash", "-zsh", "login"}
 

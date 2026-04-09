@@ -13,7 +13,6 @@ right, top, bottom, quadrants, center, or custom fractions).
 from __future__ import annotations
 
 import asyncio
-import base64
 import fnmatch
 import logging
 import time
@@ -25,7 +24,6 @@ from hort.extensions.core.screen_watcher.capture import (
     frames_differ,
 )
 from hort.extensions.core.screen_watcher.models import (
-    RegionConfig,
     ScreenWatcherConfig,
     WatchRule,
 )

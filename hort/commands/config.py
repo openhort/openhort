@@ -19,7 +19,7 @@ async def config_get(controller: Any, section: str = "") -> dict[str, Any]:
 
 
 @router.handler("set")
-async def config_set(controller: Any, section: str = "", data: dict | None = None) -> dict[str, Any]:
+async def config_set(controller: Any, section: str = "", data: dict[str, Any] | None = None) -> dict[str, Any]:
     """Update a config section (merge)."""
     from hort.config import get_store
     if section and isinstance(data, dict):

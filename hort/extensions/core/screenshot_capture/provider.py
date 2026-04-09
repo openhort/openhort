@@ -13,7 +13,6 @@ and a FastAPI router endpoint serves it back via ``self.files.load()``.
 from __future__ import annotations
 
 import asyncio
-import base64
 import subprocess
 import time
 from typing import Any

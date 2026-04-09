@@ -14,8 +14,8 @@ from hort.ext.connectors import (
     IncomingMessage,
 )
 from hort.llming import LlmingBase, Power, PowerType
-from hort.peer2peer import HolePuncher, StunClient
-from hort.peer2peer.models import NatType, PunchResult, StunResult
+from hort.peer2peer import StunClient
+from hort.peer2peer.models import PunchResult, StunResult
 
 logger = logging.getLogger(__name__)
 

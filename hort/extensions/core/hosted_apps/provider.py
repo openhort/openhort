@@ -201,8 +201,6 @@ class HostedAppsPlugin(LlmingBase):
         for k, v in template.env.items():
             args.extend(["-e", f"{k}={v}"])
 
-        # Set base URL/path prefix for apps that support it
-        proxy_prefix = f"/app/{safe_name}/~"
         # No path prefix on the container — the proxy handles path rewriting.
         # N8N_PATH doesn't work for API routes, only frontend.
 

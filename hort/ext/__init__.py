@@ -52,6 +52,8 @@ __all__ = [
     "WindowProvider",
     "WorkspaceInfo",
     "WorkspaceProvider",
+    # Credentials
+    "CredentialStore",
     # Manifest
     "ExtensionManifest",
     "ExtensionRegistry",

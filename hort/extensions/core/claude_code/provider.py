@@ -44,7 +44,7 @@ class ClaudeCodePlugin(LlmingBase):
         if self._started:
             return
         try:
-            from hort.agent import AgentConfig, get_agent_config
+            from hort.agent import get_agent_config
             from hort.ext.chat_backend import ChatBackendManager
             from hort.hort_config import get_hort_config
 

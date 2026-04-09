@@ -86,18 +86,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         path = request.url.path
 
+        async def _next() -> Response:
+            response: Response = await call_next(request)
+            return response
+
         # Non-API paths are always public
         if not path.startswith(_API_PREFIX):
-            return await call_next(request)
+            return await _next()
 
         # Public API endpoints (any source)
         for prefix in PUBLIC_PATHS:
             if path.startswith(prefix):
-                return await call_next(request)
+                return await _next()
 
         # Localhost is trusted — statusbar, dev tools, SPA during development
         if _is_localhost(request):
-            return await call_next(request)
+            return await _next()
 
         # Remote requests: brute-force check
         client_ip = request.client.host if request.client else "unknown"
@@ -121,4 +125,4 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Valid session — clear any failure count
         _tracker.clear(client_ip)
-        return await call_next(request)
+        return await _next()

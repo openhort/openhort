@@ -212,7 +212,6 @@ class LlmingRegistry:
         v1 PluginBase extensions are handled by the existing ExtensionRegistry.
         """
         import importlib.util
-        import types as pytypes
 
         discovered: list[LlmingClass] = []
 

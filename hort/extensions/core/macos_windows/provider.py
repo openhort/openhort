@@ -7,7 +7,6 @@ call a method on a non-macOS system.
 
 from __future__ import annotations
 
-from typing import Any
 
 from hort.ext.types import ExtensionBase, PlatformProvider, WorkspaceInfo
 from hort.models import InputEvent, WindowBounds, WindowInfo

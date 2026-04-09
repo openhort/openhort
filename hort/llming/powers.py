@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable, Type
 
 from pydantic import BaseModel
 
@@ -65,10 +65,10 @@ class Power:
     name: str
     type: PowerType
     description: str
-    input_schema: dict[str, Any] | type[BaseModel] = field(
+    input_schema: dict[str, Any] | Type[BaseModel] = field(
         default_factory=lambda: {"type": "object", "properties": {}}
     )
-    output_schema: dict[str, Any] | type[BaseModel] | None = None
+    output_schema: dict[str, Any] | Type[BaseModel] | None = None
     handler: Callable[..., Any] | None = None
     admin_only: bool = False
 
