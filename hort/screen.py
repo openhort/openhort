@@ -62,17 +62,16 @@ def _raw_capture(window_id: int) -> object | None:  # pragma: no cover
 
 
 def _cgimage_to_pil(cg_image: object) -> Image.Image | None:
-    """Convert a CGImage to a PIL RGB Image.
+    """Convert a CGImage to a PIL RGB Image in sRGB color space.
+
+    macOS captures in Display P3 (wide gamut) on modern hardware.
+    Raw pixel values interpreted as sRGB look washed out. This function
+    detects the source color space and converts to sRGB via ICC profiles
+    so the streamed image matches what's on screen.
 
     Uses ``CGDataProviderCopyData`` to extract pixel data.  The returned
     CFData is autoreleased, so the **caller** MUST wrap capture +
     conversion in ``objc.autorelease_pool()`` to drain it immediately.
-    Without a pool, the data leaks on background threads.
-
-    The earlier ``CGBitmapContextCreate`` approach avoided autorelease
-    objects but leaked ~34 MB/frame from an internal CoreGraphics
-    decompression cache that pyobjc couldn't release.
-    ``CGDataProviderCopyData`` inside a pool leaks <2 MB/frame.
     """
     width = Quartz.CGImageGetWidth(cg_image)
     height = Quartz.CGImageGetHeight(cg_image)
@@ -91,7 +90,21 @@ def _cgimage_to_pil(cg_image: object) -> Image.Image | None:
     del data
     rgb_image = pil_image.convert("RGB")
     pil_image.close()
+
+    # Embed the source ICC profile so browsers render colors correctly.
+    # Without this, P3 pixel values displayed as sRGB look washed out.
+    try:
+        cs = Quartz.CGImageGetColorSpace(cg_image)
+        if cs is not None:
+            icc_data = Quartz.CGColorSpaceCopyICCData(cs)
+            if icc_data is not None:
+                rgb_image.info["icc_profile"] = bytes(icc_data)
+    except Exception:
+        pass
+
     return rgb_image
+
+
 
 
 def _cgimage_crop(cg_image: object, x: float, y: float, w: float, h: float) -> object:

@@ -134,6 +134,90 @@ the remote machine.
 
 Hidden on desktop (detected via `@media (hover: hover) and (pointer: fine)`).
 
+## Color Profile Management (Display P3 → sRGB)
+
+Modern Macs use **Display P3** (wide gamut) as their native color space.
+Quartz captures return pixel data in the display's color space — not sRGB.
+Without proper handling, streamed frames appear **washed out and desaturated**
+because the browser interprets P3 pixel values as sRGB.
+
+### The Problem
+
+```mermaid
+flowchart LR
+    A["macOS desktop<br/>(Display P3)"] --> B["CGDataProviderCopyData<br/>(raw P3 bytes)"]
+    B --> C["PIL Image.frombuffer<br/>(treats as generic RGB)"]
+    C --> D["WebP encode<br/>(no ICC profile)"]
+    D --> E["Browser renders<br/>(assumes sRGB)"]
+    E --> F["❌ Washed out<br/>(P3 values in sRGB gamut)"]
+```
+
+The browser applies sRGB→P3 display mapping, but the pixel values are
+**already P3** — double-mapping compresses the dynamic range.
+
+### The Fix: ICC Profile Embedding
+
+```mermaid
+flowchart LR
+    A["CGImage"] --> B["CGColorSpaceCopyICCData<br/>(extract Display P3 ICC)"]
+    B --> C["pil_image.info['icc_profile']"]
+    C --> D["WebP save(icc_profile=...)"]
+    D --> E["Browser reads ICC tag<br/>(correct color management)"]
+    E --> F["✅ Colors match original"]
+```
+
+The ICC profile is extracted once from the CGImage's color space and
+attached to every PIL image via `info["icc_profile"]`. The WebP encoder
+embeds it in each frame (~3.4 KB overhead). The browser's color
+management engine reads the profile and renders correctly on any display.
+
+**Key implementation details:**
+
+- **`_cgimage_to_pil()` in `hort/screen.py`** extracts the ICC profile
+  from `CGColorSpaceCopyICCData()` and stores it in `pil_image.info`.
+- **`_capture_crop_resize()` in `hort/stream.py`** preserves the ICC
+  profile across PIL `crop()`, `resize()`, and `Image.new()` operations
+  (PIL doesn't copy `info` automatically).
+- **WebP encode** passes `icc_profile=` to `pil_image.save()`.
+- **VP8/VP9 path** uses `yuv420p` which has no ICC mechanism — color
+  is only accurate in WebP mode. This is a known limitation.
+
+### WebP Encode Quality (`method` parameter)
+
+The `method` parameter controls the encode quality/speed tradeoff.
+Detected at startup based on CPU capability:
+
+| CPU | Cores | `method` | Quality | Speed |
+|-----|-------|----------|---------|-------|
+| Raspberry Pi (ARM) | ≤4 | 0 | Fastest, lowest fidelity | ~2ms |
+| Mid-range laptop | 5–7 | 2 | Good balance | ~5ms |
+| Apple Silicon / desktop | ≥8 | 4 | Best fidelity | ~10ms |
+
+Detection runs once at import time (`_detect_webp_method()` in `hort/stream.py`).
+
+### Verifying Color Accuracy
+
+```python
+# Compare original capture vs WebP-decoded pixel values
+import objc, io
+from hort.screen import Quartz, _raw_capture_desktop
+from PIL import Image
+
+with objc.autorelease_pool():
+    cg = _raw_capture_desktop()
+    cs = Quartz.CGImageGetColorSpace(cg)
+    cs_name = Quartz.CGColorSpaceGetName(cs)
+    print(f"Color space: {cs_name}")  # "kCGColorSpaceDisplayP3" on modern Macs
+    
+    icc = Quartz.CGColorSpaceCopyICCData(cs)
+    print(f"ICC profile: {len(bytes(icc))} bytes")
+```
+
+!!! warning "PIL operations lose ICC profiles"
+    `Image.crop()`, `Image.resize()`, and `Image.new()` do NOT copy
+    `info["icc_profile"]` from the source. Always save the profile
+    before these operations and reattach it afterward.
+
 ## Future: ScreenCaptureKit Migration
 
 `CGWindowListCreateImage` is deprecated in macOS 15 SDK (still
@@ -163,12 +247,12 @@ is visible via viewport parameters (`vp_x`, `vp_y`, `vp_w`, `vp_h`).
 ```mermaid
 flowchart LR
     A["CGDisplayCreateImage<br/>(5120×1440 native)"] --> B["CGImageCreateWithImageInRect<br/>(crop to viewport)"]
-    B --> C["CGBitmapContext → PIL RGB"]
+    B --> C["CGDataProviderCopyData<br/>+ PIL RGB + ICC profile"]
     C --> D["Resize to client dims<br/>(BILINEAR)"]
     D --> E{"Aspect match?"}
     E -->|"Yes (zoomed)"| F["Direct resize to out_w×out_h"]
     E -->|"No (zoom=1)"| G["Fit + pad on dark canvas"]
-    F --> H["VP8/WebP encode"]
+    F --> H["WebP encode<br/>(with ICC profile)"]
     G --> H
 ```
 

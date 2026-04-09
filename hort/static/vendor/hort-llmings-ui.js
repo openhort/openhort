@@ -83,10 +83,20 @@
     return _thumbDataUrls[pluginId] || '';
   }
 
-  // Start the thumbnail loop
-  function startThumbnailLoop(intervalMs) {
+  // Thumbnail loop — fast when visible (2s), slow when hidden (10s)
+  let _thumbTimer = null;
+  function startThumbnailLoop() {
     renderAllThumbnails();
-    setInterval(renderAllThumbnails, intervalMs || 5000);
+    function schedule() {
+      const visible = document.visibilityState === 'visible';
+      const interval = visible ? 2000 : 10000;
+      _thumbTimer = setTimeout(() => { renderAllThumbnails(); schedule(); }, interval);
+    }
+    schedule();
+    document.addEventListener('visibilitychange', () => {
+      if (_thumbTimer) { clearTimeout(_thumbTimer); _thumbTimer = null; }
+      schedule();
+    });
   }
 
   // ---- Auto-show plugins ----

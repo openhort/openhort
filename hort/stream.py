@@ -43,6 +43,32 @@ MAX_UNACKED_FRAMES = 5
 MAX_UNACKED_FRAMES_VIDEO = 2  # tighter for VP8/VP9 (larger frames)
 
 
+def _detect_webp_method() -> int:
+    """Choose WebP encode method based on CPU capability.
+
+    method 0: fastest, lowest quality (ARM SBCs like Raspberry Pi)
+    method 2: good balance (most laptops/desktops)
+    method 4: high quality, slower (powerful desktops, Apple Silicon)
+
+    Benchmarked once at import time.
+    """
+    import multiprocessing
+    import platform
+
+    cores = multiprocessing.cpu_count()
+    machine = platform.machine().lower()
+    is_arm = "arm" in machine or "aarch" in machine
+
+    if is_arm and cores <= 4:
+        return 0  # Raspberry Pi, low-end ARM
+    if cores >= 8:
+        return 4  # Apple Silicon, high-end desktop
+    return 2  # mid-range laptop
+
+
+WEBP_METHOD = _detect_webp_method()
+
+
 class StreamState:
     """Per-stream ACK tracking and flow control."""
 
@@ -414,7 +440,11 @@ async def run_stream(
 
             if not is_video:
                 wbuf = io.BytesIO()
-                pil_image.save(wbuf, format="WEBP", quality=actual_quality, method=0)
+                icc = pil_image.info.get("icc_profile")
+                save_kw: dict[str, Any] = {"format": "WEBP", "quality": actual_quality, "method": WEBP_METHOD}
+                if icc:
+                    save_kw["icc_profile"] = icc
+                pil_image.save(wbuf, **save_kw)
                 pil_image.close()
                 frame_bytes = wbuf.getvalue()
                 wbuf.close()
@@ -635,6 +665,9 @@ def _capture_crop_resize(
     if pil_image is None:
         return None
 
+    # Preserve ICC profile across crop/resize (PIL doesn't copy info dict)
+    icc_profile = pil_image.info.get("icc_profile")
+
     # Always output at exactly client dimensions (out_w × out_h).
     # When aspect ratios match (zoomed crop), this is a simple resize.
     # When they differ (zoom=1 full view), center and pad with dark pixels.
@@ -660,6 +693,10 @@ def _capture_crop_resize(
         canvas.paste(fitted, ((tgt_w - fit_w) // 2, (tgt_h - fit_h) // 2))
         fitted.close()
         pil_image = canvas
+
+    # Reattach ICC profile so WebP encoder embeds it
+    if icc_profile:
+        pil_image.info["icc_profile"] = icc_profile
 
     return pil_image
 

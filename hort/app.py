@@ -1465,15 +1465,36 @@ def _dev_reload_script() -> str:
     return """<script>
 (function(){
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    let wasConnected = false;
+    let reconnectAttempts = 0;
     function connect() {
         const _b = document.querySelector('base');
         const _bp = _b ? new URL(_b.href).pathname.replace(/\/$/, '') : '';
-        const ws = new WebSocket(proto + '://' + location.host + _bp + '/ws/devreload');
+        const url = proto + '://' + location.host + _bp + '/ws/devreload';
+        const ws = new WebSocket(url);
+        ws.onopen = function() {
+            if (wasConnected) {
+                console.log('[dev] server back after ' + reconnectAttempts + ' retries — reloading page');
+                location.reload();
+                return;
+            }
+            wasConnected = true;
+            reconnectAttempts = 0;
+            console.log('[dev] hot-reload connected');
+        };
         ws.onmessage = function(e) {
             const msg = JSON.parse(e.data);
-            if (msg.type === 'reload') { console.log('[dev] reloading...'); location.reload(); }
+            if (msg.type === 'reload') {
+                console.log('[dev] static files changed — reloading');
+                location.reload();
+            }
         };
-        ws.onclose = function() { setTimeout(connect, 1000); };
+        ws.onclose = function() {
+            reconnectAttempts++;
+            if (reconnectAttempts === 1) console.log('[dev] server disconnected, waiting for restart...');
+            setTimeout(connect, 2000);
+        };
+        ws.onerror = function() {}; // suppress console noise
     }
     connect();
     console.log('[dev] hot-reload enabled');

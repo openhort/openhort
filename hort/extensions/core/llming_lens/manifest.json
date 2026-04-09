@@ -20,7 +20,7 @@
     {
       "id": "desktop-preview",
       "method": "capture_preview",
-      "interval_seconds": 10,
+      "interval_seconds": 3,
       "run_on_activate": true,
       "enabled_feature": "desktop_preview"
     }
