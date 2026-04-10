@@ -23,7 +23,8 @@ from hort.media import MediaProvider, MediaSource
 
 logger = logging.getLogger(__name__)
 
-_IDLE_TIMEOUT = 30.0  # seconds before auto-stopping an unused camera
+_IDLE_TIMEOUT = 30.0    # seconds before auto-stopping an unused "on" camera
+_AUTO_TIMEOUT = 10.0    # seconds before auto-stopping an "auto" transient camera
 
 
 class _CameraSession:
@@ -215,6 +216,12 @@ class CameraProvider(MediaProvider):
             except Exception:
                 pass
 
+            # Clean up idle/transient cameras
+            try:
+                self.cleanup_idle()
+            except Exception:
+                pass
+
             time.sleep(_DISCOVERY_INTERVAL)
 
     def shutdown(self) -> None:
@@ -393,19 +400,35 @@ class CameraProvider(MediaProvider):
             return None
         frame = session.get_frame(max_width, quality)
 
-        # Transient capture: stop camera after grabbing the frame
+        # Transient (auto-mode) capture: schedule auto-stop after 10 seconds
+        # Camera stays open briefly in case AI makes follow-up captures
         if transient and source_id not in self._wanted:
-            session.stop()
-            self._sessions.pop(source_id, None)
+            session.last_access = time.monotonic()
+            # Don't stop immediately — cleanup_idle handles it after _AUTO_TIMEOUT
 
         return frame
 
     def cleanup_idle(self) -> None:
-        """Stop cameras that haven't been accessed recently."""
+        """Stop cameras that haven't been accessed recently.
+
+        - "on" cameras with ref_count=0: stop after _IDLE_TIMEOUT (30s)
+        - "auto" transient cameras: stop after _AUTO_TIMEOUT (10s)
+        """
         now = time.monotonic()
         for source_id in list(self._sessions):
             session = self._sessions[source_id]
-            if session._running and session.ref_count <= 0:
+            if not session._running:
+                continue
+            policy = self.get_policy(source_id)
+            # "auto" transient cameras: short timeout
+            if policy == CAMERA_POLICY_AUTO and source_id not in self._wanted:
+                if now - session.last_access > _AUTO_TIMEOUT:
+                    logger.info("Auto-stopping transient camera: %s (%.0fs idle)", session.device_name, now - session.last_access)
+                    session.stop()
+                    self._sessions.pop(source_id, None)
+                continue
+            # "on" cameras with no active viewers: long timeout
+            if session.ref_count <= 0:
                 if now - session.last_access > _IDLE_TIMEOUT:
                     logger.info("Auto-stopping idle camera: %s", session.device_name)
                     session.stop()

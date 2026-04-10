@@ -87,8 +87,11 @@ class LlmingCam(LlmingBase):
                 name="capture_camera",
                 type=PowerType.MCP,
                 description=(
-                    "Capture a single frame from a camera. Auto-starts the camera if not active. "
-                    "Returns a WebP image. Use list_cameras first to get source_id."
+                    "Capture a single frame from a camera. If the camera policy is 'auto', "
+                    "the camera opens temporarily and closes after 10 seconds of inactivity. "
+                    "If 'off', capture is blocked. If 'on', camera is already running. "
+                    "No need to call start_camera first — just capture directly. "
+                    "Use list_cameras to see available cameras and their policy."
                 ),
                 input_schema={
                     "type": "object",
@@ -155,7 +158,8 @@ class LlmingCam(LlmingBase):
             lines = []
             for s in sources:
                 active = s.metadata.get("active", False)
-                status = "🟢 active" if active else "⚪ idle"
+                policy = s.metadata.get("policy", "off")
+                status = "🟢 on" if active else f"⚪ {policy}"
                 lines.append(f"{s.name} ({s.source_id}) — {status}")
             return {"content": [{"type": "text", "text": "\n".join(lines) or "No cameras found"}]}
 
