@@ -256,8 +256,17 @@ class CameraProvider(MediaProvider):
         return sources
 
     def get_policy(self, source_id: str) -> str:
-        """Get the access policy for a camera. Default: off."""
-        return self._policies.get(source_id, CAMERA_POLICY_OFF)
+        """Get the access policy for a camera.
+
+        Default: off. But if the camera is actively running (in _wanted),
+        it's implicitly "on" even if no policy was explicitly set.
+        """
+        explicit = self._policies.get(source_id)
+        if explicit:
+            return explicit
+        if source_id in self._wanted:
+            return CAMERA_POLICY_ON
+        return CAMERA_POLICY_OFF
 
     def set_policy(self, source_id: str, policy: str) -> None:
         """Set access policy: 'off', 'on', or 'auto'."""
