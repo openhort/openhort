@@ -42,7 +42,8 @@ class WindowListResponse(BaseModel):
 class StreamConfig(BaseModel):
     """WebSocket stream configuration sent by the client."""
 
-    window_id: int
+    window_id: int = 0
+    source_id: str = ""  # unified: "window:42", "screen:-1", "cam:FaceTime HD"
     fps: int = Field(default=10, ge=1, le=60)
     quality: int = Field(default=70, ge=1, le=100)
     max_width: int = Field(default=100, ge=25, le=7680)

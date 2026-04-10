@@ -291,6 +291,7 @@ async def run_stream(
     prev_window_id: int = 0
     prev_codec: str = ""
     prev_quality: int = 0
+    _prev_source_id: str = ""
     frame_count = 0
     video_encoder: _VideoEncoder | None = None
     stream_state: StreamState | None = None
@@ -372,73 +373,118 @@ async def run_stream(
                 await asyncio.sleep(0.05)
                 continue
 
-            provider = _get_provider(entry.active_target_id)
-            if provider is None:
-                await asyncio.sleep(1.0)
-                continue
+            # ── Source routing: camera vs window/screen ──
+            source_id = config.source_id
+            is_camera = source_id.startswith("cam:")
 
-            if config.window_id != prev_window_id:
-                logger.info("Stream window → %d", config.window_id)
-                prev_window_id = config.window_id
-                # Send source dimensions so client can auto-fit viewport
-                try:
-                    src_dims = await asyncio.get_event_loop().run_in_executor(
-                        None, _get_source_dims, provider, config.window_id)
-                    if src_dims and entry.websocket:
-                        await entry.websocket.send_text(json.dumps({
-                            "type": "source_dims",
-                            "width": src_dims[0], "height": src_dims[1],
-                        }))
-                except Exception:
-                    pass
-
-            # Server decides actual capture parameters.
-            # The client's config is a REQUEST — the server may override
-            # based on load, multiple viewers, or resource constraints.
-            actual_width = _effective_max_width(
-                config.screen_width, config.screen_dpr, config.max_width
-            )
             actual_quality = config.quality
             actual_fps = config.fps
 
-            # --- Server-side overrides ---
-            # Multiple viewers: reduce quality/resolution to share CPU
-            observer_count = getattr(entry, 'observer_id', 0)
-            if observer_count > 1:
-                actual_width = min(actual_width, 1280)
-                actual_quality = min(actual_quality, 50)
+            if is_camera:
+                # Camera path: frames pre-encoded by capture thread
+                from hort.media import SourceRegistry
+                media_reg = SourceRegistry.get()
+                cam_provider = media_reg.get_provider("camera")
+                if cam_provider is None:
+                    await asyncio.sleep(1.0)
+                    continue
 
-            # High load: cap resolution (capture_ms from previous frame)
-            if frame_count > 10 and capture_ms > 150:
-                actual_width = min(actual_width, 960)
-                actual_quality = min(actual_quality, 40)
-                actual_fps = min(actual_fps, 10)
+                # Start camera on first frame (or if source changed)
+                if source_id != _prev_source_id:
+                    if _prev_source_id and _prev_source_id.startswith("cam:"):
+                        await cam_provider.stop_source(_prev_source_id)
+                    await cam_provider.start_source(source_id)
+                    _prev_source_id = source_id
+                    logger.info("Stream camera → %s", source_id)
+                    # Send source dims
+                    src = media_reg.get_source(source_id)
+                    if src and entry.websocket:
+                        meta = src.metadata
+                        try:
+                            await entry.websocket.send_text(json.dumps({
+                                "type": "source_dims",
+                                "width": meta.get("width", 1280),
+                                "height": meta.get("height", 720),
+                                "source_type": "camera",
+                                "name": src.name,
+                            }))
+                        except Exception:
+                            pass
 
-            # Output size = client logical window × resolution scale.
-            # DPR is NOT applied — streaming at 2x physical pixels wastes
-            # CPU/bandwidth for no visible quality gain on remote desktop.
-            res_scale = max(0.25, min(1.0, config.max_width / 100.0))
-            client_w = max(320, config.screen_width or 1920)
-            client_h = max(240, config.screen_height or 1080)
-            out_w = max(160, int(client_w * res_scale))
-            out_h = max(120, int(client_h * res_scale))
+                t0 = time.monotonic()
+                frame_bytes = await cam_provider.capture_frame(source_id)
+                capture_ms = (time.monotonic() - t0) * 1000
 
-            t0 = time.monotonic()
+                if frame_bytes is None:
+                    await asyncio.sleep(0.1)
+                    continue
 
-            # Capture + crop + resize all in executor to keep full-res
-            # images off the event loop thread (allows immediate GC).
-            pil_image = await asyncio.get_event_loop().run_in_executor(
-                None, _capture_crop_resize,
-                provider, config.window_id,
-                config.vp_x, config.vp_y, config.vp_w, config.vp_h,
-                out_w, out_h,
-            )
-            if pil_image is None:
-                await _handle_capture_fail(entry, config)
-                prev_window_id = 0
-                continue
+            else:
+                # Window/screen path: existing capture pipeline
+                provider = _get_provider(entry.active_target_id)
+                if provider is None:
+                    await asyncio.sleep(1.0)
+                    continue
 
-            if not is_video:
+                # Track source change
+                effective_source = f"window:{config.window_id}"
+                if effective_source != _prev_source_id:
+                    if _prev_source_id and _prev_source_id.startswith("cam:"):
+                        # Switching away from camera — stop it
+                        from hort.media import SourceRegistry as _SR
+                        cam_p = _SR.get().get_provider("camera")
+                        if cam_p:
+                            await cam_p.stop_source(_prev_source_id)
+                    _prev_source_id = effective_source
+
+                if config.window_id != prev_window_id:
+                    logger.info("Stream window → %d", config.window_id)
+                    prev_window_id = config.window_id
+                    try:
+                        src_dims = await asyncio.get_event_loop().run_in_executor(
+                            None, _get_source_dims, provider, config.window_id)
+                        if src_dims and entry.websocket:
+                            await entry.websocket.send_text(json.dumps({
+                                "type": "source_dims",
+                                "width": src_dims[0], "height": src_dims[1],
+                            }))
+                    except Exception:
+                        pass
+
+                actual_width = _effective_max_width(
+                    config.screen_width, config.screen_dpr, config.max_width
+                )
+
+                # Server-side overrides
+                observer_count = getattr(entry, 'observer_id', 0)
+                if observer_count > 1:
+                    actual_width = min(actual_width, 1280)
+                    actual_quality = min(actual_quality, 50)
+
+                if frame_count > 10 and capture_ms > 150:
+                    actual_width = min(actual_width, 960)
+                    actual_quality = min(actual_quality, 40)
+                    actual_fps = min(actual_fps, 10)
+
+                res_scale = max(0.25, min(1.0, config.max_width / 100.0))
+                client_w = max(320, config.screen_width or 1920)
+                client_h = max(240, config.screen_height or 1080)
+                out_w = max(160, int(client_w * res_scale))
+                out_h = max(120, int(client_h * res_scale))
+
+                t0 = time.monotonic()
+
+                pil_image = await asyncio.get_event_loop().run_in_executor(
+                    None, _capture_crop_resize,
+                    provider, config.window_id,
+                    config.vp_x, config.vp_y, config.vp_w, config.vp_h,
+                    out_w, out_h,
+                )
+                if pil_image is None:
+                    await _handle_capture_fail(entry, config)
+                    prev_window_id = 0
+                    continue
+
                 wbuf = io.BytesIO()
                 icc = pil_image.info.get("icc_profile")
                 save_kw: dict[str, Any] = {"format": "WEBP", "quality": actual_quality, "method": WEBP_METHOD}
@@ -452,7 +498,7 @@ async def run_stream(
             capture_ms = (time.monotonic() - t0) * 1000
             frame_count += 1
 
-            if is_video:
+            if is_video and not is_camera:
                 # VP8/VP9: encode to WebM, send init segment directly, frame via queue
                 assert video_encoder is not None
                 init_seg, frame_data = video_encoder.encode(pil_image)
@@ -508,6 +554,15 @@ async def run_stream(
             entry.stream_states.pop(0, None)  # type: ignore[attr-defined]
         if video_encoder:
             video_encoder.close()
+        # Stop camera if we were streaming one
+        if _prev_source_id and _prev_source_id.startswith("cam:"):
+            try:
+                from hort.media import SourceRegistry
+                cam_p = SourceRegistry.get().get_provider("camera")
+                if cam_p:
+                    asyncio.get_event_loop().create_task(cam_p.stop_source(_prev_source_id))
+            except Exception:
+                pass
         logger.info("Stream ended (%d frames)", frame_count)
 
 
