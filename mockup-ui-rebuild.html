@@ -627,18 +627,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
   <!-- Debug simulation FAB (bottom-left) -->
   <div style="position:relative">
-    <button class="fab-debug" @click.stop="notifMenuOpen=!notifMenuOpen"><i class="ph ph-flask" style="font-size:18px"></i></button>
-    <div v-if="notifMenuOpen" class="notif-bell-dropdown" style="bottom:100%;left:0;top:auto;right:auto;margin-bottom:8px" @click.stop>
+    <button class="fab-debug" @click.stop="debugMenuOpen=!debugMenuOpen"><i class="ph ph-flask" style="font-size:18px"></i></button>
+    <div v-if="debugMenuOpen" class="notif-bell-dropdown" style="bottom:100%;left:0;top:auto;right:auto;margin-bottom:8px" @click.stop>
       <span class="sim-label">Simulate</span>
-      <div class="notif-bell-item" @click="simNotifIntruder();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F6A8;</span> Intruder!</div>
-      <div class="notif-bell-item" @click="simNotifDoorbell();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F514;</span> Doorbell</div>
-      <div class="notif-bell-item" @click="simNotifClaudeDone();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x2705;</span> Claude done</div>
-      <div class="notif-bell-item" @click="simNotifTempAlert();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F321;&#xFE0F;</span> Temp alert</div>
+      <div class="notif-bell-item" @click="simNotifIntruder();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F6A8;</span> Intruder!</div>
+      <div class="notif-bell-item" @click="simNotifDoorbell();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F514;</span> Doorbell</div>
+      <div class="notif-bell-item" @click="simNotifClaudeDone();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x2705;</span> Claude done</div>
+      <div class="notif-bell-item" @click="simNotifTempAlert();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F321;&#xFE0F;</span> Temp alert</div>
       <div class="notif-bell-sep"></div>
-      <div class="notif-bell-item" @click="simNotifEmail();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4E7;</span> New email</div>
-      <div class="notif-bell-item" @click="simNotifWashing();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F9FA;</span> Washing done</div>
-      <div class="notif-bell-item" @click="simNotifSong();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F3B5;</span> Song changed</div>
-      <div class="notif-bell-item" @click="simNotifBackup();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4BE;</span> Backup OK</div>
+      <div class="notif-bell-item" @click="simNotifEmail();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4E7;</span> New email</div>
+      <div class="notif-bell-item" @click="simNotifWashing();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F9FA;</span> Washing done</div>
+      <div class="notif-bell-item" @click="simNotifSong();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F3B5;</span> Song changed</div>
+      <div class="notif-bell-item" @click="simNotifBackup();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4BE;</span> Backup OK</div>
     </div>
   </div>
 
@@ -2057,8 +2057,9 @@ createApp({
       Object.keys(widgetBadges).forEach(k=>delete widgetBadges[k]);
     }
 
-    // Close bell dropdown on click outside
-    function _closeBellMenu(){notifMenuOpen.value=false}
+    const debugMenuOpen=ref(false);
+    // Close dropdowns on click outside
+    function _closeBellMenu(){notifMenuOpen.value=false;debugMenuOpen.value=false}
     onMounted(()=>document.addEventListener('click',_closeBellMenu));
     onUnmounted(()=>document.removeEventListener('click',_closeBellMenu));
 
@@ -3314,7 +3315,7 @@ createApp({
       notifColor,notifTimeAgo,openNotifSource,getWidgetBadge,clearAllNotifs,
       simNotifIntruder,simNotifDoorbell,simNotifClaudeDone,simNotifTempAlert,
       simNotifEmail,simNotifWashing,simNotifSong,simNotifBackup,
-      buzzingWidgets,criticalFlash}
+      buzzingWidgets,criticalFlash,debugMenuOpen}
   }
 }).mount('#app');
 </script>
