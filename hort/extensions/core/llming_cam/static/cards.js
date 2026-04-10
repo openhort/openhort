@@ -120,9 +120,31 @@
             }
           }
 
+          const browserCamActive = Vue.ref(false);
+          const browserDevices = Vue.ref([]);
+
+          async function shareBrowserCam(deviceId) {
+            if (!window.hortCamera) return;
+            if (browserCamActive.value) {
+              window.hortCamera.stop();
+              browserCamActive.value = false;
+            } else {
+              const sid = await window.hortCamera.start(deviceId);
+              browserCamActive.value = !!sid;
+            }
+            await refresh();
+          }
+
+          async function loadBrowserDevices() {
+            if (window.hortCamera) {
+              browserDevices.value = await window.hortCamera.listDevices();
+            }
+          }
+
           Vue.onMounted(async () => {
             await refresh();
             loadStoredThumbs();
+            loadBrowserDevices();
             setInterval(async () => { await refresh(); loadStoredThumbs(); }, 3000);
             previewLoop();
           });
@@ -131,11 +153,23 @@
             _previewRunning = false;
           });
 
-          return { cameras, previews, loading, setPolicy };
+          return { cameras, previews, loading, setPolicy, browserCamActive, browserDevices, shareBrowserCam };
         },
         template: `
           <div style="padding: 8px">
-            <div v-if="cameras.length === 0" style="color: var(--el-text-dim); text-align: center; padding: 20px">
+            <!-- Share browser camera -->
+            <div v-if="browserDevices.length" style="margin-bottom: 8px; padding: 8px; border-radius: 8px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2)">
+              <div style="display:flex; align-items:center; gap:8px">
+                <i class="ph ph-broadcast" style="font-size:18px; color:var(--el-primary)"></i>
+                <span style="flex:1; font-size:12px; font-weight:500">Share Browser Camera</span>
+                <button @click="shareBrowserCam()" :style="{
+                  background: browserCamActive ? 'var(--el-danger, #ef4444)' : 'var(--el-primary, #3b82f6)',
+                  color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 12px',
+                  fontSize: '11px', fontWeight: 600, cursor: 'pointer',
+                }">{{ browserCamActive ? 'Stop Sharing' : 'Share' }}</button>
+              </div>
+            </div>
+            <div v-if="cameras.length === 0 && !browserDevices.length" style="color: var(--el-text-dim); text-align: center; padding: 20px">
               No cameras detected
             </div>
             <div v-for="cam in cameras" :key="cam.source_id"

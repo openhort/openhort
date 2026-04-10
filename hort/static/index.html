@@ -337,6 +337,89 @@
   // Expose WS request function for vendor scripts (hort-llmings-ui.js, etc.)
   window.hortWS = { request: sendControlRequest };
 
+  // ── Browser Camera API ──
+  // Share browser webcam as a source. ACK-based: sends one frame, waits for ack.
+  window.hortCamera = {
+    _stream: null,
+    _ws: null,
+    _video: null,
+    _canvas: null,
+    _running: false,
+    _sourceId: '',
+
+    async start(deviceId) {
+      if (this._running) return this._sourceId;
+      const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user', width: 1280, height: 720 } };
+      this._stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const track = this._stream.getVideoTracks()[0];
+      const settings = track.getSettings();
+
+      // Tell server about the camera
+      const offer = await sendControlRequest({
+        type: 'camera_offer',
+        device_name: track.label || 'Browser Camera',
+        width: settings.width || 1280,
+        height: settings.height || 720,
+      });
+      if (!offer || !offer.ok) { this.stop(); return null; }
+      this._sourceId = offer.source_id;
+
+      // Setup video element for frame capture
+      this._video = document.createElement('video');
+      this._video.srcObject = this._stream;
+      this._video.muted = true;
+      await this._video.play();
+      this._canvas = document.createElement('canvas');
+      this._canvas.width = settings.width || 1280;
+      this._canvas.height = settings.height || 720;
+
+      // Connect upload WS
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      this._ws = new WebSocket(proto + '://' + location.host + '/ws/camera/' + state.sessionId);
+      this._ws.binaryType = 'arraybuffer';
+      this._running = true;
+
+      this._ws.onopen = () => { this._sendFrame(); };
+      this._ws.onmessage = (e) => {
+        // ACK received — send next frame
+        if (this._running) requestAnimationFrame(() => this._sendFrame());
+      };
+      this._ws.onclose = () => { this._running = false; };
+
+      return this._sourceId;
+    },
+
+    _sendFrame() {
+      if (!this._running || !this._video || !this._canvas || !this._ws || this._ws.readyState !== WebSocket.OPEN) return;
+      const ctx = this._canvas.getContext('2d');
+      ctx.drawImage(this._video, 0, 0);
+      this._canvas.toBlob(blob => {
+        if (blob && this._ws && this._ws.readyState === WebSocket.OPEN) {
+          blob.arrayBuffer().then(buf => { this._ws.send(buf); });
+        }
+      }, 'image/webp', 0.8);
+    },
+
+    stop() {
+      this._running = false;
+      if (this._ws) { try { this._ws.close(); } catch(e) {} this._ws = null; }
+      if (this._stream) { this._stream.getTracks().forEach(t => t.stop()); this._stream = null; }
+      if (this._video) { this._video.srcObject = null; this._video = null; }
+      this._canvas = null;
+      if (this._sourceId) {
+        sendControl({ type: 'camera_stop', source_id: this._sourceId });
+        this._sourceId = '';
+      }
+    },
+
+    async listDevices() {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter(d => d.kind === 'videoinput').map(d => ({
+        deviceId: d.deviceId, label: d.label || 'Camera ' + d.deviceId.slice(0, 8),
+      }));
+    },
+  };
+
   // ===== DEEP-LINK URL PARSING =====
   // URL scheme: /view/{target}/{window}?codec=vp8&fps=15&quality=70&zoom=2&vx=0.25&vy=0.1
   // target: "local" (local machine), target ID, or omitted

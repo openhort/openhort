@@ -1486,6 +1486,57 @@ def _register_routes(app: FastAPI) -> None:
         registry: HortRegistry = HortRegistry.get()  # type: ignore[assignment]
         await run_stream(websocket, session_id, registry)
 
+    @app.websocket("/ws/camera/{session_id}")
+    async def camera_upload_ws(websocket: WebSocket, session_id: str) -> None:
+        """Binary WebSocket for browser camera frames (client → server).
+
+        The browser sends WebP frames, server buffers the latest one.
+        ACK-based flow control: server sends ``camera_ack`` after each frame.
+        Max 1 frame in flight — no pile-up on slow connections.
+        """
+        from hort.media import SourceRegistry
+        from hort.session import HortRegistry
+
+        registry = HortRegistry.get()
+        entry = registry.get_session(session_id)
+        if not entry:
+            await websocket.close(code=4004, reason="Session not found")
+            return
+
+        await websocket.accept()
+
+        # Find the browser camera session for this WS session
+        controller = getattr(entry, "controller", None)
+        source_id = getattr(controller, "_browser_camera_source_id", "") if controller else ""
+        if not source_id:
+            await websocket.close(code=4005, reason="No camera offered — send camera_offer first")
+            return
+
+        cam_provider = SourceRegistry.get().get_provider("camera")
+        if not cam_provider:
+            await websocket.close(code=4006, reason="No camera provider")
+            return
+
+        session = cam_provider._sessions.get(source_id)
+        if not session:
+            await websocket.close(code=4007, reason="Camera session not found")
+            return
+
+        logger.info("Browser camera WS connected: %s", source_id)
+        try:
+            while True:
+                data = await websocket.receive_bytes()
+                if len(data) < 10:
+                    continue
+                # Frame data (skip the 10-byte header if present, or accept raw WebP)
+                session.receive_frame(data)
+                # ACK: tell browser it can send the next frame
+                await websocket.send_text('{"type":"camera_ack"}')
+        except Exception:
+            pass
+        finally:
+            logger.info("Browser camera WS disconnected: %s", source_id)
+
     @app.websocket("/ws/terminal/{terminal_id}")
     async def terminal_ws(websocket: WebSocket, terminal_id: str) -> None:
         """Terminal I/O — bridges browser WS to the persistent termd daemon."""
