@@ -854,7 +854,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                   </div>
                 </template>
                 <template v-else-if="w.extId==='now-playing'">
-                  <div style="position:absolute;inset:0;background:linear-gradient(135deg,#1a0a2e 0%,#2d1b4e 50%,#0f1a3e 100%);display:flex;align-items:flex-end;padding:12px">
+                  <div style="position:absolute;inset:0;background:linear-gradient(145deg,#1a0a2e,#2d1b4e 40%,#1e1245 60%,#0f1a3e);display:flex;align-items:flex-end;padding:12px">
                     <div style="position:absolute;top:14px;left:14px;width:56px;height:56px;border-radius:8px;background:linear-gradient(135deg,#4a2080,#e040a0);box-shadow:0 4px 16px rgba(0,0,0,.5)"></div>
                     <div style="width:100%">
                       <div style="font-size:15px;font-weight:700;color:#fff">Midnight City</div>
@@ -3025,7 +3025,7 @@ createApp({
     function getActivePage(){return document.querySelectorAll('.page')[deskIdx.value]}
 
     // === Color field renderer — per-pixel distance-weighted hort blending ===
-    const CF_W=160; // height computed dynamically per render to match aspect ratio
+    const CF_W=480; // higher resolution prevents gradient banding
     function renderColorField(desk,canvas){
       if(!canvas)return;
       const page=canvas.closest('.page');
