@@ -182,15 +182,10 @@ class LlmingLensExt extends HortExtension {
 
         function onSelect(item) {
           if (item.id === 'windows') {
-            // Show window overview; remember we came from a spirit so back returns here
-            const s = window.__hortState;
-            if (s) {
-              s._returnToSpirit = s.view === 'spirit-fullscreen' ? true : false;
-              s.view = 'viewer';
-              s.overviewOpen = true;
-            }
-          } else if (window.__hort?.openWindow) {
-            window.__hort.openWindow(item.windowId);
+            // Open window overview (screens index)
+            HortExtension.navigate('/core/llming-lens/screens');
+          } else {
+            HortExtension.openViewer(item.windowId);
           }
         }
 

@@ -39,8 +39,8 @@ llming-com = {path = "../llming-com", develop = true}
 playwright = "^1.58.0"
 pytest-playwright = "^0.7.2"
 aiogram = "^3.26.0"
-llming-models = {path = "../llming-models"}
-office-connect = {path = "../office-connect", develop = true}
+llming-models = {path = "../llming-models", markers = "python_version >= '3.14'"}
+office-connect = {path = "../office-connect", develop = true, markers = "python_version >= '3.14'"}
 
 
 [tool.poetry.group.docs.dependencies]

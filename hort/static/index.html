@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<base href="/">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -90,7 +91,8 @@
 <script src="static/vendor/xterm-addon-webgl.min.js"></script>
 <script src="static/vendor/vue.global.prod.js"></script>
 <script src="static/vendor/quasar.umd.prod.js"></script>
-<script src="static/vendor/hort-ext.js?v=6"></script>
+<script src="static/vendor/hort-ext.js?v=8"></script>
+<script src="static/vendor/hort-router.js?v=2"></script>
 <script src="static/vendor/hort-widgets.js"></script>
 <script src="static/vendor/hort-llmings-ui.js"></script>
 <!-- Connector extension panels -->
@@ -175,7 +177,7 @@
     p2pHealthy: true,  // false when RTT > 2000ms
     mseActive: false,  // true when VP8/VP9 MSE is rendering
 
-    // View: 'picker' | 'viewer' | 'terminal'
+    // View: 'picker' | 'viewer' | 'terminal' | 'spirit-fullscreen' (set by router onNavigate)
     view: 'picker',
 
     // Targets
@@ -260,6 +262,10 @@
 
     // Extension panels
     extensionPanels: [],
+
+    // Unified toolbar state (shared between picker and HortApp)
+    viewTab: 'screens',  // 'screens' | 'spirits' | 'config'
+    targetDropdownOpen: false,
   });
   window.__hortState = state;
 
@@ -271,20 +277,22 @@
     sendControl: null, // set after control WS connects
     // Close spirit fullscreen and return to picker
     closeSpiritFullscreen: null, // set after picker mounts
+    // Viewer cleanup (set by HortViewer component)
+    cleanupViewer: null,
+    // Terminal cleanup (set by HortTerminal component)
+    disconnectTerminal: null,
     // URL helpers
     wsUrl: null,
     apiUrl: null,
   };
 
-  // Restore stream settings from IndexedDB, then apply deep-link overrides
+  // Restore stream settings from IndexedDB
   _loadStreamSettings().then(saved => {
     if (saved) {
       for (const k of _STREAM_FIELDS) {
         if (saved[k] !== undefined) state[k] = saved[k];
       }
     }
-    // Deep-link settings override saved settings
-    if (_deepLink) _applyDeepLinkSettings(_deepLink);
   });
 
   // ===== PERSISTENCE HELPERS =====
@@ -337,55 +345,11 @@
   // Expose WS request function for vendor scripts (hort-llmings-ui.js, etc.)
   window.hortWS = { request: sendControlRequest };
 
-  // ===== DEEP-LINK URL PARSING =====
-  // URL scheme: /view/{target}/{window}?codec=vp8&fps=15&quality=70&zoom=2&vx=0.25&vy=0.1
-  // target: "local" (local machine), target ID, or omitted
-  // window: "desktop" (window_id=-1), numeric window ID, or omitted
-  let _deepLink = null;
-  function _parseDeepLink() {
-    const path = location.pathname.replace(_basePath, '');
-    const m = path.match(/^\/view(?:\/([^/]+))?(?:\/([^/]+))?/);
-    if (!m) return null;
-    const params = new URLSearchParams(location.search);
-    const link = {
-      target: m[1] || 'local',
-      window: m[2] || 'desktop',
-      codec: params.get('codec'),
-      fps: params.has('fps') ? parseInt(params.get('fps')) : null,
-      quality: params.has('quality') ? parseInt(params.get('quality')) : null,
-      maxWidth: params.has('res') ? parseInt(params.get('res')) : null,
-      zoom: params.has('zoom') ? parseFloat(params.get('zoom')) : null,
-      vx: params.has('vx') ? parseFloat(params.get('vx')) : null,
-      vy: params.has('vy') ? parseFloat(params.get('vy')) : null,
-    };
-    // Resolve window alias
-    if (link.window === 'desktop') link.windowId = -1;
-    else if (/^\d+$/.test(link.window)) link.windowId = parseInt(link.window);
-    else link.windowId = -1;  // fallback to desktop
-    // Resolve target alias
-    if (link.target === 'local') link.targetId = '';  // empty = default local target
-    else link.targetId = link.target;
-    return link;
-  }
-  _deepLink = _parseDeepLink();
-
-  // Apply deep-link settings to state (codec, quality, fps, etc.)
-  function _applyDeepLinkSettings(link) {
-    if (link.codec && ['webp', 'vp8', 'vp9'].includes(link.codec)) state.codec = link.codec;
-    if (link.fps && link.fps >= 1 && link.fps <= 60) state.fps = link.fps;
-    if (link.quality && link.quality >= 1 && link.quality <= 100) state.quality = link.quality;
-    if (link.maxWidth && link.maxWidth >= 25 && link.maxWidth <= 100) state.maxWidth = link.maxWidth;
-    if (link.zoom && link.zoom > 1) {
-      _vp.zoom = Math.min(10, link.zoom);
-      _vp.w = 1 / _vp.zoom;
-      _vp.h = 1 / _vp.zoom;
-      // Center on specified point or center of screen
-      const cx = (link.vx !== null) ? link.vx : 0.5;
-      const cy = (link.vy !== null) ? link.vy : 0.5;
-      _vp.x = Math.max(0, Math.min(1 - _vp.w, cx - _vp.w / 2));
-      _vp.y = Math.max(0, Math.min(1 - _vp.h, cy - _vp.h / 2));
-    }
-  }
+  // ===== DEEP-LINK URL HANDLING =====
+  // Stream settings from hash URL are applied in onNavigate() when the
+  // router fires the initial route.  Legacy path-based deep-links
+  // Legacy path-based deep-links (/view/{target}/{window}) and hash URLs are
+  // migrated to clean paths by HortRouter.init().
 
   async function initSession() {
     try {
@@ -518,8 +482,7 @@
           title: msg.title,
           alive: true,
         });
-        state.activeTerminalId = msg.terminal_id;
-        state.view = 'terminal';
+        HortRouter.push('/core/terminal/' + encodeURIComponent(msg.terminal_id));
         break;
       case 'terminal_list':
         state.terminals = msg.terminals || [];
@@ -529,7 +492,7 @@
         state.terminals = state.terminals.filter(t => t.terminal_id !== msg.terminal_id);
         if (state.activeTerminalId === msg.terminal_id) {
           state.activeTerminalId = null;
-          if (state.view === 'terminal') state.view = 'picker';
+          if (state.view === 'terminal') HortRouter.push('/');
         }
         break;
       case 'tunnel_status':
@@ -1107,24 +1070,10 @@
   // ===== SPIRIT FULLSCREEN (shared between picker and root) =====
   const fullscreenSpirit = ref(null);
   function openSpiritFullscreen(name) {
-    // For ALL llmings with widgets: check available screen space.
-    // Float if there's room, fullscreen if screen is too small.
-    if (typeof HortExtension !== 'undefined' && HortExtension.resolveDisplayMode) {
-      for (const [id, ExtClass] of HortExtension.getRegistry()) {
-        if (id === name && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
-          const mode = HortExtension.resolveDisplayMode(ExtClass);
-          if (mode === 'float') {
-            HortExtension.openFloat(id, ExtClass.llmingWidgets[0], {
-              title: ExtClass.llmingTitle || ExtClass.name || id,
-            });
-            return;
-          }
-          break;
-        }
-      }
+    // Delegate to HortExtension.openLlming which handles float vs fullscreen
+    if (typeof HortExtension !== 'undefined') {
+      HortExtension.openLlming(name);
     }
-    fullscreenSpirit.value = name;
-    state.view = 'spirit-fullscreen';
   }
   function floatClose(id) { if (typeof HortExtension !== 'undefined') HortExtension.closeFloat(id); }
   function floatToggleMin(id) { if (typeof HortExtension !== 'undefined') HortExtension.toggleMinimize(id); }
@@ -1137,8 +1086,7 @@
     document.addEventListener('pointerup', onUp);
   }
   function closeSpiritFullscreen() {
-    fullscreenSpirit.value = null;
-    state.view = 'picker';
+    HortRouter.back();
   }
   window.__hort.closeSpiritFullscreen = closeSpiritFullscreen;
   const isFullscreenCapable = computed(() => {
@@ -1333,15 +1281,7 @@
   const HortOverview = {
     template: `
       <div class="overview" :class="{ open: state.overviewOpen }">
-        <div class="overview-header">
-          <button class="llming-back" @click="close"><i class="ph ph-x"></i></button>
-          <span class="overview-spaces" v-if="state.spacesData.count > 1">
-            <button v-for="sp in state.spacesData.spaces" :key="sp.index"
-                    class="space-btn" :class="{ active: sp.is_current }"
-                    @click="doSwitchSpace(sp.index)">{{ sp.index }}</button>
-          </span>
-          <h2>All Windows</h2>
-        </div>
+        <!-- Toolbar is rendered by the unified toolbar in HortApp -->
         <div class="overview-grid">
           <div v-for="win in state.allWindows" :key="win.window_id"
                class="overview-card" :class="{ current: isCurrent(win) }"
@@ -1381,17 +1321,13 @@
 
       function selectWindow(win) {
         state.overviewOpen = false;
-        let idx = state.navWindows.findIndex(w => w.window_id === win.window_id);
-        if (idx < 0) {
-          state.navMode = 'all';
-          computeNavWindows();
-          idx = state.navWindows.findIndex(w => w.window_id === win.window_id);
-        }
-        if (idx >= 0) emit('switch-window', idx);
+        const qp = win.target_id ? '?target=' + encodeURIComponent(win.target_id) : '';
+        HortExtension.openViewer(win.window_id, win.target_id);
       }
 
       function close() {
         state.overviewOpen = false;
+        HortRouter.back();
       }
 
       function doSwitchSpace(index) {
@@ -1410,37 +1346,7 @@
     template: `
       <div class="llming-view viewer-llming" :class="{ visible: state.view === 'viewer', 'active-mode': state.activeMode }"
            ref="viewerEl">
-        <!-- Toolbar -->
-        <div class="llming-toolbar">
-          <button class="llming-back" @click="goBack"><i class="ph ph-arrow-left"></i></button>
-          <span class="viewer-spaces" :class="{ visible: state.spacesData.count > 1 }">
-            <button class="space-nav-btn" @click="spacePrev" title="Previous Space"><i class="ph-bold ph-caret-left"></i></button>
-            <span class="space-label">{{ state.spacesData.current }}/{{ state.spacesData.count }}</span>
-            <button class="space-nav-btn" @click="spaceNext" title="Next Space"><i class="ph-bold ph-caret-right"></i></button>
-          </span>
-          <select class="nav-mode-select" :value="state.navMode" @change="onNavModeChange">
-            <option value="all">All Windows</option>
-            <option v-if="curWindow" value="app">App: {{ curWindow.owner_name }}</option>
-            <option v-for="(ids, name) in groups" :key="name" :value="name">Group: {{ name }} ({{ ids.length }})</option>
-          </select>
-          <span class="llming-title">{{ viewerTitle }}</span>
-          <span class="nav-counter">{{ navCounterText }}</span>
-          <span class="observer-count" v-if="state.observerCount">{{ observerText }}</span>
-          <span class="fps-display">{{ state.fpsText }}</span>
-          <span v-if="state.p2pConnected" class="p2p-status" :style="{ color: state.p2pHealthy ? '#66bb6a' : '#ef5350' }" :title="'RTT: ' + state.p2pRttMs + 'ms'">
-            <i :class="state.p2pHealthy ? 'ph-fill ph-wifi-high' : 'ph-fill ph-wifi-slash'"></i>
-            {{ state.p2pRttMs }}ms
-            <template v-if="state.p2pTotalSessions > 1"> #{{ state.p2pSessionNum }}/{{ state.p2pTotalSessions }}</template>
-          </span>
-          <button class="llming-action" :class="{ active: state.activeMode }" @click="toggleActiveMode" title="Toggle active mode (I)">
-            <i :class="state.activeMode ? 'ph-fill ph-cursor-click' : 'ph ph-eye'"></i>
-          </button>
-          <button class="llming-action" @click="applyAutoFit" title="Auto-fit (F)"><i class="ph-bold ph-corners-out"></i></button>
-          <button class="llming-action" @click="applyFitVertical" title="Fit vertical (V)"><i class="ph-bold ph-arrows-out-line-vertical"></i></button>
-          <button class="llming-action" @click="state.overviewOpen = true" title="Overview (G)"><i class="ph ph-squares-four"></i></button>
-          <button class="llming-action" :class="{ active: state.settingsOpen }" @click.stop="toggleSettings" title="Settings"><i class="ph ph-gear-six"></i></button>
-          <button class="llming-action hide-desktop" @click="toggleMobileKeyboard" title="Toggle keyboard (K)"><i class="ph ph-keyboard"></i></button>
-        </div>
+        <!-- Toolbar is rendered by the unified toolbar in HortApp -->
 
         <!-- Hidden input for mobile keyboard — triggers on-screen keyboard -->
         <input ref="mobileKeyInput" class="mobile-key-input"
@@ -1617,6 +1523,10 @@
           window_name: win.window_name,
         }));
 
+        // Update URL without stacking history (cycling windows)
+        const qp = win.target_id ? '?target=' + encodeURIComponent(win.target_id) : '';
+        HortRouter.replace('/core/llming-lens/screens/' + win.window_id + qp);
+
         state.view = 'viewer';
         state.overviewOpen = false;
         state.fitMode = 'auto';
@@ -1634,7 +1544,7 @@
         startThumbRefresh();
       }
 
-      // Expose openWindow for extensions (e.g. LlmingLens)
+      // Open a window directly by ID — called by the router's onNavigate
       function openWindowDirect(windowId, targetId) {
         // Inject a synthetic window into navWindows
         const synth = {
@@ -1651,32 +1561,33 @@
         doSwitchWindow(idx);
       }
       if (window.__hort) window.__hort.openWindow = openWindowDirect;
+      // Expose viewer cleanup for the router's onNavigate
+      if (window.__hort) {
+        window.__hort.cleanupViewer = function () {
+          const cur = currentWindow();
+          if (cur) saveWindowState(cur.window_id);
+          sendControl({ type: 'stream_stop' });
+          disconnectStreamWs();
+          isStreamWsConnected = false;
+          state.overviewOpen = false;
+          state.settingsOpen = false;
+          state.activeMode = false;
+          localStorage.removeItem('llming-current-window');
+          stopThumbRefresh();
+        };
+        window.__hort.viewerApplyAutoFit = applyAutoFit;
+        window.__hort.viewerApplyFitVertical = applyFitVertical;
+        window.__hort.viewerToggleMobileKeyboard = toggleMobileKeyboard;
+      }
 
       function navPrevWindow() { doSwitchWindow(state.navIndex - 1); }
       function navNextWindow() { doSwitchWindow(state.navIndex + 1); }
 
       function goBack() {
-        const cur = currentWindow();
-        if (cur) saveWindowState(cur.window_id);
-        // Tell server to stop streaming IMMEDIATELY via control channel
-        // (the stream WS close might be stuck behind buffered frames)
-        sendControl({ type: 'stream_stop' });
-        // Full teardown — disconnectStreamWs clears everything
-        disconnectStreamWs();
-        isStreamWsConnected = false;
-        state.overviewOpen = false;
-        state.settingsOpen = false;
-        state.activeMode = false;
-        localStorage.removeItem('llming-current-window');
-        stopThumbRefresh();
-        // Return to spirit fullscreen if we came from one, otherwise picker
-        if (state._returnToSpirit) {
-          state._returnToSpirit = false;
-          state.view = 'spirit-fullscreen';
-        } else {
-          state.view = 'picker';
-        }
-        startPickerRefresh();
+        // Viewer cleanup is handled by onNavigate when the route changes.
+        // Just go back — the history stack handles returning to the right view
+        // (picker, spirit-fullscreen, etc.) automatically.
+        HortRouter.back();
       }
 
       function toggleActiveMode() {
@@ -2092,17 +2003,17 @@
         }
 
         if (state.overviewOpen) {
-          if (e.key === 'Escape' || e.key === 'g') state.overviewOpen = false;
+          if (e.key === 'Escape' || e.key === 'g') { state.overviewOpen = false; HortRouter.back(); }
           return;
         }
 
         switch (e.key) {
           case 'ArrowLeft': case 'a': navPrevWindow(); e.preventDefault(); break;
           case 'ArrowRight': case 'd': navNextWindow(); e.preventDefault(); break;
-          case 'Escape': goBack(); e.preventDefault(); break;
+          case 'Escape': HortRouter.back(); e.preventDefault(); break;
           case 'f': applyAutoFit(); e.preventDefault(); break;
           case 'v': applyFitVertical(); e.preventDefault(); break;
-          case 'g': state.overviewOpen = true; e.preventDefault(); break;
+          case 'g': HortExtension.navigate('/core/llming-lens/screens'); e.preventDefault(); break;
           case '1': jumpTo('left'); e.preventDefault(); break;
           case '2': jumpTo('center'); e.preventDefault(); break;
           case '3': jumpTo('right'); e.preventDefault(); break;
@@ -2169,115 +2080,8 @@
   // =============================================
   const HortPicker = {
     template: `
-      <div v-show="state.view === 'picker'">
-        <!-- Logo bar -->
-        <div class="logo-bar" v-if="!state.nativeApp">
-          <svg class="logo-svg" viewBox="0 0 220 32" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <filter id="el-glow"><feGaussianBlur stdDeviation="1.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-            </defs>
-            <!-- Base text — bold, golden -->
-            <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic"
-                  fill="none" stroke="#d4a017" stroke-width="0.8" opacity="0.6" letter-spacing="1">OpenHORT</text>
-            <!-- Single electron — bright golden dot tracing letter by letter -->
-            <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic"
-                  fill="none" stroke="#fbbf24" stroke-width="0.8" opacity="0.9" letter-spacing="1"
-                  stroke-dasharray="6 594" stroke-linecap="round">
-              <animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/>OpenHORT</text>
-            <!-- Electron glow trail -->
-            <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic"
-                  fill="none" stroke="#d4a017" stroke-width="2" filter="url(#el-glow)" opacity="0" letter-spacing="1"
-                  stroke-dasharray="6 594" stroke-linecap="round">
-              <animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/>
-              <animate attributeName="opacity" values="0.15;0.25;0.15" dur="2s" repeatCount="indefinite"/>OpenHORT</text>
-          </svg>
-
-          <!-- Sidebar toggle -->
-          <div class="header-btn" @click="state.sidebarOpen = !state.sidebarOpen">
-            <i class="ph ph-list"></i>
-          </div>
-
-          <!-- Lemming icon -->
-          <svg viewBox="0 0 24 24" style="width:28px;height:28px;flex-shrink:0;opacity:0.5;margin-left:4px" fill="none" stroke="#d4a017" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 4c-2 0-3.5 1-4 2.5C7.5 8 7 9.5 7 11c0 2 .5 3.5 1 4.5l-.5 3c0 .5.3 1 .8 1.2l1.2.3c.3 0 .5-.2.5-.5v-2c.3.2.8.5 2 .5s1.7-.3 2-.5v2c0 .3.2.5.5.5l1.2-.3c.5-.2.8-.7.8-1.2l-.5-3c.5-1 1-2.5 1-4.5 0-1.5-.5-3-1-4.5C14.5 5 13 4 12 4z"/>
-            <circle cx="10" cy="9" r="1" fill="#d4a017"/>
-            <path d="M8 6.5C7 5.5 6 5 5 5M16 6.5C17 5.5 18 5 19 5"/>
-          </svg>
-
-          <div class="header-sep"></div>
-
-          <!-- View tabs -->
-          <div style="display:flex;gap:4px">
-            <div class="header-btn" :class="{active: viewTab === 'screens'}" @click="viewTab = 'screens'">
-              <i class="ph ph-monitor"></i> <span class="hide-mobile">Llmings</span>
-            </div>
-            <div class="header-btn" :class="{active: viewTab === 'spirits'}" @click="viewTab = 'spirits'">
-              <i class="ph ph-ghost"></i> <span class="hide-mobile">Spirits</span>
-              <span v-if="spiritCount" class="badge">{{ spiritCount }}</span>
-            </div>
-            <div class="header-btn" :class="{active: viewTab === 'config'}" @click="viewTab = 'config'">
-              <i class="ph ph-sliders"></i> <span class="hide-mobile">Config</span>
-            </div>
-          </div>
-
-          <div class="header-sep"></div>
-
-          <!-- Target selector (card-based popup) -->
-          <div v-if="state.targets.length > 0" class="hort-popup-anchor">
-            <div class="header-btn" @click="targetDropdownOpen = !targetDropdownOpen">
-              <i :class="activeTargetIcon"></i>
-              <span class="hide-mobile">{{ activeTargetLabel }}</span>
-              <i class="ph ph-caret-down" style="font-size:14px;opacity:0.5"></i>
-            </div>
-            <div v-if="targetDropdownOpen" class="hort-popup-backdrop" @click="targetDropdownOpen = false"></div>
-            <div v-if="targetDropdownOpen" class="hort-popup">
-              <div class="hort-popup-grid">
-                <div v-for="t in state.targets" :key="t.id"
-                     class="grid-card" :style="{borderColor: state.activeTarget === t.id ? 'var(--el-primary)' : ''}"
-                     @click="onSetTarget(t.id); targetDropdownOpen = false">
-                  <div class="card-thumb-icon">
-                    <i :class="t.provider_type === 'macos' ? 'ph ph-desktop' : t.provider_type === 'linux-docker' ? 'ph ph-linux-logo' : 'ph ph-monitor'"></i>
-                  </div>
-                  <div class="grid-card-info">
-                    <div class="card-app">{{ t.name }}</div>
-                    <div class="card-name">{{ t.provider_type }}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Spacer -->
-          <div style="flex:1"></div>
-
-          <!-- P2P connection status (visible on ALL screens) -->
-          <div v-if="state.p2pConnected" class="header-btn" style="cursor:default;gap:4px" :title="'P2P RTT: ' + state.p2pRttMs + 'ms'">
-            <span class="dot" :class="state.p2pHealthy ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-            <i :class="state.p2pHealthy ? 'ph ph-plugs-connected' : 'ph ph-wifi-slash'" :style="{color: state.p2pHealthy ? '#66bb6a' : '#ef5350'}"></i>
-            <span :style="{color: state.p2pHealthy ? '#66bb6a' : '#ef5350', fontSize: '12px'}">{{ state.p2pRttMs }}ms</span>
-            <span v-if="state.p2pTotalSessions > 1" style="font-size:11px;opacity:0.6">#{{ state.p2pSessionNum }}/{{ state.p2pTotalSessions }}</span>
-          </div>
-
-          <!-- Connectors -->
-          <div v-if="state.isLocal && !state.nativeApp" style="display:flex;gap:4px">
-            <div class="header-btn" @click="state.connectorPanelOpen = 'lan'">
-              <span class="dot on" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-              <i class="ph ph-wifi-high"></i> <span class="hide-mobile">LAN</span>
-            </div>
-            <div class="header-btn" @click="state.connectorPanelOpen = 'cloud'">
-              <span class="dot" :class="state.connectors.cloud.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-              <i class="ph ph-cloud"></i> <span class="hide-mobile">Cloud</span>
-            </div>
-            <div v-if="state.connectors.messaging.telegram" class="header-btn" @click="state.connectorPanelOpen = 'telegram'">
-              <span class="dot" :class="state.connectors.messaging.telegram.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-              <i class="ph ph-telegram-logo"></i> <span class="hide-mobile">Telegram</span>
-            </div>
-            <div class="header-btn" @click="state.connectorPanelOpen = 'p2p'">
-              <span class="dot on" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-              <i class="ph ph-arrows-left-right"></i> <span class="hide-mobile">P2P</span>
-            </div>
-          </div>
-        </div>
+      <div v-show="state.view === 'picker'" style="padding-top:40px">
+        <!-- Logo bar removed — unified toolbar in HortApp handles navigation -->
 
         <!-- Connector detail panel (rendered by extensions) -->
         <div v-if="state.connectorPanelOpen" class="connector-panel-overlay" @click.self="state.connectorPanelOpen = null">
@@ -2390,7 +2194,7 @@
 
         <!-- Target bar removed — replaced by dropdown in header -->
 
-        <template v-if="viewTab === 'screens'">
+        <template v-if="state.viewTab === 'screens'">
         <!-- Spaces bar (single-target only) -->
         <div v-if="state.activeTarget !== 'all'" class="spaces-bar" :class="{ visible: state.spacesData.count > 1 }">
           <span class="spaces-label"><i class="ph ph-monitor"></i></span>
@@ -2409,7 +2213,6 @@
                 <span>{{ group.targetName }}</span>
                 <span class="target-count">{{ group.windows.length + terminalsForTarget(group.targetId).length }}</span>
               </div>
-              <!-- "+" card for this target -->
               <div class="grid-card new-llming" @click="onNewLlming(group.targetId)">
                 <i class="ph ph-plus-circle"></i>
                 <span>New Llming</span>
@@ -2443,7 +2246,6 @@
 
           <!-- Single target: unified sorted grid -->
           <template v-else>
-            <!-- "+" always first -->
             <div class="grid-card new-llming" @click="onNewLlming(state.activeTarget !== 'all' ? state.activeTarget : (state.targets[0] ? state.targets[0].id : ''))">
               <i class="ph ph-plus-circle"></i>
               <span>New Llming</span>
@@ -2576,8 +2378,9 @@
         </div>
         </template><!-- /screens -->
 
+
         <!-- Spirits view — cards with thumbnail OR icon, click for settings -->
-        <div v-if="viewTab === 'spirits'">
+        <div v-if="state.viewTab === 'spirits'">
           <div class="llming-grid">
             <div v-for="sp in spiritsList" :key="sp.name"
                  class="grid-card" :style="{borderColor: selectedSpirit === sp.name ? 'var(--el-primary)' : ''}"
@@ -2714,7 +2517,7 @@
         </div>
 
         <!-- Config view — sub-screens: top level → General / Extensions -->
-        <div v-if="viewTab === 'config'">
+        <div v-if="state.viewTab === 'config'">
           <!-- Top level: category cards -->
           <div v-if="!configScreen" class="llming-grid">
             <div class="grid-card" @click="configScreen = 'general'">
@@ -3069,7 +2872,7 @@
       }
 
       // View tabs + config sub-screens
-      const viewTab = ref('screens');
+      // viewTab lives on state for unified toolbar access
       const configScreen = ref(null); // null | 'general' | 'extensions'
       const generalConfig = reactive({ caffeinate: false, display_sleep_disabled: false });
 
@@ -3089,7 +2892,7 @@
         }
       }
       loadGeneralConfig();
-      const targetDropdownOpen = ref(false);
+      // targetDropdownOpen lives on state for unified toolbar access
       const activeTargetLabel = computed(() => {
         const t = state.targets.find(t => t.id === state.activeTarget);
         return t ? t.name : state.targets[0]?.name || 'System';
@@ -3431,8 +3234,7 @@
       }
 
       function openTerminal(terminalId) {
-        state.activeTerminalId = terminalId;
-        state.view = 'terminal';
+        HortRouter.push('/core/terminal/' + encodeURIComponent(terminalId));
       }
 
       function openTmuxTerminal(terminalId) {
@@ -3509,7 +3311,7 @@
         onSetTarget, navWindowIndex, terminalsForTarget, onNewLlming, openTerminal, openTmuxTerminal, closeTmuxSession, confirmCloseTerminal,
         launcherOpen, launcherSearch, availableLlmings, launchLlming,
         onCloudSave, generateP2pLink, generatePairingLink, loadDevices, revokeDevice, copyToClipboard, openHostedApp,
-        viewTab, spiritsList, spiritCount, allPlugins,
+        spiritsList, spiritCount, allPlugins,
         configScreen, generalConfig, toggleGeneral,
         selectedSpirit, selectedPlugin, toggleSpiritFeature,
         revokeAuth, submitToken, startOAuth, startDeviceCode, showTokenInput, tokenInputValue,
@@ -3517,7 +3319,7 @@
         unifiedGridItems, touch, lastInteraction, pluginThumbs,
         favorites, toggleFavorite, isFavorite,
         fullscreenSpirit, openSpiritFullscreen, closeSpiritFullscreen,
-        targetDropdownOpen, activeTargetLabel, activeTargetIcon,
+        activeTargetLabel, activeTargetIcon,
       };
     },
   };
@@ -3557,11 +3359,7 @@
   const HortTerminal = {
     template: `
       <div v-if="state.view === 'terminal' && activeTerminal" class="llming-view terminal-llming" style="display:flex">
-        <div class="llming-toolbar">
-          <button class="llming-back" @click="goBack"><i class="ph ph-arrow-left"></i></button>
-          <span class="llming-title">{{ terminalDisplayTitle }}</span>
-          <button class="llming-close" @click="confirmClose"><i class="ph ph-x"></i> Close</button>
-        </div>
+        <!-- Toolbar is rendered by the unified toolbar in HortApp -->
         <div class="llming-content" ref="termContainer"></div>
         <div v-if="detectedActions.length" class="term-actions">
           <button v-for="btn in detectedActions" :key="btn.label"
@@ -3669,6 +3467,10 @@
         if (termWs) { termWs.close(); termWs = null; }
         currentTermId = null;
       }
+      if (window.__hort) {
+        window.__hort.disconnectTerminal = disconnectTerminal;
+        window.__hort.terminalConfirmClose = function () { confirmClose(); };
+      }
 
       function sendKey(data) {
         if (termWs && termWs.readyState === WebSocket.OPEN) {
@@ -3682,9 +3484,8 @@
       }
 
       function goBack() {
-        disconnectTerminal();
-        state.view = 'picker';
-        state.activeTerminalId = null;
+        // Terminal cleanup is handled by onNavigate when the route changes.
+        HortRouter.back();
       }
 
       function confirmClose() {
@@ -3698,8 +3499,7 @@
           const tid = state.activeTerminalId;
           disconnectTerminal();
           if (tid) closeTerminal(tid);
-          state.view = 'picker';
-          state.activeTerminalId = null;
+          HortRouter.push('/');
         });
       }
 
@@ -3827,6 +3627,90 @@
   // =============================================
   const HortApp = {
     template: `
+      <!-- ===== UNIFIED TOOLBAR ===== -->
+      <div class="llming-toolbar unified-toolbar" :class="{ 'picker-mode': state.view === 'picker' }" v-if="!state.nativeApp" style="z-index:600">
+        <!-- LEFT: Back button (non-picker) or Logo + Hamburger (picker) -->
+        <template v-if="state.view === 'picker'">
+          <svg class="logo-svg" viewBox="0 0 220 32" xmlns="http://www.w3.org/2000/svg">
+            <defs><filter id="el-glow"><feGaussianBlur stdDeviation="1.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+            <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic" fill="none" stroke="#d4a017" stroke-width="0.8" opacity="0.6" letter-spacing="1">OpenHORT</text>
+            <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic" fill="none" stroke="#fbbf24" stroke-width="0.8" opacity="0.9" letter-spacing="1" stroke-dasharray="6 594" stroke-linecap="round"><animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/>OpenHORT</text>
+            <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic" fill="none" stroke="#d4a017" stroke-width="2" filter="url(#el-glow)" opacity="0" letter-spacing="1" stroke-dasharray="6 594" stroke-linecap="round"><animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.15;0.25;0.15" dur="2s" repeatCount="indefinite"/>OpenHORT</text>
+          </svg>
+          <div class="header-btn" @click="state.sidebarOpen = !state.sidebarOpen"><i class="ph ph-list"></i></div>
+          <svg viewBox="0 0 24 24" style="width:28px;height:28px;flex-shrink:0;opacity:0.5;margin-left:4px" fill="none" stroke="#d4a017" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 4c-2 0-3.5 1-4 2.5C7.5 8 7 9.5 7 11c0 2 .5 3.5 1 4.5l-.5 3c0 .5.3 1 .8 1.2l1.2.3c.3 0 .5-.2.5-.5v-2c.3.2.8.5 2 .5s1.7-.3 2-.5v2c0 .3.2.5.5.5l1.2-.3c.5-.2.8-.7.8-1.2l-.5-3c.5-1 1-2.5 1-4.5 0-1.5-.5-3-1-4.5C14.5 5 13 4 12 4z"/>
+            <circle cx="10" cy="9" r="1" fill="#d4a017"/>
+            <path d="M8 6.5C7 5.5 6 5 5 5M16 6.5C17 5.5 18 5 19 5"/>
+          </svg>
+          <div class="header-sep"></div>
+          <div style="display:flex;gap:4px">
+            <div class="header-btn" :class="{active: state.viewTab === 'screens'}" @click="state.viewTab = 'screens'">
+              <i class="ph ph-monitor"></i> <span class="hide-mobile">Llmings</span>
+            </div>
+            <div class="header-btn" :class="{active: state.viewTab === 'spirits'}" @click="state.viewTab = 'spirits'">
+              <i class="ph ph-ghost"></i> <span class="hide-mobile">Spirits</span>
+            </div>
+            <div class="header-btn" :class="{active: state.viewTab === 'config'}" @click="state.viewTab = 'config'">
+              <i class="ph ph-sliders"></i> <span class="hide-mobile">Config</span>
+            </div>
+          </div>
+        </template>
+        <button v-if="state.view !== 'picker'" class="llming-back" @click="HortRouter.back()"><i class="ph ph-arrow-left"></i></button>
+        <template v-if="state.view === 'viewer' && state.overviewOpen">
+          <span class="llming-title">All Windows</span>
+        </template>
+        <template v-else-if="state.view === 'viewer'">
+          <span class="llming-title">{{ toolbarViewerTitle }}</span>
+          <span class="nav-counter" style="opacity:0.5;font-size:12px">{{ toolbarNavCounter }}</span>
+          <span class="fps-display" style="opacity:0.4;font-size:11px">{{ state.fpsText }}</span>
+        </template>
+        <template v-else-if="state.view === 'terminal'">
+          <span class="llming-title">{{ toolbarTerminalTitle }}</span>
+        </template>
+        <template v-else-if="state.view === 'spirit-fullscreen'">
+          <span class="llming-title">{{ fullscreenSpirit }}</span>
+        </template>
+
+        <!-- SPACER -->
+        <div style="flex:1"></div>
+
+        <!-- RIGHT: context-dependent actions -->
+        <template v-if="state.view === 'viewer' && !state.overviewOpen">
+          <button class="llming-action" :class="{ active: state.activeMode }" @click="state.activeMode = !state.activeMode" title="Toggle active mode (I)">
+            <i :class="state.activeMode ? 'ph-fill ph-cursor-click' : 'ph ph-eye'"></i>
+          </button>
+          <button class="llming-action" @click="__hort?.viewerApplyAutoFit?.()" title="Auto-fit (F)"><i class="ph-bold ph-corners-out"></i></button>
+          <button class="llming-action" @click="__hort?.viewerApplyFitVertical?.()" title="Fit vertical (V)"><i class="ph-bold ph-arrows-out-line-vertical"></i></button>
+          <button class="llming-action" @click="HortExtension.navigate('/core/llming-lens/screens')" title="Overview (G)"><i class="ph ph-squares-four"></i></button>
+          <button class="llming-action" :class="{ active: state.settingsOpen }" @click.stop="state.settingsOpen = !state.settingsOpen" title="Settings"><i class="ph ph-gear-six"></i></button>
+          <button class="llming-action hide-desktop" @click="__hort?.viewerToggleMobileKeyboard?.()" title="Toggle keyboard (K)"><i class="ph ph-keyboard"></i></button>
+        </template>
+        <template v-else-if="state.view === 'terminal'">
+          <button class="llming-action" @click="__hort?.terminalConfirmClose?.()" title="Close terminal"><i class="ph ph-x"></i> <span class="hide-mobile">Close</span></button>
+        </template>
+        <template v-else-if="state.view === 'picker'">
+          <div v-if="state.isLocal && !state.nativeApp" style="display:flex;gap:4px">
+            <div class="header-btn" @click="state.connectorPanelOpen = 'lan'">
+              <span class="dot on" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+              <i class="ph ph-wifi-high"></i> <span class="hide-mobile">LAN</span>
+            </div>
+            <div class="header-btn" @click="state.connectorPanelOpen = 'cloud'">
+              <span class="dot" :class="state.connectors.cloud.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+              <i class="ph ph-cloud"></i> <span class="hide-mobile">Cloud</span>
+            </div>
+            <div v-if="state.connectors.messaging.telegram" class="header-btn" @click="state.connectorPanelOpen = 'telegram'">
+              <span class="dot" :class="state.connectors.messaging.telegram.active ? 'on' : 'off'" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+              <i class="ph ph-telegram-logo"></i> <span class="hide-mobile">Telegram</span>
+            </div>
+            <div class="header-btn" @click="state.connectorPanelOpen = 'p2p'">
+              <span class="dot on" style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
+              <i class="ph ph-arrows-left-right"></i> <span class="hide-mobile">P2P</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <hort-picker @select-window="onSelectWindow"></hort-picker>
       <hort-viewer ref="viewer"></hort-viewer>
       <hort-terminal></hort-terminal>
@@ -3847,7 +3731,7 @@
               <button class="connector-panel-close" @click="state.sidebarOpen = false"><i class="ph ph-x"></i></button>
             </div>
             <div class="sidebar-body">
-              <a class="sidebar-item" @click="state.sidebarOpen = false; state.view = 'picker'">
+              <a class="sidebar-item" @click="state.sidebarOpen = false; HortRouter.push('/')">
                 <i class="ph ph-house"></i> Home
               </a>
               <a class="sidebar-item" :href="hortmapUrl">
@@ -3911,19 +3795,10 @@
         </div>
       </div>
 
-      <!-- Fullscreen spirit view -->
+      <!-- Fullscreen spirit view (toolbar is rendered by the unified toolbar in HortApp) -->
       <div v-if="state.view === 'spirit-fullscreen' && fullscreenSpirit"
-           style="position:fixed;inset:0;z-index:400;background:var(--el-bg);display:flex;flex-direction:column"
+           style="position:fixed;inset:0;top:40px;z-index:400;background:var(--el-bg);display:flex;flex-direction:column"
            :style="{ overflow: isFullscreenCapable ? 'hidden' : 'auto' }">
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;background:var(--el-surface);border-bottom:1px solid var(--el-border);flex-shrink:0">
-          <button @click="closeSpiritFullscreen()" class="header-btn" style="padding:6px 10px">
-            <i class="ph ph-arrow-left" style="font-size:18px"></i>
-          </button>
-          <div style="flex:1;font-size:14px;font-weight:600">{{ fullscreenSpirit }}</div>
-          <button @click="closeSpiritFullscreen()" class="header-btn" style="padding:6px 10px">
-            <i class="ph ph-x" style="font-size:16px"></i>
-          </button>
-        </div>
         <div style="flex:1;display:flex;overflow:hidden">
           <div style="width:100%;height:100%">
             <component v-if="fullscreenSpiritWidget" :is="fullscreenSpiritWidget" />
@@ -3941,11 +3816,6 @@
       if (typeof HortExtension !== 'undefined') {
         HortExtension._floatChangeCallback = () => {
           floatWindows.value = HortExtension.getFloatWindows ? [...HortExtension.getFloatWindows()] : [];
-        };
-        // When a float promotes to fullscreen, close float and open fullscreen
-        HortExtension._promoteCallback = (id) => {
-          fullscreenSpirit.value = id;
-          state.view = 'spirit-fullscreen';
         };
       }
       function floatClose(id) { if (typeof HortExtension !== 'undefined') HortExtension.closeFloat(id); }
@@ -4087,10 +3957,10 @@
           if (msg.type === 'nav.action') {
             const cmd = msg.command || '';
             if (cmd === 'back') {
-              if (viewer.value && state.view === 'viewer') viewer.value.goBack();
-              else state.view = 'picker';
+              const didGoBack = HortRouter.back();
+              if (!didGoBack) sendToNative({ type: 'nav.atRoot' });
             }
-            else if (cmd === 'view:picker') state.view = 'picker';
+            else if (cmd === 'view:picker') HortRouter.push('/');
             else if (cmd === 'open:hortmap') location.href = _basePath + '/hortmap';
             else if (cmd === 'open:docs') window.open(_basePath + '/guide/', '_blank');
             else if (cmd.startsWith('panel:')) state.connectorPanelOpen = cmd.split(':')[1];
@@ -4099,7 +3969,122 @@
         } catch (e) { console.error('native message error:', e); }
       };
 
+      // ===== ROUTER onNavigate ===== (single source of truth for view transitions)
+      //
+      // Route shapes:
+      //   { view: 'picker' }
+      //   { view: 'llming', provider, name, sub, params }
+      //
+      // The internal state.view still uses 'picker'|'viewer'|'terminal'|'spirit-fullscreen'
+      // for rendering. This function maps from the unified llming URL model to those
+      // internal view states.
+
+      let _pendingRoute = null; // deferred route for before WS connects
+
+      function _resolveView(route) {
+        if (route.view === 'picker') return 'picker';
+        // llming-lens/screens[/id] → viewer
+        if (route.name === 'llming-lens' && route.sub && route.sub.startsWith('screens')) return 'viewer';
+        // terminal/{id} → terminal
+        if (route.name === 'terminal' && route.sub != null) return 'terminal';
+        // llming without sub-route or non-screens sub → fullscreen panel
+        return 'spirit-fullscreen';
+      }
+
+      function onNavigate(route) {
+        if (!route) return;
+
+        var targetView = _resolveView(route);
+
+        // If WS not connected yet and route needs it, defer
+        if (!state.connected && targetView !== 'picker') {
+          _pendingRoute = route;
+          return;
+        }
+
+        // ── Cleanup previous view ──
+        if (state.view === 'viewer' && targetView !== 'viewer') {
+          if (window.__hort?.cleanupViewer) window.__hort.cleanupViewer();
+        }
+        if (state.view === 'terminal' && targetView !== 'terminal') {
+          if (window.__hort?.disconnectTerminal) window.__hort.disconnectTerminal();
+          state.activeTerminalId = null;
+        }
+
+        // ── Set view ──
+        state.view = targetView;
+
+        // ── View-specific setup ──
+        switch (targetView) {
+          case 'picker':
+            fullscreenSpirit.value = null;
+            startPickerRefresh();
+            break;
+
+          case 'spirit-fullscreen':
+            fullscreenSpirit.value = route.name;
+            break;
+
+          case 'viewer': {
+            // llming-lens sub-routes: screens (overview) or screens/{id} (stream)
+            const p = route.params || new URLSearchParams();
+            const codec = p.get('codec');
+            const fps = p.has('fps') ? parseInt(p.get('fps'), 10) : null;
+            const quality = p.has('quality') ? parseInt(p.get('quality'), 10) : null;
+            const maxWidth = p.has('res') ? parseInt(p.get('res'), 10) : null;
+            const zoom = p.has('zoom') ? parseFloat(p.get('zoom')) : null;
+            const vx = p.has('vx') ? parseFloat(p.get('vx')) : null;
+            const vy = p.has('vy') ? parseFloat(p.get('vy')) : null;
+            if (codec && ['webp', 'vp8', 'vp9'].includes(codec)) state.codec = codec;
+            if (fps && fps >= 1 && fps <= 60) state.fps = fps;
+            if (quality && quality >= 1 && quality <= 100) state.quality = quality;
+            if (maxWidth && maxWidth >= 25 && maxWidth <= 100) state.maxWidth = maxWidth;
+            if (zoom && zoom > 1) {
+              _vp.zoom = Math.min(10, zoom);
+              _vp.w = 1 / _vp.zoom;
+              _vp.h = 1 / _vp.zoom;
+              const cx = (vx !== null) ? vx : 0.5;
+              const cy = (vy !== null) ? vy : 0.5;
+              _vp.x = Math.max(0, Math.min(1 - _vp.w, cx - _vp.w / 2));
+              _vp.y = Math.max(0, Math.min(1 - _vp.h, cy - _vp.h / 2));
+            }
+            // Parse sub-path: "screens" (index) or "screens/{windowId}" (stream)
+            const subParts = (route.sub || '').split('/');
+            if (subParts[0] === 'screens' && subParts.length === 1) {
+              // screens index — show window overview grid, no stream
+              state.overviewOpen = true;
+              if (!state.allWindows.length) {
+                sendControl({ type: 'list_windows' });
+                sendControl({ type: 'subscribe_thumbnails' });
+              }
+            } else if (subParts[0] === 'screens' && subParts[1]) {
+              // screens/{windowId} — open specific window stream
+              const windowId = parseInt(subParts[1], 10);
+              const targetId = p.get('target') || '';
+              if (!isNaN(windowId) && viewer.value) {
+                viewer.value.openWindowDirect(windowId, targetId);
+              }
+            }
+            break;
+          }
+
+          case 'terminal':
+            // terminal sub-route: the sub is the terminalId
+            if (route.sub) {
+              state.activeTerminalId = route.sub;
+              // connectTerminal is triggered by the watcher on activeTerminalId
+            }
+            break;
+        }
+
+        // Notify native shell
+        pushNavState();
+      }
+
       onMounted(async () => {
+        // Initialize the hash router
+        HortRouter.init(onNavigate, Quasar);
+
         // Init session and control WS
         await initSession();
 
@@ -4112,15 +4097,10 @@
           setTimeout(() => { clearInterval(check); resolve(); }, 5000);
         });
 
-        // Deep-link: /view/{target}/{window}?codec=vp8&zoom=2 etc.
-        if (_deepLink) {
-          _applyDeepLinkSettings(_deepLink);
-          if (viewer.value) {
-            viewer.value.openWindowDirect(_deepLink.windowId, _deepLink.targetId);
-          }
-          // Replace URL to / so refresh doesn't re-trigger deep-link
-          history.replaceState(null, '', _basePath + '/');
-          return;
+        // Execute deferred route (deep-link that arrived before WS connected)
+        if (_pendingRoute) {
+          onNavigate(_pendingRoute);
+          _pendingRoute = null;
         }
 
         // Push initial nav state to native shell
@@ -4131,8 +4111,23 @@
           state._hostedApps = d.instances || [];
         }).catch(() => {});
 
-        // Start picker refresh
-        startPickerRefresh();
+        // Start picker refresh (if on picker view)
+        if (state.view === 'picker') startPickerRefresh();
+      });
+
+      // Unified toolbar computed values
+      const toolbarViewerTitle = computed(() => {
+        const w = state.navWindows[state.navIndex];
+        if (!w) return '';
+        return w.owner_name + ' \u2014 ' + (w.window_name || '(untitled)');
+      });
+      const toolbarNavCounter = computed(() => {
+        if (!state.navWindows.length) return '';
+        return (state.navIndex + 1) + '/' + state.navWindows.length;
+      });
+      const toolbarTerminalTitle = computed(() => {
+        const t = (state.terminals || []).find(t => t.terminal_id === state.activeTerminalId);
+        return t ? (t.title || t.terminal_id) : 'Terminal';
       });
 
       return {
@@ -4140,6 +4135,7 @@
         fullscreenSpirit, fullscreenSpiritWidget, isFullscreenCapable, closeSpiritFullscreen,
         guideUrl, hortmapUrl, openHelp,
         floatWindows, floatClose, floatToggleMin, floatDragStart,
+        toolbarViewerTitle, toolbarNavCounter, toolbarTerminalTitle,
       };
     },
   };
@@ -4168,6 +4164,11 @@
       },
     },
   });
+
+  // Make globals available in Vue templates
+  app.config.globalProperties.HortRouter = window.HortRouter;
+  app.config.globalProperties.HortExtension = window.HortExtension;
+  app.config.globalProperties.__hort = window.__hort;
 
   // Activate any registered HortExtensions
   if (typeof HortExtension !== 'undefined') {

@@ -347,18 +347,13 @@
 
   /**
    * Promote a floating window to fullscreen.
-   * Closes the float and opens the llming in fullscreen view.
-   * The llming calls this when it needs more space (e.g., viewer mode).
+   * Closes the float and opens the llming in fullscreen view via the router.
    */
   HortExtension.promoteToFullscreen = function (id) {
     HortExtension.closeFloat(id);
-    // The host app listens for this and opens fullscreen
-    if (HortExtension._promoteCallback) {
-      HortExtension._promoteCallback(id);
-    }
+    var provider = HortExtension.getProvider(id);
+    HortExtension.navigate('/' + provider + '/' + id);
   };
-
-  HortExtension._promoteCallback = null;
 
   HortExtension.toggleMinimize = function (id) {
     const win = _floatWindows.get(id);
@@ -551,6 +546,92 @@
 
   /** Base path for API calls (empty string when local, proxy prefix when remote). */
   HortExtension.basePath = _basePath;
+
+  // ── Navigation API ─────────────────────────────────────────────
+  //
+  // Extensions use these instead of touching state.view directly.
+  // Backed by HortRouter (hort-router.js), which must be loaded first
+  // or at the same time.
+
+  /** @type {Object<string, string>} id → provider mapping */
+  const _providerMap = {};
+
+  /**
+   * Store the provider for an extension (called during plugin discovery).
+   * @param {string} id - Extension id (e.g. 'llming-lens')
+   * @param {string} provider - Provider namespace (e.g. 'core')
+   */
+  HortExtension.setProvider = function (id, provider) {
+    _providerMap[id] = provider;
+  };
+
+  /**
+   * Get the provider for an extension.
+   * @param {string} id
+   * @returns {string} provider (defaults to 'core')
+   */
+  HortExtension.getProvider = function (id) {
+    return _providerMap[id] || 'core';
+  };
+
+  /**
+   * Navigate to a route. Extensions use this instead of touching state.view.
+   * @param {string} path - Hash path, e.g. '/core/llming-wire'
+   */
+  HortExtension.navigate = function (path) {
+    if (root.HortRouter) root.HortRouter.push(path);
+  };
+
+  /**
+   * Go back in navigation history.
+   * @returns {boolean} false if already at root
+   */
+  HortExtension.back = function () {
+    if (root.HortRouter) return root.HortRouter.back();
+    return false;
+  };
+
+  /**
+   * Open the viewer for a specific window (llming-lens/screens sub-route).
+   * @param {number} windowId - OS window ID (-1 for desktop)
+   * @param {string} [targetId] - Target machine ID
+   */
+  HortExtension.openViewer = function (windowId, targetId) {
+    var provider = HortExtension.getProvider('llming-lens');
+    var path = '/' + provider + '/llming-lens/screens/' + windowId;
+    if (targetId) path += '?target=' + encodeURIComponent(targetId);
+    HortExtension.navigate(path);
+  };
+
+  /**
+   * Open a terminal session.
+   * @param {string} terminalId
+   */
+  HortExtension.openTerminal = function (terminalId) {
+    HortExtension.navigate('/core/terminal/' + terminalId);
+  };
+
+  /**
+   * Open a llming by id (fullscreen or float based on screen size).
+   * @param {string} id - Extension id (e.g. 'llming-wire')
+   * @param {string} [sub] - Optional sub-route
+   */
+  HortExtension.openLlming = function (id, sub) {
+    var ExtClass = _registry.get(id);
+    if (!sub && ExtClass && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
+      var mode = HortExtension.resolveDisplayMode(ExtClass);
+      if (mode === 'float') {
+        HortExtension.openFloat(id, ExtClass.llmingWidgets[0], {
+          title: ExtClass.llmingTitle || ExtClass.name || id,
+        });
+        return;
+      }
+    }
+    var provider = HortExtension.getProvider(id);
+    var path = '/' + provider + '/' + id;
+    if (sub != null) path += '/' + encodeURIComponent(String(sub));
+    HortExtension.navigate(path);
+  };
 
   // Expose globally
   root.HortExtension = HortExtension;

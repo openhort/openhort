@@ -41,7 +41,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger("hort.app")
 
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -503,6 +503,20 @@ def _register_routes(app: FastAPI) -> None:
         resp.headers["ETag"] = h
         resp.headers["Cache-Control"] = "no-cache"
         return resp
+
+    # SPA catch-all: serve index.html for client-side routes
+    # Must be AFTER all API/WS/static routes so it only catches SPA navigation paths
+    _SPA_EXCLUDED_PREFIXES = {"api", "ws", "ext", "static", "guide", "hortmap", "p2p", "view", "viewer"}
+
+    @app.get("/{provider}/{name}", response_class=HTMLResponse)
+    @app.get("/{provider}/{name}/{sub:path}", response_class=HTMLResponse)
+    async def spa_catch_all(provider: str, name: str, sub: str = "") -> HTMLResponse:
+        """Serve the SPA for History API routes like /core/llming-lens/-1."""
+        if provider in _SPA_EXCLUDED_PREFIXES:
+            raise HTTPException(status_code=404)
+        if "." in name or "." in sub.split("/")[-1]:
+            raise HTTPException(status_code=404)
+        return await viewer_page()
 
     @app.get("/api/hash")
     async def get_hash() -> dict[str, Any]:

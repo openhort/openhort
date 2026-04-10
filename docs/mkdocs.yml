@@ -105,6 +105,7 @@ nav:
     - Cross-Platform Testing: develop/cross-platform-testing.md
     - Distribution & Installation: develop/distribution.md
     - Client Apps: develop/client-apps.md
+    - SPA Navigation: develop/spa-navigation.md
     - UX Guidelines: develop/ux-guidelines.md
     - Screen Capture: develop/screen-capture.md
     - Memory Safety: develop/memory-safety.md

@@ -277,6 +277,7 @@ class ExtensionRegistry:
             running_jobs = scheduler.running_jobs if scheduler else []
             results.append({
                 "name": m.name,
+                "provider": m.provider,
                 "version": m.version,
                 "description": m.description,
                 "icon": m.icon,
