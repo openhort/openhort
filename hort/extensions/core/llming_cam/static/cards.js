@@ -39,6 +39,12 @@
             await window.hortWS.request({
               type: 'debug.call', llming: 'llming-cam', power, args: { source_id: sourceId }
             });
+            // Clear preview immediately on stop
+            if (isActive) {
+              const p = { ...previews.value };
+              delete p[sourceId];
+              previews.value = p;
+            }
             // Wait briefly for camera to start
             if (!isActive) await new Promise(r => setTimeout(r, 1500));
             await refresh();
@@ -46,6 +52,14 @@
           }
 
           async function refreshPreviews() {
+            // Clear previews for stopped cameras
+            for (const cam of cameras.value) {
+              if (!cam.metadata?.active && previews.value[cam.source_id]) {
+                const p = { ...previews.value };
+                delete p[cam.source_id];
+                previews.value = p;
+              }
+            }
             for (const cam of cameras.value) {
               if (!cam.metadata || !cam.metadata.active) continue;
               const msg = await window.hortWS.request({
