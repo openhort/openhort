@@ -487,17 +487,20 @@ class ChatBackendManager:
         base = self._base_prompt or DEFAULT_SYSTEM_PROMPT
         parts = [base]
 
-        # Fetch SOULs from all llmings
+        # Inject SOULs from all llmings (direct registry access, no HTTP)
         try:
-            import httpx
-            resp = httpx.get("http://localhost:8940/api/debug/souls", timeout=5.0)
-            if resp.status_code == 200:
-                souls = resp.json()
-                for s in souls:
-                    parts.append(f"\n--- {s['llming']} ---\n{s['soul']}")
-                logger.info("System prompt: %d llming SOULs loaded", len(souls))
+            from hort.llming.base import LlmingBase
+            from hort.commands._registry import get_llming_registry
+            registry = get_llming_registry()
+            if registry:
+                soul_count = 0
+                for name, inst in registry._instances.items():
+                    if isinstance(inst, LlmingBase) and inst.soul:
+                        parts.append(f"\n--- {name} ---\n{inst.soul}")
+                        soul_count += 1
+                logger.info("System prompt: %d llming SOULs injected", soul_count)
         except Exception as exc:
-            logger.warning("Could not fetch SOULs: %s", exc)
+            logger.warning("Could not load SOULs: %s", exc)
 
         # Also load SOUL.md sections from manifest (legacy path)
         try:
