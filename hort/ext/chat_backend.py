@@ -33,18 +33,43 @@ from hort.agent import AgentConfig, get_agent_config
 logger = logging.getLogger(__name__)
 
 
-def _get_claude_api_key() -> str:
+_KEY_REFRESH_INTERVAL = 300  # refresh API key every 5 minutes
+_last_key_refresh = 0.0
+_cached_api_key = ""
+
+
+def _get_claude_api_key(force: bool = False) -> str:
     """Get a Claude API key or OAuth token for container injection.
 
     Tries ANTHROPIC_API_KEY env var first, then OS credential store (OAuth).
-    Returns empty string if nothing available.
+    Caches the key and refreshes every 5 minutes (or on force=True).
     """
+    global _last_key_refresh, _cached_api_key
+    import time as _time
+
+    now = _time.monotonic()
+    if not force and _cached_api_key and (now - _last_key_refresh) < _KEY_REFRESH_INTERVAL:
+        return _cached_api_key
+
     try:
         from hort.extensions.core.claude_code.auth import get_api_key
-        return get_api_key()
+        key = get_api_key()
+        if key:
+            _cached_api_key = key
+            _last_key_refresh = now
+            return key
     except Exception as exc:
         logger.warning("Could not get Claude credentials: %s", exc)
-        return ""
+
+    return _cached_api_key or ""
+
+
+def is_auth_error(text: str) -> bool:
+    """Detect API authentication errors in response text."""
+    return any(m in text for m in (
+        "authentication_error", "Invalid API key", "invalid_api_key",
+        "Invalid authentication credentials", "Failed to authenticate",
+    ))
 
 
 @dataclass
@@ -382,6 +407,19 @@ class ChatSession:
         text = re.sub(r'(?:/9j/|iVBOR)[A-Za-z0-9+/=\n]{200,}', '[image data removed]', text)
         if len(text) > 8000:
             text = text[:8000]
+
+        # Detect auth errors — refresh key and reprovision container
+        if is_auth_error(text):
+            logger.warning("Auth error detected — refreshing API key")
+            new_key = _get_claude_api_key(force=True)
+            if new_key and self._container_session:
+                try:
+                    self._container_session.write_file("/workspace/.claude/api_key", new_key)
+                    logger.info("API key refreshed in container")
+                except Exception:
+                    pass
+            return "(AI temporarily unavailable — retrying with fresh credentials)"
+
         return text or "(no response)"
 
     def reset(self) -> None:

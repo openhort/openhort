@@ -92,6 +92,10 @@ class LlmingWire(LlmingBase):
             client_session_id = body.get("session_id")
             try:
                 response_text = await plugin._get_ai_response(cid, text, client_session_id)
+                # Sanitize: never expose API errors, stack traces, or auth failures
+                if response_text and _is_internal_error(response_text):
+                    logger.warning("Sanitized internal error from AI response")
+                    response_text = "Something went wrong. Try again in a moment."
             except Exception:
                 logger.exception("Chat error")
                 response_text = "Something went wrong. Try again."
@@ -275,6 +279,23 @@ class LlmingWire(LlmingBase):
         except Exception:
             logger.exception("Chat backend error")
             return "Something went wrong. Try again."
+
+
+def _is_internal_error(text: str) -> bool:
+    """Detect API errors, auth failures, and stack traces that must not reach users."""
+    markers = [
+        "authentication_error",
+        "Invalid API key",
+        "invalid_api_key",
+        "Invalid authentication credentials",
+        "API Error:",
+        "Failed to authenticate",
+        "Traceback (most recent call last)",
+        "request_id\":\"req_",
+        "overloaded_error",
+        "rate_limit_error",
+    ]
+    return any(m in text for m in markers)
 
 
 def _extract_buttons(text: str) -> list[dict[str, str]]:

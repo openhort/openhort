@@ -32,6 +32,17 @@ from hort.llming import LlmingBase
 logger = logging.getLogger("hort.connector.telegram")
 
 # System commands that plugins cannot override
+def _is_internal_error(text: str) -> bool:
+    """Detect API errors and internal details that must not reach users."""
+    markers = [
+        "authentication_error", "Invalid API key", "invalid_api_key",
+        "Invalid authentication credentials", "API Error:", "Failed to authenticate",
+        "Traceback (most recent call last)", "request_id\":\"req_",
+        "overloaded_error", "rate_limit_error",
+    ]
+    return any(m in text for m in markers)
+
+
 SYSTEM_COMMANDS = [
     ConnectorCommand(name="start", description="Welcome message", system=True),
     ConnectorCommand(name="help", description="List all commands", system=True),
@@ -479,6 +490,10 @@ class TelegramConnector(LlmingBase, ConnectorBase):
 
         try:
             response_text = await session.send(message.text or "", on_progress=on_progress)
+            # Sanitize: never expose API errors or internal details to users
+            if response_text and _is_internal_error(response_text):
+                self.log.warning("Sanitized internal error from AI response")
+                response_text = "Something went wrong. Try again in a moment."
             # Truncate very long responses (e.g. if Claude includes base64 data)
             if len(response_text) > 8000:
                 response_text = response_text[:8000] + "\n... (truncated)"
