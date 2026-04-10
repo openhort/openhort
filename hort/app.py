@@ -531,6 +531,60 @@ def _register_routes(app: FastAPI) -> None:
             "observers": registry.observer_count(),
         }
 
+    @app.post("/api/debug/eval")
+    async def debug_eval(request: Request) -> dict[str, Any]:
+        """Execute JS in the active browser session and return the result."""
+        from hort.session import HortRegistry, HortSessionEntry
+        body = await request.json()
+        code = body.get("code", "")
+        if not code:
+            return {"error": "no code"}
+
+        registry = HortRegistry.get()
+        for sid, entry in registry._sessions.items():
+            if entry.stream_ws is not None or getattr(entry, "controller", None):
+                ctrl = getattr(entry, "controller", None)
+                if ctrl and hasattr(ctrl, "eval_js"):
+                    result = await ctrl.eval_js(code)
+                    return {"session_id": sid, **result}
+        return {"error": "no active browser session"}
+
+    @app.get("/api/debug/console")
+    async def debug_console(level: str = "", pattern: str = "") -> dict[str, Any]:
+        """Read browser console logs from the active session."""
+        from hort.session import HortRegistry
+        registry = HortRegistry.get()
+        for sid, entry in registry._sessions.items():
+            ctrl = getattr(entry, "controller", None)
+            if ctrl and hasattr(ctrl, "get_console_logs"):
+                result = await ctrl.get_console_logs(level=level, pattern=pattern)
+                return {"session_id": sid, **result}
+        return {"error": "no active browser session"}
+
+    @app.post("/api/debug/call")
+    async def debug_call_llming(request: Request) -> dict[str, Any]:
+        """Route a power call to a specific llming. Returns the result."""
+        from hort.llming.base import LlmingBase
+        body = await request.json()
+        llming_name = body.get("llming", "")
+        power = body.get("power", "")
+        args = body.get("args", {})
+
+        if not hasattr(app.state, "llming_registry"):
+            return {"error": "no registry"}
+        inst = app.state.llming_registry.get_instance(llming_name)
+        if inst is None:
+            return {"error": f"llming '{llming_name}' not found"}
+        if not isinstance(inst, LlmingBase):
+            return {"error": f"'{llming_name}' is not a LlmingBase"}
+
+        result = await inst.execute_power(power, args)
+        if isinstance(result, str):
+            return {"result": result}
+        if isinstance(result, dict):
+            return {"result": result}
+        return {"result": str(result)}
+
     @app.get("/api/debug/memory")
     async def debug_memory() -> dict[str, Any]:
         """Memory diagnostics — find what's using RAM."""

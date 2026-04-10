@@ -9,7 +9,7 @@
   'use strict';
 
   class LlmingCamPanel extends HortExtension {
-    static type = 'llming-cam';
+    static id = 'llming-cam';
     static label = 'Cameras';
     static icon = 'ph ph-video-camera';
 

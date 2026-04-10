@@ -546,6 +546,24 @@
         break;
       case 'heartbeat_ack':
         break;
+      case 'ui_action':
+        _handleUIAction(msg);
+        break;
+    }
+  }
+
+  // ── UI Action handler (debug: run_js, eval_js, console) ──
+  const _consoleLogs = [];
+  const _origLog = console.log, _origWarn = console.warn, _origErr = console.error;
+  console.log = function(...a) { _origLog.apply(console, a); _consoleLogs.push({level:'log',ts:Date.now(),msg:a.map(x=>typeof x==='object'?JSON.stringify(x):String(x)).join(' ')}); if(_consoleLogs.length>500)_consoleLogs.shift(); };
+  console.warn = function(...a) { _origWarn.apply(console, a); _consoleLogs.push({level:'warn',ts:Date.now(),msg:a.map(x=>typeof x==='object'?JSON.stringify(x):String(x)).join(' ')}); if(_consoleLogs.length>500)_consoleLogs.shift(); };
+  console.error = function(...a) { _origErr.apply(console, a); _consoleLogs.push({level:'error',ts:Date.now(),msg:a.map(x=>typeof x==='object'?JSON.stringify(x):String(x)).join(' ')}); if(_consoleLogs.length>500)_consoleLogs.shift(); };
+
+  function _handleUIAction(msg) {
+    switch (msg.action) {
+      case 'run_js': try { new Function(msg.code)(); } catch(e) { console.error('[run_js]', e.message); } break;
+      case 'eval_js': try { const r = new Function('return (' + msg.code + ')')(); sendControl({type:'ui_action_response',action:'eval_js',result:JSON.stringify(r)}); } catch(e) { sendControl({type:'ui_action_response',action:'eval_js',error:e.message}); } break;
+      case 'get_console_logs': { let l=_consoleLogs.slice(); if(msg.level)l=l.filter(x=>x.level===msg.level); if(msg.since)l=l.filter(x=>x.ts>msg.since); if(msg.pattern){try{const re=new RegExp(msg.pattern,'i');l=l.filter(x=>re.test(x.msg));}catch(e){}} sendControl({type:'ui_action_response',action:'get_console_logs',logs:l.slice(-100),total:_consoleLogs.length}); break; }
     }
   }
 
