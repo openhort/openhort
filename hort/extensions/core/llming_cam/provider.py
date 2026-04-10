@@ -24,6 +24,7 @@ class LlmingCam(LlmingBase):
     _cam: Any = None  # CameraProvider, created on activate
 
     def activate(self, config: dict[str, Any]) -> None:
+        import asyncio
         from hort.media_camera import CameraProvider
         self._cam = CameraProvider()
         # Register with SourceRegistry so sources.list and stream UI can find cameras
@@ -32,7 +33,39 @@ class LlmingCam(LlmingBase):
             SourceRegistry.get().register("camera", self._cam)
         except Exception:
             pass
+        # Restore previously active cameras from persistent store
+        self._restore_wanted()
         self.log.info("LlmingCam activated")
+
+    def _restore_wanted(self) -> None:
+        """Restore cameras that were active before restart."""
+        import asyncio
+
+        async def _restore() -> None:
+            wanted = await self.store.get("wanted_cameras")
+            if wanted and isinstance(wanted, dict):
+                ids = wanted.get("ids", [])
+                for source_id in ids:
+                    self.log.info("Restoring camera: %s", source_id)
+                    ok = await self._cam.start_source(source_id)
+                    if ok:
+                        self.log.info("Camera restored: %s", source_id)
+                    else:
+                        self.log.warning("Camera not available for restore: %s", source_id)
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_restore())
+            else:
+                loop.run_until_complete(_restore())
+        except Exception:
+            pass
+
+    async def _persist_wanted(self) -> None:
+        """Save wanted camera IDs to persistent store."""
+        if self._cam:
+            await self.store.put("wanted_cameras", {"ids": list(self._cam._wanted)})
 
     def get_powers(self) -> list[Power]:
         return [
@@ -119,11 +152,13 @@ class LlmingCam(LlmingBase):
         if name == "start_camera":
             source_id = args.get("source_id", "")
             ok = await cam.start_source(source_id)
+            await self._persist_wanted()
             return {"content": [{"type": "text", "text": f"Camera {'started' if ok else 'failed to start'}: {source_id}"}]}
 
         if name == "stop_camera":
             source_id = args.get("source_id", "")
             await cam.stop_source(source_id)
+            await self._persist_wanted()
             return {"content": [{"type": "text", "text": f"Camera stopped: {source_id}"}]}
 
         if name == "camera":
