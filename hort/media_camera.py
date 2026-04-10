@@ -141,6 +141,14 @@ class _CameraSession:
 
 _DISCOVERY_INTERVAL = 5.0  # seconds between background re-enumerations
 
+# Camera access policy per device
+# "off"  — disabled, nobody can use it (default for privacy)
+# "on"   — actively running, AI and viewers can use freely
+# "auto" — idle but AI can open transiently for one-shot captures
+CAMERA_POLICY_OFF = "off"
+CAMERA_POLICY_ON = "on"
+CAMERA_POLICY_AUTO = "auto"
+
 
 class CameraProvider(MediaProvider):
     """Webcam media provider. Enumerates cameras, captures on demand.
@@ -155,6 +163,7 @@ class CameraProvider(MediaProvider):
         self._device_map: dict[str, int] = {}  # source_id → cv2 device index
         self._cached_sources: list[tuple[int, str, str]] = []  # (idx, name, uid)
         self._wanted: set[str] = set()  # source_ids that should be active
+        self._policies: dict[str, str] = {}  # source_id → "off"/"on"/"auto"
         self._discovery_thread: threading.Thread | None = None
         self._discovery_running = False
         self._start_discovery()
@@ -239,14 +248,31 @@ class CameraProvider(MediaProvider):
                     "device_index": idx,
                     "device_uid": uid,
                     "active": is_active,
+                    "policy": self.get_policy(source_id),
                     **(self._sessions[source_id].info if is_active else {}),
                 },
                 push_mode=True,
             ))
         return sources
 
+    def get_policy(self, source_id: str) -> str:
+        """Get the access policy for a camera. Default: off."""
+        return self._policies.get(source_id, CAMERA_POLICY_OFF)
+
+    def set_policy(self, source_id: str, policy: str) -> None:
+        """Set access policy: 'off', 'on', or 'auto'."""
+        self._policies[source_id] = policy
+
     async def start_source(self, source_id: str) -> bool:
-        """Open camera. Ref-counted. Tracks as 'wanted' for auto-reconnect."""
+        """Open camera. Ref-counted. Tracks as 'wanted' for auto-reconnect.
+
+        Requires policy 'on' or 'auto'. Fails silently if 'off'.
+        Sets policy to 'on' (user explicitly started).
+        """
+        policy = self.get_policy(source_id)
+        if policy == CAMERA_POLICY_OFF:
+            # User starting a camera implies enabling it
+            self.set_policy(source_id, CAMERA_POLICY_ON)
         self._wanted.add(source_id)
 
         if source_id in self._sessions:
@@ -281,8 +307,11 @@ class CameraProvider(MediaProvider):
         return False
 
     async def stop_source(self, source_id: str) -> None:
-        """Close camera when last viewer disconnects. Removes from wanted."""
+        """Close camera when last viewer disconnects. Keeps policy as 'auto'."""
         self._wanted.discard(source_id)
+        # Don't set to "off" — stopping keeps auto mode so AI can still one-shot
+        if self.get_policy(source_id) == CAMERA_POLICY_ON:
+            self.set_policy(source_id, CAMERA_POLICY_AUTO)
         session = self._sessions.get(source_id)
         if session is None:
             return
@@ -329,8 +358,15 @@ class CameraProvider(MediaProvider):
         then stops). Does NOT add to _wanted — use start_source() for
         persistent activation.
         """
+        # Enforce policy
+        policy = self.get_policy(source_id)
+        if policy == CAMERA_POLICY_OFF:
+            return None  # camera disabled by user
+
         transient = False
         if not self.is_active(source_id):
+            if policy != CAMERA_POLICY_AUTO and policy != CAMERA_POLICY_ON:
+                return None
             # Transient capture — open, grab frame, close
             ok = await self._start_transient(source_id)
             if not ok:

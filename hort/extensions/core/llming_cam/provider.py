@@ -44,6 +44,11 @@ class LlmingCam(LlmingBase):
         async def _restore() -> None:
             wanted = await self.store.get("wanted_cameras")
             if wanted and isinstance(wanted, dict):
+                # Restore policies first
+                policies = wanted.get("policies", {})
+                for sid, policy in policies.items():
+                    self._cam.set_policy(sid, policy)
+                # Restore active cameras
                 ids = wanted.get("ids", [])
                 for source_id in ids:
                     self.log.info("Restoring camera: %s", source_id)
@@ -63,9 +68,12 @@ class LlmingCam(LlmingBase):
             pass
 
     async def _persist_wanted(self) -> None:
-        """Save wanted camera IDs to persistent store."""
+        """Save wanted cameras and policies to persistent store."""
         if self._cam:
-            await self.store.put("wanted_cameras", {"ids": list(self._cam._wanted)})
+            await self.store.put("wanted_cameras", {
+                "ids": list(self._cam._wanted),
+                "policies": dict(self._cam._policies),
+            })
 
     def get_powers(self) -> list[Power]:
         return [
@@ -118,6 +126,19 @@ class LlmingCam(LlmingBase):
                 },
             ),
             Power(
+                name="set_camera_policy",
+                type=PowerType.MCP,
+                description="Set camera access policy: 'off' (disabled), 'auto' (AI can one-shot), 'on' (always running)",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "source_id": {"type": "string"},
+                        "policy": {"type": "string", "enum": ["off", "auto", "on"]},
+                    },
+                    "required": ["source_id", "policy"],
+                },
+            ),
+            Power(
                 name="camera",
                 type=PowerType.COMMAND,
                 description="List cameras and their status",
@@ -160,6 +181,19 @@ class LlmingCam(LlmingBase):
             await cam.stop_source(source_id)
             await self._persist_wanted()
             return {"content": [{"type": "text", "text": f"Camera stopped: {source_id}"}]}
+
+        if name == "set_camera_policy":
+            source_id = args.get("source_id", "")
+            policy = args.get("policy", "off")
+            cam.set_policy(source_id, policy)
+            # If setting to "on", start the camera; if "off", stop it
+            if policy == "on":
+                await cam.start_source(source_id)
+            elif policy == "off":
+                await cam.stop_source(source_id)
+                cam._wanted.discard(source_id)  # truly off
+            await self._persist_wanted()
+            return {"content": [{"type": "text", "text": f"Camera {source_id} policy set to '{policy}'"}]}
 
         if name == "camera":
             sources = cam.list_sources()

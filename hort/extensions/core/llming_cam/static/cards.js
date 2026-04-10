@@ -30,23 +30,21 @@
             if (msg && msg.data) cameras.value = msg.data;
           }
 
-          async function toggleCam(sourceId) {
+          async function setPolicy(sourceId, policy) {
             if (!window.hortWS) return;
             loading.value = { ...loading.value, [sourceId]: true };
-            const cam = cameras.value.find(c => c.source_id === sourceId);
-            const isActive = cam && cam.metadata && cam.metadata.active;
-            const power = isActive ? 'stop_camera' : 'start_camera';
             await window.hortWS.request({
-              type: 'debug.call', llming: 'llming-cam', power, args: { source_id: sourceId }
+              type: 'debug.call', llming: 'llming-cam', power: 'set_camera_policy',
+              args: { source_id: sourceId, policy }
             });
-            // Clear preview immediately on stop
-            if (isActive) {
+            // Clear preview on off/auto
+            if (policy !== 'on') {
               const p = { ...previews.value };
               delete p[sourceId];
               previews.value = p;
+            } else {
+              await new Promise(r => setTimeout(r, 1500));
             }
-            // Wait briefly for camera to start
-            if (!isActive) await new Promise(r => setTimeout(r, 1500));
             await refresh();
             loading.value = { ...loading.value, [sourceId]: false };
           }
@@ -102,7 +100,7 @@
             _previewRunning = false;
           });
 
-          return { cameras, previews, loading, toggleCam };
+          return { cameras, previews, loading, setPolicy };
         },
         template: `
           <div style="padding: 8px">
@@ -127,15 +125,20 @@
                     <template v-else>Idle</template>
                   </div>
                 </div>
-                <button @click.stop="toggleCam(cam.source_id)"
-                        :disabled="loading[cam.source_id]"
-                        :style="{
-                          background: cam.metadata?.active ? 'var(--el-danger, #ef4444)' : 'var(--el-success, #22c55e)',
-                          color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 12px',
-                          fontSize: '12px', fontWeight: 600, cursor: 'pointer', opacity: loading[cam.source_id] ? 0.5 : 1
-                        }">
-                  {{ loading[cam.source_id] ? '...' : (cam.metadata?.active ? 'Stop' : 'Start') }}
-                </button>
+                <div style="display:flex; border-radius:6px; overflow:hidden; border:1px solid rgba(255,255,255,0.1)">
+                  <button v-for="p in ['off','auto','on']" :key="p"
+                    @click.stop="setPolicy(cam.source_id, p)"
+                    :disabled="loading[cam.source_id]"
+                    :style="{
+                      background: (cam.metadata?.policy || 'off') === p
+                        ? (p === 'off' ? '#6b7280' : p === 'auto' ? '#3b82f6' : '#22c55e')
+                        : 'transparent',
+                      color: (cam.metadata?.policy || 'off') === p ? '#fff' : '#8899aa',
+                      border: 'none', padding: '3px 8px', fontSize: '11px', fontWeight: 600,
+                      cursor: 'pointer', textTransform: 'capitalize',
+                      opacity: loading[cam.source_id] ? 0.5 : 1,
+                    }">{{ p }}</button>
+                </div>
               </div>
             </div>
           </div>
