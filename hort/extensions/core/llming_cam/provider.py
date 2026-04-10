@@ -48,9 +48,12 @@ class LlmingCam(LlmingBase):
                 policies = wanted.get("policies", {})
                 for sid, policy in policies.items():
                     self._cam.set_policy(sid, policy)
-                # Restore active cameras
-                ids = wanted.get("ids", [])
-                for source_id in ids:
+                # Start all cameras that should be running (in wanted OR policy=on)
+                to_start = set(wanted.get("ids", []))
+                for sid, policy in policies.items():
+                    if policy == "on":
+                        to_start.add(sid)
+                for source_id in to_start:
                     self.log.info("Restoring camera: %s", source_id)
                     ok = await self._cam.start_source(source_id)
                     if ok:
