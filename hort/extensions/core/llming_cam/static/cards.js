@@ -51,38 +51,55 @@
             loading.value = { ...loading.value, [sourceId]: false };
           }
 
-          async function refreshPreviews() {
-            // Clear previews for stopped cameras
-            for (const cam of cameras.value) {
-              if (!cam.metadata?.active && previews.value[cam.source_id]) {
-                const p = { ...previews.value };
-                delete p[cam.source_id];
-                previews.value = p;
-              }
-            }
-            for (const cam of cameras.value) {
-              if (!cam.metadata || !cam.metadata.active) continue;
-              const msg = await window.hortWS.request({
-                type: 'debug.call', llming: 'llming-cam', power: 'capture_camera',
-                args: { source_id: cam.source_id }
-              });
-              if (msg && msg.result && msg.result.content) {
-                const img = msg.result.content.find(c => c.type === 'image');
-                if (img) {
-                  previews.value = { ...previews.value, [cam.source_id]: 'data:' + img.mimeType + ';base64,' + img.data };
+          // Preview uses a lightweight pull: one frame at a time, client-driven.
+          // Same principle as the stream ACK flow — never push, never pile up.
+          let _previewRunning = false;
+          async function previewLoop() {
+            _previewRunning = true;
+            while (_previewRunning) {
+              const activeCams = cameras.value.filter(c => c.metadata?.active);
+              // Clear previews for stopped cameras
+              for (const cam of cameras.value) {
+                if (!cam.metadata?.active && previews.value[cam.source_id]) {
+                  const p = { ...previews.value };
+                  delete p[cam.source_id];
+                  previews.value = p;
                 }
               }
+              if (!activeCams.length) {
+                await new Promise(r => setTimeout(r, 500));
+                continue;
+              }
+              // Fetch ONE frame per camera, sequentially. Client drives the pace —
+              // next request only after current frame is received and rendered.
+              for (const cam of activeCams) {
+                if (!_previewRunning) break;
+                try {
+                  const msg = await window.hortWS.request({
+                    type: 'debug.call', llming: 'llming-cam', power: 'capture_camera',
+                    args: { source_id: cam.source_id }
+                  });
+                  if (msg?.result?.content) {
+                    const img = msg.result.content.find(c => c.type === 'image');
+                    if (img) {
+                      previews.value = { ...previews.value, [cam.source_id]: 'data:' + img.mimeType + ';base64,' + img.data };
+                    }
+                  }
+                } catch (e) { /* timeout or error — skip, retry next loop */ }
+              }
+              // Tiny yield to let the browser render before requesting next frame
+              await new Promise(r => requestAnimationFrame(r));
             }
           }
 
           Vue.onMounted(() => {
             refresh();
             setInterval(refresh, 3000);
-            previewTimer = setInterval(refreshPreviews, 2000);
+            previewLoop();
           });
 
           Vue.onUnmounted(() => {
-            if (previewTimer) clearInterval(previewTimer);
+            _previewRunning = false;
           });
 
           return { cameras, previews, loading, toggleCam };
