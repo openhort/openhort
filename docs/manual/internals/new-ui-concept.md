@@ -547,63 +547,198 @@ flowchart LR
 
 ## Design Rules
 
-Mandatory constraints for all widget UI development. These rules ensure the UI feels alive, readable, and consistent across devices.
+Mandatory constraints for all widget UI development. These rules ensure the UI feels alive, readable, and consistent across devices. Every widget should look like a premium product — as if this were our main business.
 
 ### Typography
 
-- **Minimum font size on widgets:** 11px. Nothing smaller, except timestamps which may use 10px.
-- **Minimum font size in detail cards:** 13px for body text, 11px for labels and secondary info.
-- **Terminal state text:** at least 12px for state labels like "THINKING" or "IDLE".
+- **Minimum font size on widgets:** 14px for primary text, 12px for secondary. Timestamps may use 10px.
+- **Minimum font size in detail cards:** 14px for body text, 12px for labels and secondary info.
+- **Terminal state text:** at least 16px for state labels like "THINKING" or "IDLE", with gradient background.
+- **Hero numbers:** key metrics (CPU %, unread count, temperature) should be 24–36px, bold, instantly readable at arm's length.
+- **Monospace text** (terminal output, code snippets): 10px minimum, always in a dark rounded container with padding.
 
 ### Touch & Interaction
 
-- **Touch targets:** minimum 44x44px for all interactive elements (buttons, dots, toggles). Use invisible padding if the visual element is smaller.
-- **Icons over text:** prefer icons when meaning is clear from the icon alone. Use text labels only when the icon's meaning would be ambiguous.
-- **No JavaScript dialogs:** never use `alert()`, `confirm()`, or `prompt()`. Use in-UI modals or toast notifications instead.
+- **Touch targets:** minimum 44×44px for all interactive elements (buttons, toggles, tappable cards). Use invisible padding (`::before` pseudo-elements) if the visual element is smaller.
+- **Icons over text:** prefer Phosphor Fill variants (`ph-fill`) for more visual weight. Use text labels only when the icon's meaning would be ambiguous.
+- **Tap to open:** single tap on any widget opens its detail card (smartphone-sized modal with full controls).
+- **No JavaScript dialogs:** never use `alert()`, `confirm()`, or `prompt()`. Use in-UI modals or toast notifications.
+- **Big toggles:** light switches, feature toggles etc. must be at least 48px wide. Use the `.detail-tgl` class pattern (48×28px pill with sliding dot).
 
-### Widget Visual Identity
+### Widget Icon Badge
 
-- **Widget icon badges:** each widget type has its own accent color for its floating icon badge. Never use the same color for all widgets.
+Every widget has a **solid icon badge** in the top-right corner that serves as identity marker and settings handle.
 
-    | Widget | Accent Color |
-    |--------|-------------|
-    | OpenClaw | Warm orange `#f59e0b` |
-    | Now Playing | Purple `#a855f7` |
-    | Calendar | Blue `#3b82f6` |
-    | Email | Cyan `#06b6d4` |
-    | n8n | Orange `#ff6d00` |
-    | Cameras | Red `#ef4444` |
-    | Energy | Green `#22c55e` |
-    | Weather | Yellow/Amber `#f59e0b` |
-    | Code Watch | Purple `#a855f7` |
-    | System Monitor | Cyan `#06b6d4` |
-    | Network | Green `#22c55e` |
-    | Clipboard | Blue `#3b82f6` |
+**Specifications:**
 
-- **Icon badge glow:** each badge uses `filter: drop-shadow(0 0 6px currentColor)` for a subtle colored glow matching its accent.
-- **Claude terminal pulsing:** when a Claude session is in "thinking" state, the widget border pulses with a purple glow (2s animation cycle).
+- **Size:** 31×31px rounded rect
+- **Position:** `top: -2px; right: -2px` (overlaps widget border, flush with corner)
+- **Corner radius:** top-right matches widget (14px), bottom-left 10px, others 0
+- **Background:** solid `#0e1525` (no transparency — must fully occlude content behind it)
+- **Border:** 1px solid `var(--border)` on left and bottom edges only (inner edges)
+- **Icon size:** 22px, Phosphor icon or inline SVG
+- **Opacity:** 65% at rest, 90% on hover
+- **Color:** always `--widget-icon-color` (the widget's own identity color, never the hort group color)
+
+**Collision avoidance:** no widget content may overlap the icon badge area (top-right 31×31px). Elements near the top-right (badges, pills, labels) must have `margin-right: 28px` or be repositioned.
+
+### Two-Color System: Identity vs Security
+
+Every widget has two independent color channels:
+
+| Channel | CSS Variable | Controls | Source |
+|---------|-------------|----------|--------|
+| **Identity** | `--widget-icon-color` | Icon badge color | Always the widget type's own color (never changes) |
+| **Security** | `--widget-accent` | Border, pills, badges, highlights | Hort group color when assigned; widget default otherwise |
+
+This means:
+- The **icon badge** always tells you *what* the widget is (cyan = system monitor, purple = music, amber = OpenClaw)
+- The **border and highlights** tell you *which security zone* it belongs to (amber border = sandboxed, red = SAP)
+- A system monitor widget (cyan icon) in the SAP zone has a cyan icon but red border and red-tinted "in 23m" pills
+
+**Widget identity colors** (`--widget-icon-color`):
+
+| Widget | Color | Hex |
+|--------|-------|-----|
+| System Monitor | Cyan | `#06b6d4` |
+| Network Monitor | Green | `#22c55e` |
+| Clipboard | Blue | `#3b82f6` |
+| LLming Lens | Light blue | `#60a5fa` |
+| Now Playing | Purple | `#a855f7` |
+| Calendar | Blue | `#3b82f6` |
+| Email | Cyan | `#06b6d4` |
+| n8n | Orange | `#ff6d00` |
+| Cameras | Red | `#ef4444` |
+| Energy | Green | `#22c55e` |
+| Weather | Amber | `#f59e0b` |
+| Code Watch | Purple | `#a855f7` |
+| OpenClaw | Amber | `#f59e0b` |
+
+**Using accent colors in widget templates:** internal highlights (pills, badges, active states, unread indicators) should use `var(--widget-accent)` so they automatically follow the security zone. Use `color-mix(in srgb, var(--widget-accent) 15%, transparent)` for tinted backgrounds.
+
+### Widget Borders & Hort Groups
+
+Widget borders communicate security zone membership:
+
+| State | Border | Width |
+|-------|--------|-------|
+| **No hort group** | `#2a4a6e` (subtle blue-grey) | 1.5px |
+| **Hort group assigned** (different from desktop) | Hort group color, fully opaque | 2px |
+| **Desktop has default hort group** | Hort group color at 60% opacity | 1.5px |
+| **Hover** | Brightens to `--hover-glow` color | unchanged |
+
+The border is the primary security indicator. It must always be clearly visible — never blend into the background.
 
 ### Liveness
 
-- **Every widget must have animation or live data.** Nothing static. If a widget shows data, that data must change over time:
-    - Music: progress bar ticks every second, seekable
-    - Energy: usage/production values react to simulation state (washing machine, sun)
-    - CPU sparkline: updates every 1 second
-    - Cameras: canvas-rendered animated security feeds (green night-vision, scan lines, timestamps)
-    - Weather: reacts to day/night state
-    - Email: unread count updates dynamically
-    - n8n: workflow counts react to events
-- **Subtle scale pulse on data changes:** widgets briefly scale to 1.02x when their data updates, providing tactile feedback.
-- **All data is reactive:** state changes cascade. Washing machine ON increases energy usage. Sunset reduces solar production. New email increments unread count.
+**Every widget must have animation or live data.** Nothing static. If a widget shows data, that data must update in real-time:
+
+| Widget | Live Element |
+|--------|-------------|
+| Music | Progress bar ticks every second, seekable, play/pause toggle |
+| System Monitor | CPU sparkline updates every 1s (20-point history), dual sparklines (CPU + RAM) |
+| Network | Download sparkline updates every 1s |
+| Energy | Usage/production react to state changes (washing machine, sun), animated flow bar |
+| Cameras | Looping video feeds with CSS surveillance filter, REC indicator, MOTION badge |
+| Weather | Reacts to day/night state, rain warning with animated pill |
+| Email | Unread count computed live, real face avatars |
+| n8n | Workflow counts react to events, micro sparklines in status cards, red glow on failures |
+| Code Watch | Active session shows live output, spinning purple ring, token progress bar |
+| Terminal | Gradient "THINKING" label with progress bar and completion percentage |
+| Calendar | Countdown pills ("in 23m"), video camera icons on meetings |
+| Clipboard | Tappable cards with type icons (code/link/text) |
+
+**All data is reactive:** state changes cascade. Washing machine ON → energy usage increases. Sunset → solar production drops and weather changes. New email → unread count increments.
+
+### Detail Cards
+
+Tapping any widget opens a **detail card** — a smartphone-sized modal (max-width 400px) with full interactive controls.
+
+**Design rules for detail cards:**
+
+- **Header:** 40px icon container + title + close button
+- **Body:** scrollable, 16px padding, 12px gap between sections
+- **Row items:** `.detail-row` — 52px min-height, 12px padding, rounded corners, dark background
+- **Toggles:** 48×28px pill switches (`.detail-tgl`)
+- **Sliders:** native range inputs styled with `.detail-slider`
+- **Action buttons:** full-width, 14px font, 14px padding, rounded 12px
+- **Sections:** uppercase 11px labels with letter-spacing
+- **Gauges:** conic-gradient rings (`.detail-gauge`) for percentage displays
+
+**Each widget type has its own detail card with real interactions:**
+
+- OpenClaw: room-by-room toggles + brightness sliders + camera preview
+- Now Playing: large album art, full transport controls, speaker selector
+- Calendar: full event list with join-meeting buttons
+- Email: inbox with real photo avatars, unread indicators
+- n8n: status summary cards + workflow list with retry buttons
+- Cameras: large video panels with motion badges
+- Energy: solar/consumption gauges, battery ring, export earnings
+- Weather: large icon, hourly forecast with condition icons, detail rows
+- Code Watch: session details with output, token counts, file context
+- System Monitor: CPU/RAM/SSD gauge rings + process list
+
+### Widget Content Guidelines
+
+**Less text, more visual.** Each widget type should follow these content rules:
+
+- **1×1 widget:** one hero metric (big number or icon) + one supporting detail. Max 3 visual elements.
+- **2×1 widget:** can show 2-3 items side by side, or one item with supporting sparkline/graph.
+- **1×2 widget:** vertical layout, hero element at top, supporting details below. Good for terminals and session lists.
+- **2×2 widget:** full dashboard — can combine multiple visualizations.
+
+**Specific widget patterns:**
+
+- **Metrics** (System Monitor, Network, Energy): big number + sparkline. No prose text.
+- **Lists** (Calendar, Email, Code Watch): max 2-3 items visible. Each item is a tappable card with icon + title. Truncate aggressively.
+- **Controls** (OpenClaw): 2×2 grid of room cards with large toggle switches. Warm amber glow on active rooms.
+- **Media** (Now Playing): album art gradient fills the widget background. Transport controls at bottom.
+- **Status** (n8n, Code Watch): colored status indicators (dots, rings, badges) at minimum 10px diameter. Failed/error states use pulsing red glow.
+- **Feeds** (Cameras): video loops with CSS filter (`saturate(.4) brightness(.7) contrast(1.1)`), REC indicator, monospace labels.
+- **Data** (Clipboard): stacked tappable cards filling the full widget height, each with type icon + truncated content.
+
+### Demo Assets
+
+Demo videos, images, and sample data live in a **separate repository** (`openhort/demo-assets`) to keep the main repo lean. The mockup references them via relative paths when available, with canvas/CSS fallbacks when files are missing.
+
+**Current demo assets:**
+
+| Asset | Source | License |
+|-------|--------|---------|
+| Camera videos (3×) | Pexels | Pexels License (free, no attribution required) |
+| Face avatars (4×) | llming-docs | Project-internal |
+| Phosphor Icons | phosphor-icons/web | MIT |
+
+All third-party assets are documented in `THIRD_PARTY_LICENSES.md` with full license text.
 
 ### Layout & Spacing
 
-- **No Quasar standard components in desktop widgets.** Quasar components (q-btn, q-card, etc.) are acceptable in detail cards and modals, but widget thumbnails must use custom lightweight markup.
-- **Readability:** all widget content must be readable on a smartphone held at arm's length in bright sunlight. Test with reduced contrast and small screens.
-- **Apple-style minimalism:** less is more. Whitespace is a feature, not waste. Prefer fewer, more impactful elements over dense information.
+- **No Quasar standard components in desktop widgets.** Quasar components (`q-btn`, `q-card`, etc.) are acceptable in detail cards and modals, but widget thumbnails must use custom lightweight markup for performance.
+- **Readability:** all widget content must be readable on a smartphone held at arm's length in bright sunlight with 2 diopters correction. Test with reduced contrast and small screens.
+- **Apple-style minimalism:** less is more. Whitespace is a feature, not waste. Prefer fewer, larger, more impactful elements over dense information.
 - **Color field backgrounds:** the per-pixel blended canvas behind widgets should be subtle enough to enhance readability, not compete with widget content.
+- **Widget padding:** 12px default padding in `.widget-thumb`. Content must not extend behind the icon badge (top-right 31×31px exclusion zone).
+- **Unified experience:** desktop and smartphone must look and behave identically. No hover-only features, no desktop-only controls.
 
 ### Security Visualization
 
-- **Hort group colors are sacred.** The five default group colors (blue, amber, red, green, purple) must never be changed or used for non-security purposes.
-- **Connection dots in labels:** widgets bridging multiple zones show one dot per connected hort group, making cross-zone data flows visible at a glance.
+- **Hort group colors are sacred.** The five default group colors (blue, amber, red, green, purple) must never be changed or repurposed for non-security use.
+- **Connection dots:** widgets bridging multiple hort groups show colored dots (8px diameter) below the icon badge — one per connected group.
+- **Desktop tint:** each desktop's background plasma blobs shift color to match the desktop's default hort group, providing ambient zone awareness.
+- **Color field canvas:** per-pixel distance-weighted blending behind widgets creates organic zone boundaries — widgets in the same hort group share a color region.
+- **Visual anomaly detection:** a widget with a different hort group color than its neighbors should be immediately noticeable as "something different here."
+
+### Simulation System
+
+The mockup includes a **simulation toolbar** (collapsible, top of page) with event buttons that demonstrate reactive data cascading:
+
+| Button | Effect |
+|--------|--------|
+| Claude finishes | Thinking → done, output updates |
+| Motion detected | Camera motion badge, auto-clears after 8s |
+| Washing ON/OFF | Energy usage 2.1 → 3.8 kW |
+| Sunrise/Sunset | Solar 3.2 → 0.1 kW, weather icon/temp changes |
+| New email | Adds unread email, count increments |
+| Workflow fails | n8n failed count increments, red glow activates |
+
+All state changes cascade through reactive computed properties — no manual wiring needed.
