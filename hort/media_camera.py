@@ -291,6 +291,31 @@ class CameraProvider(MediaProvider):
             session.stop()
             del self._sessions[source_id]
 
+    async def _start_transient(self, source_id: str) -> bool:
+        """Open camera temporarily (for one-shot capture). Does NOT add to _wanted."""
+        idx = self._device_map.get(source_id)
+        if idx is None:
+            for i, name, uid in self._cached_sources or _enumerate_cameras():
+                sid = f"cam:{uid}"
+                self._device_map[sid] = i
+                if sid == source_id:
+                    idx = i
+                    break
+        if idx is None:
+            return False
+
+        name = source_id.replace("cam:", "")
+        for _, n, uid in self._cached_sources or _enumerate_cameras():
+            if f"cam:{uid}" == source_id:
+                name = n
+                break
+
+        session = _CameraSession(idx, name)
+        if session.start():
+            self._sessions[source_id] = session
+            return True
+        return False
+
     def is_active(self, source_id: str) -> bool:
         session = self._sessions.get(source_id)
         return session is not None and session._running
@@ -298,12 +323,19 @@ class CameraProvider(MediaProvider):
     async def capture_frame(
         self, source_id: str, max_width: int = 1920, quality: int = 80,
     ) -> bytes | None:
-        """Get latest buffered frame. Auto-starts camera if not active."""
+        """Get latest buffered frame.
+
+        If camera not active, does a transient open (captures one frame,
+        then stops). Does NOT add to _wanted — use start_source() for
+        persistent activation.
+        """
+        transient = False
         if not self.is_active(source_id):
-            ok = await self.start_source(source_id)
+            # Transient capture — open, grab frame, close
+            ok = await self._start_transient(source_id)
             if not ok:
                 return None
-            # Wait for first frame
+            transient = True
             import asyncio
             for _ in range(30):
                 await asyncio.sleep(0.1)
@@ -314,7 +346,14 @@ class CameraProvider(MediaProvider):
         session = self._sessions.get(source_id)
         if session is None:
             return None
-        return session.get_frame(max_width, quality)
+        frame = session.get_frame(max_width, quality)
+
+        # Transient capture: stop camera after grabbing the frame
+        if transient and source_id not in self._wanted:
+            session.stop()
+            self._sessions.pop(source_id, None)
+
+        return frame
 
     def cleanup_idle(self) -> None:
         """Stop cameras that haven't been accessed recently."""
