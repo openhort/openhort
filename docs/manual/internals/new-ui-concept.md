@@ -542,6 +542,143 @@ flowchart LR
 
 ---
 
+## Notifications & Invisible Llmings
+
+Not every llming has a widget on a desktop. Background services — a backup monitor, a security scanner, an update checker, a price watcher — run silently until they have something to say. The notification system makes both visible widgets and invisible llmings capable of surfacing events.
+
+### Three Notification Layers
+
+```mermaid
+flowchart TD
+    subgraph Sources ["Event Sources"]
+        W[Visible Widgets]
+        I[Invisible Llmings]
+    end
+    subgraph Layers ["Notification Layers"]
+        B[Widget Badges]
+        T[Toast Banners]
+        N[Notification Feed]
+    end
+    W --> B
+    W --> T
+    I --> T
+    I --> N
+    W --> N
+```
+
+#### Layer 1: Widget Badges
+
+Visible widgets show a **notification dot or count badge** directly on the card — like an iOS app badge. The badge appears in the **top-left corner** (opposite the icon badge in top-right) to avoid collision.
+
+| Severity | Badge Style | Example |
+|----------|------------|---------|
+| **Urgent** | Red pulsing dot (8px) | Motion detected, workflow failed |
+| **Attention** | Amber dot with count | 3 unread emails, Claude needs input |
+| **Info** | Blue dot | Backup complete, update available |
+
+**Rules:**
+- Badge clears when the detail card is opened (mark-as-read on view)
+- Count badges show numbers 1-99, then "99+" 
+- The badge inherits `--widget-accent` for its color when in a hort group, otherwise uses severity color
+- On smartphones: badges must be at least 20px diameter to be tappable as a quick-dismiss target
+
+#### Layer 2: Toast Banners
+
+Temporary notifications that slide in from the top, auto-dismiss after 4 seconds. Used for real-time events that need immediate awareness without requiring action.
+
+```
+┌──────────────────────────────────┐
+│ 🔴 Front Door  Motion detected  │  ← slides in from top
+│         3 seconds ago            │
+└──────────────────────────────────┘
+```
+
+**Design:**
+- Full-width banner, max-width 400px, centered on phone
+- Dark surface background with left color stripe matching the source widget's identity color
+- Source icon (20px) + title + message on one line
+- Auto-dismiss: 4s for info, 8s for attention, sticky for urgent (requires manual dismiss)
+- Tapping the toast opens the source widget's detail card
+- Max 2 toasts stacked — older ones compress to a count badge ("2 more")
+- Toasts respect Do Not Disturb: when DND is active, only urgent toasts appear
+
+**Smartphone behavior:**
+- When the app is in the foreground: toast banner inside the app
+- When backgrounded: native push notification via the connector (Telegram bot, native app, or PWA push)
+- Lock screen: shows as a grouped notification per hort group (security zone separation even in notifications)
+
+#### Layer 3: Notification Feed
+
+A scrollable list of all recent notifications, accessible from the nav drawer → "Notifications" item, or by pulling down on the Home desktop.
+
+**Design:**
+- Each notification is a card: source icon + title + message + timestamp + severity dot
+- Grouped by time: "Now", "Earlier", "Yesterday"
+- Swipe-to-dismiss on mobile
+- "Clear all" button at the top
+- Unread count badge on the drawer's Notifications item
+
+### Invisible Llmings
+
+Llmings without a widget on any desktop. They run as background services and communicate exclusively through notifications.
+
+**How they surface:**
+
+1. **Toast banners** — their primary channel. An invisible llming can push toasts at any time.
+
+2. **Phantom widgets** — when an invisible llming has a persistent state worth showing (not just a one-time event), it can temporarily inject a **phantom widget** into the Home desktop. This appears with a subtle fade-in animation and a dashed border (distinguishing it from user-placed widgets). The phantom disappears when the state clears or the user dismisses it.
+
+    Example: A backup llming normally runs invisibly. When a backup fails, it injects a phantom 1×1 widget showing the failure status. When the user retries and it succeeds, the phantom fades out.
+
+3. **Notification feed** — all events from invisible llmings appear here, tagged with the llming's icon and name.
+
+4. **Drawer indicator** — the nav drawer shows a section "Background" listing all invisible llmings with status dots (green = healthy, amber = needs attention, red = error).
+
+### Notification Data Model
+
+```javascript
+{
+  id: 'notif_abc123',
+  source: 'cameras',           // llming ID (widget extId or invisible llming ID)
+  sourceIcon: 'ph-fill ph-security-camera',
+  sourceColor: '#ef4444',
+  severity: 'urgent',          // 'info' | 'attention' | 'urgent'
+  title: 'Motion detected',
+  message: 'Front Door camera',
+  timestamp: 1712700000000,
+  read: false,
+  hpiort: 'default',           // hort group — notifications inherit the source's zone
+  action: {                    // optional — what happens when tapped
+    type: 'open-detail',
+    widgetExtId: 'cameras'
+  }
+}
+```
+
+### Smartphone-Specific Considerations
+
+| Concern | Solution |
+|---------|----------|
+| **App backgrounded** | Push via Telegram bot, native app bridge, or PWA service worker |
+| **Lock screen** | Grouped by hort group — SAP notifications never mixed with Home notifications |
+| **Battery** | Notification polling uses the existing WebSocket connection, no additional network |
+| **Haptics** | Urgent: strong vibration. Attention: gentle tap. Info: silent |
+| **Sound** | Per-llming configurable. Default: system notification sound for urgent only |
+| **DND / Focus modes** | Respect OS-level DND. Allow per-hort-group DND (mute Home but keep SAP) |
+| **Glanceable** | Badge counts visible on app icon (PWA badge API / native bridge) |
+| **Rich notifications** | Camera motion: include a snapshot frame. Email: show sender + subject. Claude: show last output line |
+
+### Cross-Zone Notification Rules
+
+Notifications respect hort group boundaries:
+
+- A notification from the SAP zone **never** shows content preview when the device is in a public context (lock screen, shared screen)
+- Notifications from isolated zones show only the source name and severity, not the message content, unless the device is authenticated to that zone
+- The notification feed can be filtered by hort group — "show only Home notifications" or "show only SAP"
+- Phantom widgets inherit their source llming's hort group and get the corresponding border color
+
+---
+
 ## Design Rules
 
 Mandatory constraints for all widget UI development. These rules ensure the UI feels alive, readable, and consistent across devices. Every widget should look like a premium product — as if this were our main business.

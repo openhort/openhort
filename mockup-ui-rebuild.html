@@ -9,7 +9,11 @@
 <link rel="stylesheet" href="hort/static/vendor/phosphor/bold.css">
 <link rel="stylesheet" href="hort/static/vendor/phosphor/fill.css">
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
+*{margin:0;padding:0;box-sizing:border-box;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent}
+*::-webkit-scrollbar{width:4px;height:4px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
+*::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2)}
 :root{
   --bg:#0a0e1a;--surface:#111827;--s2:#1a2332;--border:#1e3a5f;
   --primary:#3b82f6;--accent:#60a5fa;--text:#f0f4ff;--dim:#94a3b8;
@@ -2654,7 +2658,7 @@ createApp({
         const threshold=window.innerWidth*.2;
         if(dx<-threshold&&deskIdx.value<desktops.length-1)deskIdx.value++;
         else if(dx>threshold&&deskIdx.value>0)deskIdx.value--;
-        snapTrack();_sw=false;swipeDrag.value=false;
+        snapTrack();_sw=false;setTimeout(()=>{swipeDrag.value=false},50);
       },{passive:true});
 
       // Mouse drag for desktop browsers
@@ -2677,7 +2681,7 @@ createApp({
           const threshold=window.innerWidth*.2;
           if(dx<-threshold&&deskIdx.value<desktops.length-1)deskIdx.value++;
           else if(dx>threshold&&deskIdx.value>0)deskIdx.value--;
-          snapTrack();swipeDrag.value=false;
+          snapTrack();setTimeout(()=>{swipeDrag.value=false},50);
         }
         document.addEventListener('mousemove',onMove);
         document.addEventListener('mouseup',onUp);
@@ -2965,7 +2969,7 @@ createApp({
     function editDesktopName(){const d=activeDesktop.value;if(d.isHome)return;nameEd.value={title:'Rename Desktop',value:d.name,btn:'Save',save:()=>{d.name=nameEd.value.value.trim()||d.name;nameEd.value=null}}}
     function onTap(w){detailWidget.value=w}
     function onWidgetClick(w){
-      // Single tap opens detail card
+      if(swipeDrag.value||_sw)return;
       detailWidget.value=w;
     }
     function showT(m){toast.value=m;clearTimeout(_tt);_tt=setTimeout(()=>{toast.value=''},2000)}
