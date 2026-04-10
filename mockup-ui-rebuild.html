@@ -1960,6 +1960,14 @@ createApp({
     }
 
     function pushNotification(opts){
+      // Deduplicate: if same source+title is already visible, update it instead
+      const dupe=notifications.find(n=>n.visible&&n.source===opts.source&&n.title===opts.title);
+      if(dupe){
+        dupe.timestamp=Date.now();
+        dupe.message=opts.message||dupe.message;
+        dupe.read=false;
+        return;
+      }
       const n=reactive({
         id:++notifId.value,
         ...opts,
