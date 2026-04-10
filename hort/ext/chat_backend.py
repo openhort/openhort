@@ -136,7 +136,7 @@ class MCPBridgeProcess:
             return
 
         self._proc = subprocess.Popen(
-            ["python", "-m", "hort.mcp.server", "--sse", "--port", str(self._port)],
+            ["python", "-m", "hort.mcp.proxy_bridge", "--sse", "--port", str(self._port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             cwd=os.path.dirname(os.path.dirname(os.path.dirname(

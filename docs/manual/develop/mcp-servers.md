@@ -469,57 +469,63 @@ automatically matches however the client connected — whether via
 Proxy tests use a real mock MCP subprocess (Python script speaking
 the stdio protocol) for full end-to-end verification.
 
-## In-Process MCP Bridge
+## MCP Proxy Bridge
 
-The MCP bridge (`hort/mcp/`) aggregates tools from all `MCPMixin`
-extensions and serves them as a single MCP server. Unlike the SSE
-proxy (which wraps external stdio MCP subprocesses), the bridge runs
-tools **in-process** — the extension code executes directly.
+The MCP bridge (`hort/mcp/proxy_bridge.py`) is a **thin HTTP proxy** that
+routes Claude's tool calls to the main openhort server. It does NOT load
+any extensions or instantiate any llmings.
 
 ### Architecture
 
+```mermaid
+flowchart LR
+    A["Claude Code\n(container/local)"] -->|"SSE/stdio"| B["Proxy Bridge\n(subprocess)"]
+    B -->|"GET /api/debug/tools"| C["Main Server\n(tool definitions)"]
+    B -->|"POST /api/debug/call"| C
+    C -->|"execute_power()"| D["Llming Instance\n(camera, monitor, etc.)"]
 ```
-Extension (MCPMixin)          MCP Bridge              Claude Code
-┌──────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│ llming-lens      │    │                  │    │                 │
-│  - list_windows  │───▶│  MCPBridge       │◀──▶│  claude -p      │
-│  - screenshot    │    │  (JSON-RPC)      │    │  --mcp-config   │
-│  - click         │    │                  │    │                 │
-├──────────────────┤    │  Namespacing:    │    │  Connects via   │
-│ system-monitor   │    │  {pid}__{tool}   │    │  SSE or stdio   │
-│  - get_metrics   │───▶│                  │    │                 │
-├──────────────────┤    │  Transports:     │    └─────────────────┘
-│ disk-usage       │    │  - stdio (local) │
-│  - get_disk      │───▶│  - SSE (container│
-└──────────────────┘    └──────────────────┘
-```
+
+**Startup:**
+1. Bridge subprocess fetches `GET /api/debug/tools` from the main server
+2. Gets all tool definitions (name, description, inputSchema) with their llming routing info
+3. Exposes them as MCP tools via SSE
+
+**Tool call:**
+1. Claude calls `llming-cam__list_cameras`
+2. Bridge parses → llming=`llming-cam`, power=`list_cameras`
+3. Bridge calls `POST /api/debug/call` with `{llming, power, args}`
+4. Main server executes `llming_cam.execute_power("list_cameras", args)`
+5. Result returned to Claude
+
+### Why proxy, not in-process?
+
+!!! danger "NEVER load extensions in the bridge subprocess"
+    The old approach loaded ALL extensions in the subprocess, creating
+    duplicate llming instances with their own state, Quartz imports,
+    camera providers, and scheduled jobs. This caused:
+
+    - **Memory leaks**: Quartz native objects (10-50 MB/frame) in a process
+      without proper autorelease pool management
+    - **State divergence**: Bridge instances had empty data (no schedulers running)
+    - **Resource conflicts**: Multiple camera opens, duplicate Telegram pollers
+    - **516 GB VSZ**: subprocess with multiprocessing.spawn inheriting VM mappings
+
+    The main server's llming IS the single source of truth. The bridge
+    proxies to it — nothing more.
 
 ### Tool namespacing
 
-Tools are namespaced as `{plugin_id}__{tool_name}` to avoid
-collisions. For example, `llming-lens__screenshot` and
-`system-monitor__get_system_metrics`.
-
-### Running standalone
-
-```bash
-# Stdio mode (for local Claude Code)
-python -m hort.mcp.server
-
-# SSE mode (for containerized Claude Code or chat backend)
-python -m hort.mcp.server --sse --port 9100
-
-# With app filter for screen tools
-python -m hort.mcp.server --app-filter "Chrome*,iTerm*"
-```
+Tools are namespaced as `{llming}__{power}` to avoid collisions:
+`llming-lens__screenshot`, `llming-cam__list_cameras`.
 
 ### Key files
 
 | File | Purpose |
 |------|---------|
-| `hort/mcp/bridge.py` | `MCPBridge` (JSON-RPC router), `MCPSseServer` (SSE transport), `run_stdio` |
-| `hort/mcp/server.py` | Extension discovery, standalone launcher (`python -m hort.mcp`) |
-| `hort/ext/mcp.py` | `MCPMixin`, `MCPToolDef`, `MCPToolResult` — the plugin interface |
+| `hort/mcp/proxy_bridge.py` | Proxy bridge: fetches tools, routes calls to main server |
+| `hort/mcp/bridge.py` | `MCPBridge` (JSON-RPC router), `MCPSseServer` (SSE transport) |
+| `hort/app.py` (`/api/debug/tools`) | Tool definition endpoint for the proxy |
+| `hort/app.py` (`/api/debug/call`) | Power execution endpoint for the proxy |
 
 ## Chat Backend
 

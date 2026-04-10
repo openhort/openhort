@@ -531,6 +531,30 @@ def _register_routes(app: FastAPI) -> None:
             "observers": registry.observer_count(),
         }
 
+    @app.get("/api/debug/tools")
+    async def debug_tools() -> list[dict[str, Any]]:
+        """List all MCP tools from all llmings with full schemas.
+
+        Used by the proxy MCP bridge to discover tools without loading extensions.
+        """
+        from hort.llming.base import LlmingBase
+
+        if not hasattr(app.state, "llming_registry"):
+            return []
+        tools: list[dict[str, Any]] = []
+        for name, inst in app.state.llming_registry._instances.items():
+            if not isinstance(inst, LlmingBase):
+                continue
+            for t in inst.get_mcp_tools():
+                tools.append({
+                    "name": t.name,
+                    "description": t.description,
+                    "inputSchema": t.input_schema,
+                    "_llming": name,
+                    "_power": t.name,
+                })
+        return tools
+
     @app.post("/api/debug/eval")
     async def debug_eval(request: Request) -> dict[str, Any]:
         """Execute JS in the active browser session and return the result."""
