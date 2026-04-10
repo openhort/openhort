@@ -96,7 +96,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 .w-1x1{grid-column:span 1;grid-row:span 1}.w-2x1{grid-column:span 2;grid-row:span 1}.w-1x2{grid-column:span 1;grid-row:span 2}.w-2x2{grid-column:span 2;grid-row:span 2}
 
-.widget{background:var(--surface);border-radius:14px;border:1px solid #243d5c;overflow:hidden;cursor:pointer;transition:box-shadow .3s,transform .1s;display:flex;flex-direction:column;position:relative;animation:widget-pulse 6s ease-in-out infinite}
+.widget{background:var(--surface);border-radius:14px;border:1.5px solid #2a4a6e;overflow:hidden;cursor:pointer;transition:box-shadow .3s,transform .1s;display:flex;flex-direction:column;position:relative;animation:widget-pulse 6s ease-in-out infinite}
 @keyframes widget-pulse{0%,100%{box-shadow:var(--rest-glow,0 0 0 transparent)}50%{box-shadow:var(--rest-glow,0 0 6px rgba(47,85,128,.15))}}
 .widget:hover{animation:none;box-shadow:0 0 25px color-mix(in srgb, var(--hover-glow,#3b82f6) 55%, transparent),0 0 50px color-mix(in srgb, var(--hover-glow,#3b82f6) 25%, transparent);border-color:var(--hover-glow,#3a6a9a)}
 
@@ -131,7 +131,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .widget-label{display:none}
 .widget-badge{position:absolute;top:38px;right:4px;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700}
 .badge-live{background:rgba(34,197,94,.2);color:var(--success)}
-.widget-icon-badge{position:absolute;top:-1px;right:-1px;z-index:3;font-size:22px;opacity:.65;pointer-events:auto;cursor:pointer;transition:all .2s;line-height:1;width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:#0e1525;border-radius:0 14px 0 12px;border-left:1px solid var(--border);border-bottom:1px solid var(--border)}
+.widget-icon-badge{position:absolute;top:-2px;right:-2px;z-index:3;font-size:22px;opacity:.65;pointer-events:auto;cursor:pointer;transition:all .2s;line-height:1;width:31px;height:31px;display:flex;align-items:center;justify-content:center;background:#0e1525;border-radius:0 14px 0 10px;border-left:1px solid var(--border);border-bottom:1px solid var(--border)}
 .widget-icon-badge:hover{opacity:.9;background:#182030}
 .widget-icon-badge svg{width:22px;height:22px;fill:currentColor}
 .widget-icon-badge .hort-dots{position:absolute;bottom:-4px;right:0;display:flex;gap:2px}
@@ -337,13 +337,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 /* === Email with real photos === */
 .email-row{display:flex;align-items:center;gap:10px;padding:6px 8px;background:var(--bg);border-radius:10px;min-height:40px}
-.email-row.unread{border-left:3px solid var(--primary)}
+.email-row.unread{border-left:3px solid var(--widget-accent,var(--primary))}
 .email-avatar{width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid rgba(255,255,255,.1)}
-.email-unread-badge{position:absolute;top:4px;left:4px;background:var(--primary);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;z-index:5}
+.email-unread-badge{position:absolute;top:4px;left:4px;background:var(--widget-accent,var(--primary));color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;z-index:5}
 .detail-mail .ml-avatar-img{width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid rgba(255,255,255,.1)}
 
 /* === Calendar pill badge === */
-.cal-pill{padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;background:rgba(59,130,246,.15);color:var(--accent);white-space:nowrap;display:flex;align-items:center;gap:4px;animation:cal-glow 2s ease-in-out infinite}
+.cal-pill{padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;background:color-mix(in srgb,var(--widget-accent,#3b82f6) 15%,transparent);color:var(--widget-accent,#3b82f6);white-space:nowrap;display:flex;align-items:center;gap:4px}
 @keyframes cal-glow{0%,100%{box-shadow:0 0 6px rgba(59,130,246,.2)}50%{box-shadow:0 0 12px rgba(59,130,246,.4)}}
 
 /* === n8n fail glow === */
@@ -470,17 +470,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 }
 
 /* === Widget icon badge accent colors === */
-.widget-icon-badge.accent-orange{color:#f59e0b}
-.widget-icon-badge.accent-purple{color:#a855f7}
-.widget-icon-badge.accent-blue{color:#3b82f6}
-.widget-icon-badge.accent-cyan{color:#06b6d4}
-.widget-icon-badge.accent-n8n-orange{color:#ff6d00}
-.widget-icon-badge.accent-red{color:#ef4444}
-.widget-icon-badge.accent-green{color:#22c55e}
-.widget-icon-badge.accent-amber{color:#f59e0b}
-.widget-icon-badge.accent-codewatch{color:#a855f7}
-.widget-icon-badge.accent-sysmon{color:#06b6d4}
-.widget-icon-badge.accent-clip{color:#3b82f6}
+/* Icon badge color: always the widget's own identity color (--widget-icon-color), never the hort group */
+.widget-icon-badge{color:var(--widget-icon-color,var(--primary))}
 
 /* === Camera canvas styles === */
 .cam-canvas{width:100%;height:100%;border-radius:6px;image-rendering:pixelated}
@@ -668,8 +659,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                 </template>
                 <template v-else-if="w.extId==='clipboard-history'">
                   <div style="width:100%;height:100%;display:flex;flex-direction:column;gap:6px;position:relative">
-                    <div style="position:absolute;top:0;left:0;background:var(--primary);color:#fff;font-size:11px;font-weight:700;width:26px;height:26px;border-radius:0 8px 8px 0;display:flex;align-items:center;justify-content:center;z-index:2;box-shadow:0 2px 8px rgba(59,130,246,.4);border-radius:14px 0 10px 0">12</div>
-                    <div style="flex:1;display:flex;align-items:center;padding:10px 6px 0 6px;background:rgba(167,139,250,.06);border-radius:10px;border:1px solid rgba(167,139,250,.12);gap:8px;min-height:0;cursor:pointer" @click.stop="showT('Pasted!')">
+                    <div style="position:absolute;top:0;left:0;background:var(--widget-accent,var(--primary));color:#fff;font-size:11px;font-weight:700;width:26px;height:26px;display:flex;align-items:center;justify-content:center;z-index:2;border-radius:14px 0 10px 0">12</div>
+                    <div style="flex:1;display:flex;align-items:center;padding:10px 6px 0 6px;background:color-mix(in srgb,var(--widget-accent,#a78bfa) 6%,transparent);border-radius:10px;border:1px solid color-mix(in srgb,var(--widget-accent,#a78bfa) 12%,transparent);gap:8px;min-height:0;cursor:pointer" @click.stop="showT('Pasted!')">
                       <i class="ph-fill ph-brackets-curly" style="font-size:20px;color:var(--purple);flex-shrink:0"></i>
                       <div style="font-family:'SF Mono',monospace;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">const handler = async (req, res) =&gt; {</div>
                     </div>
@@ -781,7 +772,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                       <div style="display:flex;gap:8px;align-items:stretch;min-height:44px">
                         <div :style="{width:'4px',borderRadius:'2px',background:ev.color,flexShrink:0}"></div>
                         <div style="flex:1;display:flex;flex-direction:column;justify-content:center;min-width:0">
-                          <div style="display:flex;align-items:center;gap:5px"><span style="font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ ev.title }}</span><i v-if="ev.hasVideo" class="ph-fill ph-video-camera" style="font-size:13px;color:var(--primary);flex-shrink:0"></i></div>
+                          <div style="display:flex;align-items:center;gap:5px"><span style="font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ ev.title }}</span><i v-if="ev.hasVideo" class="ph-fill ph-video-camera" style="font-size:13px;color:var(--widget-accent,var(--primary));flex-shrink:0"></i></div>
                           <div style="font-size:12px;color:var(--dim)">{{ ev.time }} <span v-if="ev.location" style="opacity:.6">&middot; {{ ev.location.length > 15 ? ev.location.slice(0,15) + '...' : ev.location }}</span></div>
                         </div>
                         <div v-if="ei===0" class="cal-pill" style="margin-right:28px">in 23m</div>
@@ -2250,21 +2241,39 @@ createApp({
 
 
     // Top-row widgets get margin for spacing; widgets with hort assignment get subtle glow
+    // Per-widget default accent colors (used when no hort group assigned)
+    const _widgetAccents={
+      'system-monitor':'#06b6d4','network-monitor':'#22c55e','clipboard-history':'#3b82f6',
+      'llming-lens':'#60a5fa','now-playing':'#a855f7','calendar':'#3b82f6','email':'#06b6d4',
+      'n8n':'#ff6d00','cameras':'#ef4444','energy':'#22c55e','weather':'#f59e0b',
+      'code-watch':'#a855f7','openclaw':'#f59e0b','process-manager':'#94a3b8'
+    };
     function widgetStyle(w,desk){
       const s={};
+      // Icon always shows the widget's own identity color
+      s['--widget-icon-color']=_widgetAccents[w.extId]||'#3b82f6';
       const wHort=w.hpiort||null;
       const deskHort=desk.hpiort||null;
       if(wHort&&wHort!==deskHort){
         const hg=getHortGroup(wHort);
         const tRgb=desktopTints[hg.tint||0].rgb;
-        s.borderColor=hg.color+'99';
+        s.borderColor=hg.color;
+        s.borderWidth='2px';
         s['--rest-glow']=`0 0 30px rgba(${tRgb[0]*4},${tRgb[1]*4},${tRgb[2]*4},.45)`;
         s['--hover-glow']=hg.color;
+        s['--widget-accent']=hg.color;
+      }else if(deskHort){
+        const hg=getHortGroup(deskHort);
+        s.borderColor=hg.color+'60';
+        s['--rest-glow']=`0 0 20px rgba(0,0,0,.2)`;
+        s['--hover-glow']=hg.color;
+        s['--widget-accent']=hg.color;
       }else{
         const tint=desktopTints[desk.tint||0];
         s.borderColor=tint.border;
         s['--rest-glow']=`0 0 30px rgba(${tint.rgb[0]*4},${tint.rgb[1]*4},${tint.rgb[2]*4},.4)`;
         s['--hover-glow']='#3b82f6';
+        s['--widget-accent']=_widgetAccents[w.extId]||'#3b82f6';
       }
       return s;
     }
