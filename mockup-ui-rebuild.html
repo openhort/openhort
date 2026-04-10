@@ -626,9 +626,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 
   <!-- Debug simulation FAB (bottom-left) -->
-  <div style="position:relative">
-    <button class="fab-debug" @click.stop="debugMenuOpen=!debugMenuOpen"><i class="ph ph-flask" style="font-size:18px"></i></button>
-    <div v-if="debugMenuOpen" class="notif-bell-dropdown" style="bottom:100%;left:0;top:auto;right:auto;margin-bottom:8px" @click.stop>
+  <button class="fab-debug" @click.stop="debugMenuOpen=!debugMenuOpen"><i class="ph ph-flask" style="font-size:18px"></i></button>
+  <div v-if="debugMenuOpen" class="notif-bell-dropdown" style="position:fixed;bottom:52px;left:12px;top:auto;right:auto;z-index:200" @click.stop>
       <span class="sim-label">Simulate</span>
       <div class="notif-bell-item" @click="simNotifIntruder();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F6A8;</span> Intruder!</div>
       <div class="notif-bell-item" @click="simNotifDoorbell();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F514;</span> Doorbell</div>
@@ -640,7 +639,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="notif-bell-item" @click="simNotifSong();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F3B5;</span> Song changed</div>
       <div class="notif-bell-item" @click="simNotifBackup();debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4BE;</span> Backup OK</div>
     </div>
-  </div>
 
   <!-- Fullscreen device view -->
   <template v-if="deviceView">
