@@ -82,27 +82,25 @@
             loading.value = { ...loading.value, [sourceId]: false };
           }
 
-          // Preview uses a lightweight pull: one frame at a time, client-driven.
-          // Same principle as the stream ACK flow — never push, never pile up.
+          // Load stored thumbnails for inactive cameras on refresh
+          function loadStoredThumbs() {
+            for (const cam of cameras.value) {
+              if (cam.thumb && !previews.value[cam.source_id]) {
+                previews.value = { ...previews.value, [cam.source_id]: 'data:image/webp;base64,' + cam.thumb };
+              }
+            }
+          }
+
+          // Live preview: client-driven pull, one frame at a time
           let _previewRunning = false;
           async function previewLoop() {
             _previewRunning = true;
             while (_previewRunning) {
               const activeCams = cameras.value.filter(c => c.metadata?.active);
-              // Clear previews for stopped cameras
-              for (const cam of cameras.value) {
-                if (!cam.metadata?.active && previews.value[cam.source_id]) {
-                  const p = { ...previews.value };
-                  delete p[cam.source_id];
-                  previews.value = p;
-                }
-              }
               if (!activeCams.length) {
                 await new Promise(r => setTimeout(r, 500));
                 continue;
               }
-              // Fetch ONE frame per camera, sequentially. Client drives the pace —
-              // next request only after current frame is received and rendered.
               for (const cam of activeCams) {
                 if (!_previewRunning) break;
                 try {
@@ -116,16 +114,16 @@
                       previews.value = { ...previews.value, [cam.source_id]: 'data:' + img.mimeType + ';base64,' + img.data };
                     }
                   }
-                } catch (e) { /* timeout or error — skip, retry next loop */ }
+                } catch (e) {}
               }
-              // Tiny yield to let the browser render before requesting next frame
               await new Promise(r => requestAnimationFrame(r));
             }
           }
 
-          Vue.onMounted(() => {
-            refresh();
-            setInterval(refresh, 3000);
+          Vue.onMounted(async () => {
+            await refresh();
+            loadStoredThumbs();
+            setInterval(async () => { await refresh(); loadStoredThumbs(); }, 3000);
             previewLoop();
           });
 
@@ -142,9 +140,21 @@
             </div>
             <div v-for="cam in cameras" :key="cam.source_id"
                  style="margin-bottom: 8px; border-radius: 8px; overflow: hidden; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06)">
-              <!-- Preview image (when active) -->
+              <!-- Preview image (live when active, last-known when off/auto) -->
               <div v-if="previews[cam.source_id]" style="position: relative; background: #000">
-                <img :src="previews[cam.source_id]" style="width: 100%; display: block; max-height: 200px; object-fit: contain">
+                <img :src="previews[cam.source_id]" :style="{
+                  width: '100%', display: 'block', maxHeight: '200px', objectFit: 'contain',
+                  opacity: cam.metadata?.active ? 1 : 0.5, filter: cam.metadata?.active ? 'none' : 'grayscale(0.5)',
+                }">
+                <span v-if="!cam.metadata?.active && (cam.metadata?.policy === 'auto')"
+                  style="position:absolute; top:6px; right:6px; background:rgba(245,158,11,0.85); color:#fff; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600">
+                  auto
+                </span>
+                <span v-if="cam.metadata?.active"
+                  style="position:absolute; top:6px; left:6px; display:flex; align-items:center; gap:4px">
+                  <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.5s infinite"></span>
+                  <span style="font-size:10px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.8)">LIVE</span>
+                </span>
               </div>
               <!-- Camera info row -->
               <div style="display: flex; align-items: center; padding: 8px 10px; gap: 8px">
@@ -176,8 +186,9 @@
       const data = this._feedStore ? this._feedStore() : {};
       const total = data.total_cameras || 0;
       const active = data.active_cameras || 0;
+      const cams = data.cameras || [];
 
-      // Camera icon
+      // Try to show camera icon
       const cx = w / 2, cy = h / 2 - 12;
       ctx.fillStyle = active > 0 ? '#22c55e' : '#1e3a5f';
       ctx.beginPath();
@@ -192,7 +203,6 @@
       ctx.arc(cx, cy, 8, 0, Math.PI * 2);
       ctx.fill();
       if (active > 0) {
-        // Recording dot
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.arc(cx + 25, cy - 12, 4, 0, Math.PI * 2);

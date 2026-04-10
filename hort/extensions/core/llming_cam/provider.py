@@ -70,6 +70,16 @@ class LlmingCam(LlmingBase):
         except Exception:
             pass
 
+    async def _save_thumb(self, source_id: str, b64: str) -> None:
+        """Save latest thumbnail for a camera (survives restart, shows when off)."""
+        # Trim to a small thumbnail for storage (keep under 50KB)
+        await self.store.put(f"thumb:{source_id}", {"b64": b64[:80000]})
+
+    async def _get_thumb(self, source_id: str) -> str:
+        """Get stored thumbnail for a camera."""
+        data = await self.store.get(f"thumb:{source_id}")
+        return data.get("b64", "") if data else ""
+
     async def _persist_wanted(self) -> None:
         """Save wanted cameras and policies to persistent store."""
         if self._cam:
@@ -157,16 +167,18 @@ class LlmingCam(LlmingBase):
             return {"content": [{"type": "text", "text": "Camera provider not initialized"}], "is_error": True}
 
         if name == "list_cameras_detailed":
-            # Structured data for UI — not MCP text
+            # Structured data for UI — includes stored thumbnails
             sources = cam.list_sources()
-            return {"cameras": [
-                {
+            cameras = []
+            for s in sources:
+                thumb = await self._get_thumb(s.source_id)
+                cameras.append({
                     "source_id": s.source_id,
                     "name": s.name,
                     "metadata": s.metadata,
-                }
-                for s in sources
-            ]}
+                    "thumb": thumb,  # last-known frame (even when off)
+                })
+            return {"cameras": cameras}
 
         if name == "list_cameras":
             sources = cam.list_sources()
@@ -184,6 +196,8 @@ class LlmingCam(LlmingBase):
             if frame is None:
                 return {"content": [{"type": "text", "text": f"Failed to capture from {source_id}"}], "is_error": True}
             b64 = base64.b64encode(frame).decode()
+            # Persist thumbnail for offline display
+            await self._save_thumb(source_id, b64)
             return {"content": [
                 {"type": "image", "data": b64, "mimeType": "image/webp"},
                 {"type": "text", "text": f"Captured from {source_id} ({len(frame)} bytes)"},
