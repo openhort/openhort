@@ -23,7 +23,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 @media(min-width:640px){:root{--row-h:190px;--gap:14px;--pad:16px}}
 @media(min-width:1024px){:root{--row-h:190px;--gap:14px;--pad:20px}}
 
-.navbar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;min-height:48px;z-index:10}
+.navbar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface);border-bottom:2px solid var(--border);flex-shrink:0;min-height:48px;z-index:10}
 .nav-btn{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;color:var(--dim);background:none;border:none;font-size:18px}
 .nav-btn:hover{background:rgba(255,255,255,.08);color:var(--text)}
 .nav-logo{font-size:17px;font-weight:700;font-style:italic;color:#e8b930;letter-spacing:.5px}
@@ -92,13 +92,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .device-fs-status.connected{color:var(--success)}
 .device-fs-card.offline{opacity:.45;cursor:default}
 .device-fs-card.offline:hover{border-color:var(--border);box-shadow:none}
-.grid{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,var(--cell-max,320px)));grid-auto-rows:var(--row-h);gap:var(--gap);padding:var(--pad);padding-bottom:60px;justify-content:center;align-content:start;min-height:100%}
+.grid{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,var(--cell-max,320px)));grid-auto-rows:var(--row-h);gap:var(--gap);padding:var(--pad);padding-top:calc(var(--pad) + 6px);padding-bottom:60px;justify-content:center;align-content:start;min-height:100%}
 
 .w-1x1{grid-column:span 1;grid-row:span 1}.w-2x1{grid-column:span 2;grid-row:span 1}.w-1x2{grid-column:span 1;grid-row:span 2}.w-2x2{grid-column:span 2;grid-row:span 2}
 
-.widget{background:var(--surface);border-radius:14px;border:1.5px solid #2a4a6e;overflow:hidden;cursor:pointer;transition:box-shadow .3s,transform .1s;display:flex;flex-direction:column;position:relative;animation:widget-pulse 6s ease-in-out infinite}
-@keyframes widget-pulse{0%,100%{box-shadow:var(--rest-glow,0 0 0 transparent)}50%{box-shadow:var(--rest-glow,0 0 6px rgba(47,85,128,.15))}}
-.widget:hover{animation:none;box-shadow:0 0 25px color-mix(in srgb, var(--hover-glow,#3b82f6) 55%, transparent),0 0 50px color-mix(in srgb, var(--hover-glow,#3b82f6) 25%, transparent);border-color:var(--hover-glow,#3a6a9a)}
+.widget{background:var(--surface);border-radius:14px;border:1.5px solid #2a4a6e;overflow:hidden;cursor:pointer;transition:border-color .25s;display:flex;flex-direction:column;position:relative}
+.widget:hover{border-color:#3d6a9a}
 
 /* Page positioning */
 .page{position:relative;transition:background 0.3s ease}
@@ -126,7 +125,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .hort-empty:hover{opacity:.6}
 .hort-empty i{font-size:18px}
 
-.widget:active{transform:scale(.97)}
+.widget:active{}
 .widget-thumb{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg);position:relative;padding:12px;flex-direction:column;gap:4px}
 .widget-label{display:none}
 .widget-badge{position:absolute;top:38px;right:4px;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700}
@@ -422,10 +421,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .add-pop-sep{height:1px;background:var(--border);margin:4px 0}
 
 /* Ghost card at end of grid */
-.ghost-card{position:fixed;bottom:60px;right:20px;width:40px;height:40px;border:1.5px dashed var(--border);border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.2;transition:all .15s;z-index:4}
-.ghost-card:hover{opacity:.5;border-color:var(--primary);transform:scale(1.1)}
-.ghost-card i{font-size:18px;color:var(--dim)}
-.edit-mode~.ghost-card,.edit-mode .ghost-card{display:none}
+.fab-add{position:fixed;bottom:12px;right:12px;z-index:20;width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#162236,#1e3a5f);color:var(--dim);border:1.5px solid #3a5a80;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.06);transition:transform .15s,border-color .2s,color .2s}
+.fab-add:hover{border-color:#5a8ab8;color:var(--text);border-style:solid;box-shadow:0 4px 20px rgba(59,130,246,.15),inset 0 1px 0 rgba(255,255,255,.1)}
+.fab-add:active{transform:scale(.93)}
 
 /* Window checkboxes */
 .wcheck{width:20px;height:20px;border-radius:6px;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
@@ -448,9 +446,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* === Simulation Toolbar === */
 .sim-toolbar{position:fixed;top:0;left:0;right:0;z-index:999;display:flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(10,14,26,.88);border-bottom:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px);font-size:11px;color:var(--dim);transition:transform .2s ease;flex-wrap:wrap}
 .sim-toolbar.collapsed{transform:translateY(-100%)}
-.sim-toggle{position:fixed;top:4px;right:10px;z-index:1000;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--dim);font-size:14px;transition:all .15s}
-.sim-toggle:hover{background:rgba(255,255,255,.12);color:var(--text)}
-.sim-toggle.active{top:36px}
+.sim-toggle{display:none}
 .sim-btn{padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:var(--dim);font-size:10px;cursor:pointer;transition:all .12s;white-space:nowrap;font-weight:500}
 .sim-btn:hover{background:rgba(255,255,255,.1);color:var(--text);border-color:rgba(255,255,255,.2)}
 .sim-btn.active{background:rgba(59,130,246,.15);border-color:var(--primary);color:var(--primary)}
@@ -531,28 +527,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <span class="nav-logo">OpenHORT</span>
     <span class="nav-name" @click="editDesktopName">{{ activeDesktop?.name }}</span>
     <div style="flex:1"></div>
-    <svg viewBox="0 0 24 24" style="width:22px;height:22px;opacity:.8" fill="none" :stroke="lemmingColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 4c-2 0-3.5 1-4 2.5C7.5 8 7 9.5 7 11c0 2 .5 3.5 1 4.5l-.5 3c0 .5.3 1 .8 1.2l1.2.3c.3 0 .5-.2.5-.5v-2c.3.2.8.5 2 .5s1.7-.3 2-.5v2c0 .3.2.5.5.5l1.2-.3c.5-.2.8-.7.8-1.2l-.5-3c.5-1 1-2.5 1-4.5 0-1.5-.5-3-1-4.5C14.5 5 13 4 12 4z"/>
-      <circle cx="10" cy="9" r="1" :fill="lemmingColor"/>
-    </svg>
-    <!-- Add button -->
-    <div class="nav-add" @click.stop="fabOpen=!fabOpen">
-      <i class="ph ph-plus" style="font-size:16px"></i>
-    </div>
-    <!-- Add popover -->
-    <template v-if="fabOpen">
-      <div style="position:fixed;inset:0;z-index:44" @click="fabOpen=false"></div>
-      <div class="add-popover" style="position:absolute;top:100%;right:40px;bottom:auto;margin-top:6px">
-        <div class="add-pop-item" @click="spawnClaude();fabOpen=false"><i class="ph ph-terminal-window" style="color:var(--purple)"></i><span>Spawn Claude</span></div>
-        <div class="add-pop-item" @click="spawnTerm();fabOpen=false"><i class="ph ph-terminal"></i><span>New Terminal</span></div>
-        <div class="add-pop-item" @click="fabOpen=false;openScreenPicker()"><i class="ph ph-app-window"></i><span>Add Screen</span></div>
-        <div class="add-pop-sep"></div>
-        <div class="add-pop-item" @click="fabOpen=false;openPicker()" style="color:var(--primary)"><i class="ph ph-squares-four" style="color:var(--primary)"></i><span>Widget Catalog</span></div>
-      </div>
-    </template>
-    <div style="display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:12px;background:rgba(255,255,255,.05)">
-      <i class="ph ph-users" style="font-size:14px"></i> {{ viewers }}
-    </div>
   </div>
 
 
@@ -941,7 +915,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                 <div class="bub u">Turn on living room lights</div>
                 <div class="bub a">Done! Lights on at 80%.</div>
               </div>
-              <div class="chat-inp"><input placeholder="Message..."><button><i class="ph ph-paper-plane-tilt" style="font-size:14px"></i></button></div>
+              <div class="chat-inp"><input placeholder="Message..."><button><i class="ph-fill ph-paper-plane-right" style="font-size:16px"></i></button></div>
             </template>
 
             <!-- Clock -->
@@ -965,13 +939,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                 </div><!-- /widget -->
           </template>
 
+          <!-- Scroll spacer so FAB has clear space at bottom -->
+          <div v-if="!editMode" style="grid-column:1/-1;height:60px"></div>
+
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Floating + button (not in grid, hidden in edit mode) -->
-  <div v-if="!editMode" class="ghost-card" @click="openPicker()"><i class="ph ph-plus"></i></div>
+  <!-- FAB add button — fixed bottom-right, hidden when scrolled to bottom where spacer provides clear space -->
+  <button v-if="!editMode" class="fab-add" @click="openPicker()"><i class="ph ph-plus" style="font-size:24px"></i></button>
 
   <!-- Bottom bar -->
   <div class="bottom-bar" :class="{'edit-active':editMode}">
@@ -987,7 +964,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <i class="ph ph-trash"></i>
     </div>
     <!-- Desktop drop zone (rest of bar) in edit mode -->
-    <div v-if="editMode" class="desk-drop-zone" @dragover.prevent @dragenter="zoomedOut=true">
+    <div v-if="editMode" class="desk-drop-zone" @dragover.prevent @dragenter="dragW&&(zoomedOut=true)">
     </div>
   </div>
 
@@ -1462,14 +1439,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
           <!-- Cameras detail -->
           <template v-else-if="detailWidget.extId==='cameras'">
-            <div v-for="cam in cameras" :key="cam.id" style="position:relative">
-              <div style="background:var(--bg);border-radius:12px;height:140px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);position:relative;overflow:hidden">
-                <div style="position:absolute;inset:0;background:linear-gradient(135deg,#0a0e1a,#111827);display:flex;align-items:center;justify-content:center">
-                  <i class="ph-fill ph-security-camera" style="font-size:48px;color:var(--dim);opacity:.25"></i>
-                </div>
-                <span v-if="cam.motion" style="position:absolute;top:8px;right:8px;padding:3px 10px;background:rgba(239,68,68,.2);border-radius:8px;font-size:10px;font-weight:600;color:var(--danger);display:flex;align-items:center;gap:4px"><span class="pdot" style="background:var(--danger);width:6px;height:6px;animation:pulse 1s infinite"></span> Motion</span>
-                <span style="position:absolute;bottom:8px;left:8px;font-size:12px;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8)">{{ cam.name }}</span>
-                <span style="position:absolute;bottom:8px;right:8px;font-size:10px;color:rgba(255,255,255,.5)">{{ cam.time }}</span>
+            <div v-for="(cam,ci) in [{name:'Front Door',key:'frontdoor',motion:simMotionActive},{name:'Backyard',key:'backyard',motion:false},{name:'Garage',key:'garage',motion:false}]" :key="cam.key" style="position:relative">
+              <div style="background:#0a0a0a;border-radius:12px;height:180px;border:1px solid var(--border);position:relative;overflow:hidden">
+                <video :src="'hort/static/vendor/demo/cam-'+cam.key+'.mp4'" autoplay loop muted playsinline
+                       style="width:100%;height:100%;object-fit:cover;filter:saturate(.4) brightness(.7) contrast(1.1)"></video>
+                <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 50%,rgba(0,0,0,.6))"></div>
+                <span style="position:absolute;top:8px;left:8px;font-size:8px;color:rgba(0,255,100,.5);font-family:'SF Mono',monospace;letter-spacing:.5px">REC</span>
+                <span style="position:absolute;top:9px;left:30px;width:6px;height:6px;border-radius:50%;background:rgba(255,50,50,.7);animation:pulse 2s infinite"></span>
+                <span v-if="cam.motion" style="position:absolute;top:8px;right:8px;padding:3px 10px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.4);border-radius:8px;font-size:11px;font-weight:600;color:var(--danger);display:flex;align-items:center;gap:4px"><span class="pdot" style="background:var(--danger);width:6px;height:6px;animation:pulse 1s infinite"></span> Motion</span>
+                <span style="position:absolute;bottom:8px;left:8px;font-size:14px;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8)">{{ cam.name }}</span>
+                <span style="position:absolute;bottom:8px;right:8px;font-size:11px;color:rgba(0,255,100,.5);font-family:'SF Mono',monospace">Live</span>
               </div>
             </div>
           </template>
@@ -2755,35 +2734,29 @@ createApp({
       }
       addSources(desk,0);
 
-      // Paint radial gradients centered on each widget — perfectly symmetric
+      // Fill with near-black base
       ctx.fillStyle=`rgb(${BORDER_RGB.join(',')})`;
       ctx.fillRect(0,0,CF_W,CF_H);
-      // Paint soft rounded rects matching widget shapes
-      const boost=2.0;
-      const glow=5;
+      // Paint radial gradients centered on each widget — smooth organic glow
+      const boost=1.8;
+      ctx.globalCompositeOperation='screen';
       for(const s of sources){
         const r=Math.min(255,Math.round(s.rgb[0]*boost));
         const g=Math.min(255,Math.round(s.rgb[1]*boost));
         const b=Math.min(255,Math.round(s.rgb[2]*boost));
-        const x1=s.x1*CF_W, y1=s.y1*CF_H;
-        const w=(s.x2-s.x1)*CF_W, h=(s.y2-s.y1)*CF_H;
-        const rd=2;
-        // Glow layers first (back to front) — clamped to canvas
-        for(let i=glow;i>=1;i--){
-          const a=Math.pow(1-i/glow,2.5);
-          ctx.fillStyle=`rgba(${r},${g},${b},${a.toFixed(2)})`;
-          ctx.beginPath();
-          ctx.roundRect(Math.max(0,x1-i),Math.max(0,y1-i),
-            Math.min(CF_W,x1+w+i)-Math.max(0,x1-i),
-            Math.min(CF_H,y1+h+i)-Math.max(0,y1-i), rd+i);
-          ctx.fill();
-        }
-        // Solid core
-        ctx.fillStyle=`rgb(${r},${g},${b})`;
-        ctx.beginPath();
-        ctx.roundRect(x1,y1,w,h,rd);
-        ctx.fill();
+        const cx=(s.x1+s.x2)/2*CF_W;
+        const cy=(s.y1+s.y2)/2*CF_H;
+        const rw=(s.x2-s.x1)*CF_W*0.8;
+        const rh=(s.y2-s.y1)*CF_H*0.8;
+        const radius=Math.max(rw,rh);
+        const grad=ctx.createRadialGradient(cx,cy,radius*0.1,cx,cy,radius);
+        grad.addColorStop(0,`rgba(${r},${g},${b},.35)`);
+        grad.addColorStop(0.5,`rgba(${r},${g},${b},.12)`);
+        grad.addColorStop(1,`rgba(${r},${g},${b},0)`);
+        ctx.fillStyle=grad;
+        ctx.fillRect(0,0,CF_W,CF_H);
       }
+      ctx.globalCompositeOperation='source-over';
     }
 
     function updateAllColorFields(){

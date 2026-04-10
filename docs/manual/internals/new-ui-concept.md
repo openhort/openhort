@@ -314,16 +314,16 @@ This is the core value proposition: **security boundaries you can see, not just 
 
 ## Adding Widgets
 
-Three entry points, each optimized for a different speed:
+Two entry points:
 
-### 1. Navbar `+` Button
+### 1. FAB Button (Floating Action Button)
 
-Small dashed-border button in the top bar. Opens a popover:
+A 48px circle fixed to the bottom-right corner of the screen. Dark gradient background (`#162236` → `#1e3a5f`), solid border (`#3a5a80`), inner highlight bevel. Opens the Widget Catalog on tap.
 
-- **Spawn Claude** — new Claude Code terminal (1×2, purple icon)
-- **New Terminal** — shell session (1×1)
-- **Add Screen** — opens window picker
-- **Widget Catalog** — opens full bottom-sheet picker
+- **Position:** fixed, `bottom: 12px; right: 12px`, z-index 20 (above bottom bar gradient)
+- **Always visible** except in edit mode
+- **No collision:** the widget grid has a 60px spacer at the end, so when scrolled to the bottom the FAB sits in clear empty space below all widgets
+- **On hover:** border brightens, subtle blue glow
 
 ### 2. Right-Click / Long-Press Empty Area
 
@@ -334,10 +334,6 @@ Context menu at cursor position with:
 - **Recent** — last 4 widget types added (builds up with use)
 - **Desktop Color** — 16 tint swatches
 - **Edit layout** — enters edit mode
-
-### 3. Ghost Card
-
-A subtle floating `+` button (40×40px, dashed border) pinned to the bottom-right corner. 20% opacity, scales up on hover. Hidden in edit mode.
 
 ### Widget Catalog (Full Picker)
 
@@ -436,16 +432,17 @@ The canvas re-renders on widget changes, desktop switches, and window resizes.
 
 ## Navbar
 
-Minimal: `[☰] [OpenHORT] [Desktop name] [spacer] [Lemming] [+] [Viewers]`
+Minimal: `[☰] [OpenHORT] [Desktop name]`
 
 | Element | Behavior |
 |---------|----------|
 | **Hamburger** | Opens nav drawer |
 | **OpenHORT** | Logo, gold `#e8b930`, 17px italic bold |
 | **Desktop name** | Click to rename (user desktops only) |
-| **Lemming icon** | Connection indicator: gold (nobody), blue (LAN), red (external) |
-| **`+` button** | Dashed border, opens quick add popover |
-| **Viewer count** | Badge showing connected users |
+
+The navbar is deliberately stripped to essentials. No action buttons, no status indicators, no viewer counts — those belong in the drawer or as widgets. The navbar's job is navigation, nothing else. Adding widgets is handled by the FAB button (bottom-right) and the context menu (right-click / long-press).
+
+**Border:** 2px solid `var(--border)` at the bottom. No box-shadow — shadows don't respect widget rounded corners and create artifacts. The hard border line is the separator.
 
 ## Nav Drawer
 
@@ -616,18 +613,40 @@ This means:
 
 **Using accent colors in widget templates:** internal highlights (pills, badges, active states, unread indicators) should use `var(--widget-accent)` so they automatically follow the security zone. Use `color-mix(in srgb, var(--widget-accent) 15%, transparent)` for tinted backgrounds.
 
-### Widget Borders & Hort Groups
+### Widget Borders — A Core Brand Element
 
-Widget borders communicate security zone membership:
+!!! warning "Design Principle: HORT means hard borders"
+    Borders are not decoration — they are the visual identity of openhort. Every widget has a visible, deliberate border that communicates containment, zone membership, and structure. This is a control panel for machines and AI agents, not a lifestyle app. **Never remove or soften borders.**
 
-| State | Border | Width |
-|-------|--------|-------|
-| **No hort group** | `#2a4a6e` (subtle blue-grey) | 1.5px |
-| **Hort group assigned** (different from desktop) | Hort group color, fully opaque | 2px |
-| **Desktop has default hort group** | Hort group color at 60% opacity | 1.5px |
-| **Hover** | Brightens to `--hover-glow` color | unchanged |
+Hard borders serve three purposes:
 
-The border is the primary security indicator. It must always be clearly visible — never blend into the background.
+1. **Security communication** — the border color tells you which data zone a widget belongs to
+2. **Spatial structure** — clear edges define where one widget ends and another begins, even at a glance across the room
+3. **Brand identity** — the bordered grid IS the openhort look. It says "you're in control, you can see every boundary"
+
+**Border specifications:**
+
+| State | Border Color | Width | Hover |
+|-------|-------------|-------|-------|
+| **No hort group** | `#2a4a6e` (structured blue-grey) | 1.5px | Brightens to `#3d6a9a` |
+| **Hort group assigned** | Hort group color, fully opaque | 2px | Brightens |
+| **Desktop default group** | Hort group color at 60% opacity | 1.5px | Brightens |
+
+**Rules:**
+
+- Borders are always `solid` — never dashed, dotted, or gradient
+- Border radius is always `14px` — consistent on every widget
+- No `box-shadow` glow on widgets — borders alone provide visual definition. Glow artifacts at corners look cheap; clean hard edges look professional
+- Hover only changes border color, never adds shadow
+- The border must always be clearly visible against the background
+
+### Interaction Feel
+
+- **No wobble on tap.** Widgets must not scale down on `:active`. The press feedback comes from the detail card opening, not from the widget shrinking.
+- **No box-shadow glow on widgets.** Box-shadow creates blurry artifacts at rounded corners that look cheap. Widget definition comes from borders alone.
+- **No pulsing/breathing border animations** on widgets at rest. The border is static and deliberate. Only the Claude terminal "thinking" state gets a special border animation.
+- **Hover:** border color brightens subtly (`#2a4a6e` → `#3d6a9a`). That's it.
+- **Color field canvas** behind the grid uses radial gradients (`createRadialGradient` with `screen` compositing) for smooth organic glow. Never rectangular or banded.
 
 ### Liveness
 
