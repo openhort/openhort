@@ -511,14 +511,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .notif-container{position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:100;width:90%;max-width:420px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
 .notif-toast{position:relative;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:12px;cursor:pointer;animation:notifSlideIn .3s ease-out;transition:opacity .3s,transform .3s;pointer-events:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)}
 .notif-toast .notif-stripe{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:12px 0 0 12px}
-.notif-toast.critical{border-color:rgba(239,68,68,.5);border-width:2px;animation:notifSlideIn .3s ease-out,notifPulse 1.5s infinite;padding:14px 16px}
-.notif-toast.critical .notif-stripe{width:6px}
-.notif-toast.high{border-color:rgba(245,158,11,.3)}
+.notif-toast.critical{border-color:rgba(239,68,68,.6);border-width:2px;animation:notifSlideIn .3s ease-out,notifPulse 1.5s infinite;padding:0;flex-direction:column;align-items:stretch;gap:0}
+.notif-toast.critical .notif-stripe{width:0;height:4px;border-radius:12px 12px 0 0;position:relative;left:auto;right:auto;top:auto;bottom:auto}
+.notif-toast.critical .notif-head{display:flex;align-items:center;gap:10px;padding:12px 14px}
+.notif-toast.critical .notif-media{width:100%;height:140px;overflow:hidden;border-radius:0 0 12px 12px;position:relative;background:#0a0a0a}
+.notif-toast.critical .notif-media video{width:100%;height:100%;object-fit:cover;filter:saturate(.4) brightness(.75) contrast(1.1)}
+.notif-toast.critical .notif-media .notif-media-label{position:absolute;bottom:6px;left:8px;font-size:11px;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+.notif-toast.critical .notif-media .notif-media-live{position:absolute;top:6px;right:8px;padding:2px 8px;background:rgba(239,68,68,.8);border-radius:6px;font-size:10px;font-weight:700;color:#fff;display:flex;align-items:center;gap:4px}
+.notif-toast.high{border-color:rgba(245,158,11,.3);padding:12px 14px}
 /* Critical screen flash overlay */
-.critical-flash{position:fixed;inset:0;z-index:90;pointer-events:none;animation:critFlash 1s ease-out forwards}
-@keyframes critFlash{0%{background:rgba(239,68,68,.15)}30%{background:rgba(239,68,68,.08)}100%{background:transparent}}
-@keyframes notifSlideIn{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}
-@keyframes notifPulse{0%,100%{box-shadow:0 8px 24px rgba(0,0,0,.4)}50%{box-shadow:0 0 12px rgba(239,68,68,.25),0 8px 24px rgba(0,0,0,.4)}}
+.critical-flash{position:fixed;inset:0;z-index:90;pointer-events:none;animation:critFlash 1.5s ease-out forwards}
+@keyframes critFlash{0%{background:rgba(239,68,68,.2)}20%{background:rgba(239,68,68,.1)}40%{background:rgba(239,68,68,.12)}60%{background:rgba(239,68,68,.05)}100%{background:transparent}}
+@keyframes notifSlideIn{from{transform:translateY(-30px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes notifPulse{0%,100%{box-shadow:0 8px 32px rgba(239,68,68,.15)}50%{box-shadow:0 0 20px rgba(239,68,68,.3),0 8px 32px rgba(239,68,68,.2)}}
 .notif-more-badge{padding:4px 12px;border-radius:8px;background:var(--surface);border:1px solid var(--border);font-size:11px;color:var(--dim);text-align:center;pointer-events:auto;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3)}
 
 /* === Widget notification badges === */
@@ -592,17 +597,43 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <!-- Notification toasts -->
   <div class="notif-container">
     <template v-for="n in visibleNotifs.slice(0,3)" :key="n.id">
-      <div class="notif-toast" :class="n.severity" @click="openNotifSource(n)">
-        <div class="notif-stripe" :style="{background:notifColor(n.severity)}"></div>
-        <i :class="n.sourceIcon" :style="{fontSize:'20px',color:n.sourceColor,flexShrink:0}"></i>
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:13px;font-weight:600;color:var(--text)">{{ n.title }}</span>
+      <!-- Critical: big card with embedded media -->
+      <div v-if="n.severity==='critical'" class="notif-toast critical" @click="openNotifSource(n)">
+        <div class="notif-stripe" style="background:var(--danger)"></div>
+        <div class="notif-head">
+          <i :class="n.sourceIcon" :style="{fontSize:'22px',color:n.sourceColor,flexShrink:0}"></i>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:700;color:var(--text)">{{ n.title }}</div>
+            <div style="font-size:13px;color:var(--dim)">{{ n.message }}</div>
           </div>
+          <button style="background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:4px;flex-shrink:0" @click.stop="n.visible=false"><i class="ph ph-x"></i></button>
+        </div>
+        <div v-if="n.media" class="notif-media">
+          <video :src="n.media" autoplay loop muted playsinline></video>
+          <span class="notif-media-label">{{ n.mediaLabel || 'Live' }}</span>
+          <span class="notif-media-live"><span style="width:6px;height:6px;border-radius:50%;background:#fff;animation:pulse 1s infinite"></span> LIVE</span>
+        </div>
+      </div>
+      <!-- High: prominent but no media -->
+      <div v-else-if="n.severity==='high'" class="notif-toast high" @click="openNotifSource(n)">
+        <div class="notif-stripe" :style="{background:notifColor(n.severity)}"></div>
+        <i :class="n.sourceIcon" :style="{fontSize:'22px',color:n.sourceColor,flexShrink:0}"></i>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:var(--text)">{{ n.title }}</div>
           <div style="font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.message }}</div>
         </div>
-        <span style="font-size:10px;color:var(--dim);flex-shrink:0;white-space:nowrap">{{ notifTimeAgo(n.timestamp) }}</span>
+        <span style="font-size:10px;color:var(--dim);flex-shrink:0">{{ notifTimeAgo(n.timestamp) }}</span>
         <button style="background:none;border:none;color:var(--dim);font-size:16px;cursor:pointer;padding:4px;flex-shrink:0" @click.stop="n.visible=false"><i class="ph ph-x"></i></button>
+      </div>
+      <!-- Medium/Low: compact -->
+      <div v-else class="notif-toast" :class="n.severity" @click="openNotifSource(n)">
+        <div class="notif-stripe" :style="{background:notifColor(n.severity)}"></div>
+        <i :class="n.sourceIcon" :style="{fontSize:'18px',color:n.sourceColor,flexShrink:0}"></i>
+        <div style="flex:1;min-width:0">
+          <span style="font-size:13px;font-weight:500;color:var(--text)">{{ n.title }}</span>
+          <span style="font-size:12px;color:var(--dim);margin-left:6px">{{ n.message }}</span>
+        </div>
+        <button style="background:none;border:none;color:var(--dim);font-size:14px;cursor:pointer;padding:4px;flex-shrink:0" @click.stop="n.visible=false"><i class="ph ph-x"></i></button>
       </div>
     </template>
     <div v-if="visibleNotifs.length>3" class="notif-more-badge">+{{ visibleNotifs.length - 3 }} more</div>
@@ -2011,13 +2042,13 @@ createApp({
 
     // === Notification simulation buttons ===
     function simNotifIntruder(){
-      pushNotification({source:'Security Cameras',sourceIcon:'ph ph-security-camera',sourceColor:'#ef4444',severity:'critical',title:'Intruder Detected',message:'Motion detected at front door - unknown person',widgetExtId:'cameras'});
+      pushNotification({source:'Security Cameras',sourceIcon:'ph-fill ph-security-camera',sourceColor:'#ef4444',severity:'critical',title:'Intruder Detected',message:'Motion detected at front door',widgetExtId:'cameras',media:'hort/static/vendor/demo/cam-frontdoor.mp4',mediaLabel:'Front Door'});
       // Also trigger the existing motion sim
       simMotionActive.value=true;cameras[0].motion=true;
       setTimeout(()=>{simMotionActive.value=false;cameras[0].motion=false},15000);
     }
     function simNotifDoorbell(){
-      pushNotification({source:'OpenClaw',sourceIcon:'ph ph-house-line',sourceColor:'#f59e0b',severity:'high',title:'Doorbell',message:'Someone is at the front door',widgetExtId:'openclaw'});
+      pushNotification({source:'OpenClaw',sourceIcon:'ph-fill ph-bell-ringing',sourceColor:'#f59e0b',severity:'critical',title:'Doorbell',message:'Someone is at the front door',widgetExtId:'openclaw',media:'hort/static/vendor/demo/cam-frontdoor.mp4',mediaLabel:'Front Door'});
     }
     function simNotifClaudeDone(){
       pushNotification({source:'Code Watch',sourceIcon:'ph ph-pulse',sourceColor:'var(--purple)',severity:'high',title:'Claude Finished',message:'Refactored session manager. All 47 tests passing.',widgetExtId:'code-watch'});
