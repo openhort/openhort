@@ -504,6 +504,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .lens-term{background:#0d0d0d}
 .lens-term-lines{position:absolute;top:8%;left:6%;right:6%;display:flex;flex-direction:column;gap:2px}
 .lens-term-lines span{display:block;height:1.5px;border-radius:1px}
+
+/* === Notification toasts === */
+.notif-container{position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:100;width:90%;max-width:420px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.notif-toast{position:relative;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:12px;cursor:pointer;animation:notifSlideIn .3s ease-out;transition:opacity .3s,transform .3s;pointer-events:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.notif-toast .notif-stripe{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:12px 0 0 12px}
+.notif-toast.critical{border-color:rgba(239,68,68,.4);animation:notifSlideIn .3s ease-out,notifPulse 2s infinite}
+.notif-toast.high{border-color:rgba(245,158,11,.3)}
+@keyframes notifSlideIn{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes notifPulse{0%,100%{box-shadow:0 8px 24px rgba(0,0,0,.4)}50%{box-shadow:0 0 12px rgba(239,68,68,.25),0 8px 24px rgba(0,0,0,.4)}}
+.notif-more-badge{padding:4px 12px;border-radius:8px;background:var(--surface);border:1px solid var(--border);font-size:11px;color:var(--dim);text-align:center;pointer-events:auto;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+
+/* === Widget notification badges === */
+.widget-notif-badge{position:absolute;top:-3px;left:-3px;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;z-index:4;border:2px solid var(--surface);padding:0 4px}
+.widget-notif-badge.critical,.widget-notif-badge.urgent{background:var(--danger);animation:pulse 1.5s infinite}
+.widget-notif-badge.high{background:#f59e0b}
+.widget-notif-badge.medium{background:var(--primary)}
+.widget-notif-badge.low{background:var(--dim)}
+
+/* === Bell dropdown === */
+.notif-bell-dropdown{position:absolute;top:100%;right:0;margin-top:6px;min-width:220px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:6px 0;box-shadow:0 12px 40px rgba(0,0,0,.6);z-index:200}
+.notif-bell-dropdown .sim-label{display:block;padding:6px 14px 4px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,.25)}
+.notif-bell-item{display:flex;align-items:center;gap:8px;padding:7px 14px;font-size:12px;cursor:pointer;color:var(--text);transition:background .1s;white-space:nowrap}
+.notif-bell-item:hover{background:var(--s2)}
+.notif-bell-item i{font-size:14px;width:18px;text-align:center}
+.notif-bell-sep{height:1px;background:var(--border);margin:4px 0}
 </style>
 </head>
 <body>
@@ -531,8 +556,49 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <span class="nav-logo">OpenHORT</span>
     <span class="nav-name" @click="editDesktopName">{{ activeDesktop?.name }}</span>
     <div style="flex:1"></div>
+    <div style="position:relative">
+      <button class="nav-btn" @click.stop="notifMenuOpen=!notifMenuOpen">
+        <i class="ph ph-bell"></i>
+        <div v-if="unreadNotifCount" style="position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:50%;background:var(--danger)"></div>
+      </button>
+      <div v-if="notifMenuOpen" class="notif-bell-dropdown" @click.stop>
+        <span class="sim-label">Simulate Notification</span>
+        <div class="notif-bell-item" @click="simNotifIntruder();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F6A8;</span> Intruder!</div>
+        <div class="notif-bell-item" @click="simNotifDoorbell();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F514;</span> Doorbell</div>
+        <div class="notif-bell-item" @click="simNotifClaudeDone();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x2705;</span> Claude done</div>
+        <div class="notif-bell-item" @click="simNotifTempAlert();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F321;&#xFE0F;</span> Temp alert</div>
+        <div class="notif-bell-sep"></div>
+        <div class="notif-bell-item" @click="simNotifEmail();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4E7;</span> New email</div>
+        <div class="notif-bell-item" @click="simNotifWashing();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F9FA;</span> Washing done</div>
+        <div class="notif-bell-sep"></div>
+        <div class="notif-bell-item" @click="simNotifSong();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F3B5;</span> Song changed</div>
+        <div class="notif-bell-item" @click="simNotifBackup();notifMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4BE;</span> Backup OK</div>
+        <template v-if="notifications.length">
+          <div class="notif-bell-sep"></div>
+          <div class="notif-bell-item" style="color:var(--dim)" @click="clearAllNotifs();notifMenuOpen=false"><i class="ph ph-trash" style="color:var(--dim)"></i> Clear all</div>
+        </template>
+      </div>
+    </div>
   </div>
 
+  <!-- Notification toasts -->
+  <div class="notif-container">
+    <template v-for="n in visibleNotifs.slice(0,3)" :key="n.id">
+      <div class="notif-toast" :class="n.severity" @click="openNotifSource(n)">
+        <div class="notif-stripe" :style="{background:notifColor(n.severity)}"></div>
+        <i :class="n.sourceIcon" :style="{fontSize:'20px',color:n.sourceColor,flexShrink:0}"></i>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:13px;font-weight:600;color:var(--text)">{{ n.title }}</span>
+          </div>
+          <div style="font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.message }}</div>
+        </div>
+        <span style="font-size:10px;color:var(--dim);flex-shrink:0;white-space:nowrap">{{ notifTimeAgo(n.timestamp) }}</span>
+        <button style="background:none;border:none;color:var(--dim);font-size:16px;cursor:pointer;padding:4px;flex-shrink:0" @click.stop="n.visible=false"><i class="ph ph-x"></i></button>
+      </div>
+    </template>
+    <div v-if="visibleNotifs.length>3" class="notif-more-badge">+{{ visibleNotifs.length - 3 }} more</div>
+  </div>
 
   <!-- Fullscreen device view -->
   <template v-if="deviceView">
@@ -587,6 +653,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                      @click="!editMode&&onWidgetClick(w)" @contextmenu.prevent.stop="onWCtx($event,w,desk)"
                      @pointerdown="lpS($event,w)" @pointerup="lpE" @pointerleave="lpE">
                   <div class="del-badge" @click.stop="rmW(w,desk)">&times;</div>
+                  <div v-if="getWidgetBadge(w)" class="widget-notif-badge" :class="getWidgetBadge(w).severity">{{ getWidgetBadge(w).count > 1 ? getWidgetBadge(w).count : '' }}</div>
                   <div class="resize-edge resize-edge-r" @pointerdown.stop="resizeStart($event,w,'w')"></div>
                   <div class="resize-edge resize-edge-b" @pointerdown.stop="resizeStart($event,w,'h')"></div>
                   <div class="size-label">{{ w.size.replace('x','\u00d7') }}</div>
@@ -1815,6 +1882,113 @@ createApp({
       setTimeout(()=>{simN8nFail.value=false},5000);
     }
 
+    // === Notification system ===
+    const notifications=reactive([]);
+    const notifId=ref(0);
+    const notifMenuOpen=ref(false);
+    const widgetBadges=reactive({}); // keyed by extId: {severity, count}
+
+    const visibleNotifs=computed(()=>notifications.filter(n=>n.visible));
+    const unreadNotifCount=computed(()=>notifications.filter(n=>!n.read).length);
+
+    function notifColor(severity){
+      const m={critical:'#ef4444',high:'#f59e0b',medium:'#3b82f6',low:'#64748b'};
+      return m[severity]||m.medium;
+    }
+    function notifTimeAgo(ts){
+      const s=Math.floor((Date.now()-ts)/1000);
+      if(s<5)return 'now';
+      if(s<60)return s+'s';
+      if(s<3600)return Math.floor(s/60)+'m';
+      return Math.floor(s/3600)+'h';
+    }
+
+    function pushNotification(opts){
+      const n=reactive({
+        id:++notifId.value,
+        ...opts,
+        timestamp:Date.now(),
+        read:false,
+        visible:true
+      });
+      notifications.unshift(n);
+      // Auto-dismiss based on severity
+      if(opts.severity!=='critical'){
+        const delay=opts.severity==='high'?8000:opts.severity==='medium'?4000:3000;
+        setTimeout(()=>{n.visible=false},delay);
+      }
+      // Add badge to widget
+      if(opts.widgetExtId){
+        const existing=widgetBadges[opts.widgetExtId];
+        if(existing){
+          existing.count++;
+          // Escalate severity
+          const order={critical:3,high:2,medium:1,low:0};
+          if((order[opts.severity]||0)>(order[existing.severity]||0))existing.severity=opts.severity;
+        }else{
+          widgetBadges[opts.widgetExtId]={severity:opts.severity,count:1};
+        }
+      }
+    }
+
+    function getWidgetBadge(w){
+      const eid=w.extId||w.subId;
+      return widgetBadges[eid]||null;
+    }
+
+    function openNotifSource(n){
+      n.visible=false;
+      n.read=true;
+      // Find widget by extId and open detail
+      if(n.widgetExtId){
+        for(const d of desktops){
+          const w=d.widgets.find(w=>w.extId===n.widgetExtId);
+          if(w){detailWidget.value=w;break}
+        }
+      }
+    }
+
+    function clearAllNotifs(){
+      notifications.length=0;
+      Object.keys(widgetBadges).forEach(k=>delete widgetBadges[k]);
+    }
+
+    // Close bell dropdown on click outside
+    function _closeBellMenu(){notifMenuOpen.value=false}
+    onMounted(()=>document.addEventListener('click',_closeBellMenu));
+    onUnmounted(()=>document.removeEventListener('click',_closeBellMenu));
+
+    // === Notification simulation buttons ===
+    function simNotifIntruder(){
+      pushNotification({source:'Security Cameras',sourceIcon:'ph ph-security-camera',sourceColor:'#ef4444',severity:'critical',title:'Intruder Detected',message:'Motion detected at front door - unknown person',widgetExtId:'cameras'});
+      // Also trigger the existing motion sim
+      simMotionActive.value=true;cameras[0].motion=true;
+      setTimeout(()=>{simMotionActive.value=false;cameras[0].motion=false},15000);
+    }
+    function simNotifDoorbell(){
+      pushNotification({source:'OpenClaw',sourceIcon:'ph ph-house-line',sourceColor:'#f59e0b',severity:'high',title:'Doorbell',message:'Someone is at the front door',widgetExtId:'openclaw'});
+    }
+    function simNotifClaudeDone(){
+      pushNotification({source:'Code Watch',sourceIcon:'ph ph-pulse',sourceColor:'var(--purple)',severity:'high',title:'Claude Finished',message:'Refactored session manager. All 47 tests passing.',widgetExtId:'code-watch'});
+      simClaudeFinish();
+    }
+    function simNotifTempAlert(){
+      pushNotification({source:'OpenClaw',sourceIcon:'ph ph-thermometer',sourceColor:'#f59e0b',severity:'high',title:'Temperature Alert',message:'Office temperature reached 28\u00b0C',widgetExtId:'openclaw'});
+    }
+    function simNotifEmail(){
+      pushNotification({source:'Email',sourceIcon:'ph ph-envelope',sourceColor:'var(--accent)',severity:'medium',title:'New Email',message:'Alex Chen: Re: Deployment pipeline update',widgetExtId:'email'});
+      simNewEmail();
+    }
+    function simNotifWashing(){
+      pushNotification({source:'Energy',sourceIcon:'ph ph-lightning',sourceColor:'var(--success)',severity:'medium',title:'Washing Done',message:'Washing machine cycle complete',widgetExtId:'energy'});
+    }
+    function simNotifSong(){
+      pushNotification({source:'Now Playing',sourceIcon:'ph ph-music-notes',sourceColor:'var(--purple)',severity:'low',title:'Song Changed',message:'Midnight City \u2014 M83',widgetExtId:'now-playing'});
+    }
+    function simNotifBackup(){
+      pushNotification({source:'System',sourceIcon:'ph ph-hard-drives',sourceColor:'var(--dim)',severity:'low',title:'Backup Complete',message:'Daily backup finished successfully',widgetExtId:'system-monitor'});
+    }
+
     // Widget accent color classes
     function widgetAccentClass(w){
       const map={
@@ -1905,6 +2079,14 @@ createApp({
 
     // Detail card state
     const detailWidget=ref(null);
+
+    // Clear notification badge when detail card opens for that widget
+    watch(detailWidget,(w)=>{
+      if(w&&w.extId&&widgetBadges[w.extId]){
+        delete widgetBadges[w.extId];
+        notifications.forEach(n=>{if(n.widgetExtId===w.extId)n.read=true});
+      }
+    });
 
     // OpenClaw mock data
     const clawRooms=reactive([
@@ -2979,7 +3161,7 @@ createApp({
         if(detailWidget.value){detailWidget.value=null;return}
         if(deviceView.value){deviceView.value=false;return}
         if(zoomedOut.value){zoomedOut.value=false;return}
-        editMode.value=false;picker.value=false;drawer.value=false;nameEd.value=null;wctx.open=false;gridCtx.open=false;selectedWidget.value=null;
+        notifMenuOpen.value=false;editMode.value=false;picker.value=false;drawer.value=false;nameEd.value=null;wctx.open=false;gridCtx.open=false;selectedWidget.value=null;
       }
       if(e.key==='ArrowLeft'&&deskIdx.value>0&&!picker.value&&!drawer.value)deskIdx.value--;
       if(e.key==='ArrowRight'&&deskIdx.value<desktops.length-1&&!picker.value&&!drawer.value)deskIdx.value++;
@@ -3022,7 +3204,12 @@ createApp({
       // Widget accent
       widgetAccentClass,
       // Camera
-      setCamCanvas}
+      setCamCanvas,
+      // Notifications
+      notifications,notifMenuOpen,visibleNotifs,unreadNotifCount,
+      notifColor,notifTimeAgo,openNotifSource,getWidgetBadge,clearAllNotifs,
+      simNotifIntruder,simNotifDoorbell,simNotifClaudeDone,simNotifTempAlert,
+      simNotifEmail,simNotifWashing,simNotifSong,simNotifBackup}
   }
 }).mount('#app');
 </script>
