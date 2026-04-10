@@ -17,6 +17,36 @@
     static llmingWidgets = ['llming-cam-panel'];
 
     setup(app, Quasar, options) {
+      // Reusable triple-toggle component (Off / Auto / On)
+      if (!app._context.components['hort-tri-toggle']) {
+        app.component('hort-tri-toggle', {
+          props: {
+            value: { type: String, default: 'off' },
+            options: { type: Array, default: () => [
+              { key: 'off', label: 'Off', color: '#ef4444' },
+              { key: 'auto', label: 'Auto', color: '#f59e0b' },
+              { key: 'on', label: 'On', color: '#22c55e' },
+            ]},
+            disabled: { type: Boolean, default: false },
+          },
+          emits: ['change'],
+          template: `
+            <div style="display:inline-flex; border-radius:6px; overflow:hidden; border:1px solid rgba(255,255,255,0.12); background:rgba(0,0,0,0.2)">
+              <button v-for="o in options" :key="o.key"
+                @click.stop="!disabled && $emit('change', o.key)"
+                :style="{
+                  background: value === o.key ? o.color : 'transparent',
+                  color: value === o.key ? '#fff' : '#667',
+                  border: 'none', padding: '4px 10px', fontSize: '11px', fontWeight: 600,
+                  cursor: disabled ? 'default' : 'pointer',
+                  opacity: disabled ? 0.4 : 1,
+                  transition: 'all 0.15s',
+                }">{{ o.label }}</button>
+            </div>
+          `,
+        });
+      }
+
       app.component('llming-cam-panel', {
         setup() {
           const cameras = Vue.ref([]);
@@ -26,8 +56,11 @@
 
           async function refresh() {
             if (!window.hortWS) return;
-            const msg = await window.hortWS.request({ type: 'sources.list', source_type: 'camera' });
-            if (msg && msg.data) cameras.value = msg.data;
+            // Query llming-cam directly — it owns the CameraProvider with correct state
+            const msg = await window.hortWS.request({
+              type: 'debug.call', llming: 'llming-cam', power: 'list_cameras_detailed'
+            });
+            if (msg?.result?.cameras) cameras.value = msg.result.cameras;
           }
 
           async function setPolicy(sourceId, policy) {
@@ -125,20 +158,11 @@
                     <template v-else>Idle</template>
                   </div>
                 </div>
-                <div style="display:flex; border-radius:6px; overflow:hidden; border:1px solid rgba(255,255,255,0.1)">
-                  <button v-for="p in ['off','auto','on']" :key="p"
-                    @click.stop="setPolicy(cam.source_id, p)"
-                    :disabled="loading[cam.source_id]"
-                    :style="{
-                      background: (cam.metadata?.policy || 'off') === p
-                        ? (p === 'off' ? '#6b7280' : p === 'auto' ? '#3b82f6' : '#22c55e')
-                        : 'transparent',
-                      color: (cam.metadata?.policy || 'off') === p ? '#fff' : '#8899aa',
-                      border: 'none', padding: '3px 8px', fontSize: '11px', fontWeight: 600,
-                      cursor: 'pointer', textTransform: 'capitalize',
-                      opacity: loading[cam.source_id] ? 0.5 : 1,
-                    }">{{ p }}</button>
-                </div>
+                <hort-tri-toggle
+                  :value="cam.metadata?.policy || 'off'"
+                  :disabled="!!loading[cam.source_id]"
+                  @change="setPolicy(cam.source_id, $event)"
+                />
               </div>
             </div>
           </div>

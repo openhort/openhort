@@ -153,6 +153,18 @@ class LlmingCam(LlmingBase):
         if cam is None:
             return {"content": [{"type": "text", "text": "Camera provider not initialized"}], "is_error": True}
 
+        if name == "list_cameras_detailed":
+            # Structured data for UI — not MCP text
+            sources = cam.list_sources()
+            return {"cameras": [
+                {
+                    "source_id": s.source_id,
+                    "name": s.name,
+                    "metadata": s.metadata,
+                }
+                for s in sources
+            ]}
+
         if name == "list_cameras":
             sources = cam.list_sources()
             lines = []
