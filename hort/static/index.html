@@ -461,10 +461,14 @@
     switch (msg.type) {
       case 'connected':
         state.serverVersion = msg.version || '';
-        state.wsReady = (state.wsReady || 0) + 1;  // reactive trigger for llming loading
+        state.wsReady = (state.wsReady || 0) + 1;
         requestTargets();
         requestTerminalList();
         sendControl({ type: 'tunnel_status' });
+        // Fire on-connect callbacks (may have been registered after ws.onopen)
+        for (const fn of (window._hortOnConnect || [])) {
+          try { fn(); } catch (e) { console.error('[onConnect]', e); }
+        }
         break;
       case 'windows_list':
         handleWindowsList(msg);
@@ -3125,9 +3129,13 @@
           state.activeTarget = state.targets[0].id;
         }
       }, { immediate: true });
-      const spiritsList = ref([]);
-      const spiritCount = computed(() => spiritsList.value.filter(s => s.running_jobs && s.running_jobs.length > 0).length);
       const allPlugins = ref([]);
+      const spiritsList = computed(() => {
+        const result = allPlugins.value.filter(p => p.loaded && (p.ui_script_url || (p.running_jobs && p.running_jobs.length)));
+        if (result.length !== allPlugins.value.length) console.log('[spirits] computed: ' + result.length + '/' + allPlugins.value.length + ' names=' + result.map(p=>p.name).join(','));
+        return result;
+      });
+      const spiritCount = computed(() => spiritsList.value.filter(s => s.running_jobs && s.running_jobs.length > 0).length);
       const selectedSpirit = ref(null);
       const selectedPlugin = ref(null);
 
@@ -3135,11 +3143,11 @@
         try {
           const msg = await sendControlRequest({ type: 'llmings.list' });
           const all = msg ? msg.data : [];
+          console.log('[spirits] got ' + all.length + ' llmings, prev=' + allPlugins.value.length);
           if (all.length || !allPlugins.value.length) {
             allPlugins.value = all;
-            spiritsList.value = all.filter(p => p.loaded && p.running_jobs && p.running_jobs.length);
           }
-        } catch {}
+        } catch (e) { console.error('[spirits] error:', e); }
       }
       // Track store key counts per spirit (mini stats)
       const spiritStoreKeys = reactive({});
@@ -3244,7 +3252,7 @@
           }
         });
       }
-      setInterval(refreshSpirits, 10000);
+      setInterval(refreshSpirits, 2000);
       setInterval(refreshSpiritStores, 15000);
       // Load spirits when WS connects
       (window._hortOnConnect = window._hortOnConnect || []).push(() => {

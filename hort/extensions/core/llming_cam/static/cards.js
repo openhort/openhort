@@ -12,6 +12,8 @@
     static id = 'llming-cam';
     static label = 'Cameras';
     static icon = 'ph ph-video-camera';
+    static autoShow = true;
+    static llmingWidgets = ['llming-cam-panel'];
 
     setup(app, Quasar, options) {
       const ext = this;
