@@ -26,6 +26,12 @@ class LlmingCam(LlmingBase):
     def activate(self, config: dict[str, Any]) -> None:
         from hort.media_camera import CameraProvider
         self._cam = CameraProvider()
+        # Register with SourceRegistry so sources.list and stream UI can find cameras
+        try:
+            from hort.media import SourceRegistry
+            SourceRegistry.get().register("camera", self._cam)
+        except Exception:
+            pass
         self.log.info("LlmingCam activated")
 
     def get_powers(self) -> list[Power]:

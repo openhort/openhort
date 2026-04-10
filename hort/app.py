@@ -388,19 +388,16 @@ def _refresh_docker_targets() -> None:
 
 
 def _register_media_providers() -> None:
-    """Register unified media providers with the SourceRegistry."""
+    """Register unified media providers with the SourceRegistry.
+
+    Only ScreenProvider is registered here. CameraProvider is owned
+    by the llming-cam extension which registers it on activate().
+    """
     from hort.media import SourceRegistry
     from hort.media_screen import ScreenProvider
 
     registry = SourceRegistry.get()
     registry.register("screen", ScreenProvider())
-
-    # Camera provider (OpenCV + AVFoundation)
-    try:
-        from hort.media_camera import CameraProvider
-        registry.register("camera", CameraProvider())
-    except ImportError:
-        pass  # OpenCV not installed
 
 
 def _register_targets() -> None:
