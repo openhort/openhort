@@ -124,25 +124,38 @@ def run_proxy_bridge(
     mode: str = "sse",
     port: int = 0,
 ) -> None:
-    """Start the proxy MCP bridge."""
+    """Start the proxy MCP bridge.
+
+    Starts the SSE server immediately (so the parent process unblocks),
+    then fetches tools from the main server in the background.
+    """
     import asyncio
     from hort.mcp.bridge import MCPBridge, MCPSseServer, run_stdio
 
-    tools = fetch_tools(server_url)
-    logger.info("Proxy bridge: %d tools from %s", len(tools), server_url)
-
-    provider = _ProxyProvider(server_url, tools)
+    # Start with empty provider — tools loaded after server is ready
+    provider = _ProxyProvider(server_url, [])
     bridge = MCPBridge([provider])
-
-    total = len(provider.get_mcp_tools())
-    logger.info("Bridge ready: 1 provider, %d tools", total)
 
     if mode == "sse":
         loop = asyncio.new_event_loop()
         server = MCPSseServer(bridge, port=port)
         loop.run_until_complete(server.start())
+        logger.info("MCP bridge SSE server on port %d", server.port)
         logger.info("SSE server: http://localhost:%d/sse", server.port)
         logger.info("Container URL: http://host.docker.internal:%d/sse", server.port)
+
+        # Fetch tools in background (main server may not be ready yet)
+        async def _load_tools() -> None:
+            tools = await asyncio.get_event_loop().run_in_executor(None, fetch_tools, server_url)
+            provider._tools = tools
+            provider._routing = {}
+            for t in tools:
+                provider._routing[f"{t['_llming']}__{t['_power']}"] = (t["_llming"], t["_power"])
+            # Rebuild bridge's provider cache
+            bridge._providers = {provider.plugin_id: provider}
+            logger.info("Bridge ready: %d tools from %s", len(tools), server_url)
+
+        loop.create_task(_load_tools())
         loop.run_forever()
     else:
         asyncio.run(run_stdio(bridge))
