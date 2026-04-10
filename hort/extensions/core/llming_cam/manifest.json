@@ -1,0 +1,13 @@
+{
+  "name": "llming-cam",
+  "version": "0.1.0",
+  "description": "Webcam and camera management — enumerate, capture, stream",
+  "provider": "core",
+  "platforms": ["darwin", "linux", "win32"],
+  "capabilities": ["mcp"],
+  "entry_point": "provider:LlmingCam",
+  "icon": "ph ph-video-camera",
+  "author": "openhort",
+  "llming_type": "tool",
+  "mcp": true
+}

@@ -16,6 +16,7 @@ def build_ws_router() -> WSRouter:
     from hort.commands.connectors import router as connectors_router
     from hort.commands.credentials import router as credentials_router
     from hort.commands.settings import router as settings_router
+    from hort.commands.sources import router as sources_router
 
     root = WSRouter()
     root.include(llmings_router)
@@ -23,4 +24,5 @@ def build_ws_router() -> WSRouter:
     root.include(connectors_router)
     root.include(credentials_router)
     root.include(settings_router)
+    root.include(sources_router)
     return root

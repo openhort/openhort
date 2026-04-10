@@ -135,6 +135,7 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     app.add_middleware(AuthMiddleware)
 
     _register_targets()
+    _register_media_providers()
     _register_routes(app)
 
     # Llmings — discovery and route registration only (no loading yet).
@@ -384,6 +385,22 @@ def _refresh_docker_targets() -> None:
 
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
+
+
+def _register_media_providers() -> None:
+    """Register unified media providers with the SourceRegistry."""
+    from hort.media import SourceRegistry
+    from hort.media_screen import ScreenProvider
+
+    registry = SourceRegistry.get()
+    registry.register("screen", ScreenProvider())
+
+    # Camera provider (OpenCV + AVFoundation)
+    try:
+        from hort.media_camera import CameraProvider
+        registry.register("camera", CameraProvider())
+    except ImportError:
+        pass  # OpenCV not installed
 
 
 def _register_targets() -> None:
