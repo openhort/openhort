@@ -131,9 +131,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .widget-label{display:none}
 .widget-badge{position:absolute;top:6px;right:6px;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700}
 .badge-live{background:rgba(34,197,94,.2);color:var(--success)}
-.widget-icon-badge{position:absolute;top:3px;right:3px;z-index:3;font-size:28px;opacity:.55;pointer-events:auto;cursor:pointer;transition:all .2s;line-height:1;filter:drop-shadow(0 0 6px currentColor)}
-.widget-icon-badge:hover{opacity:.85;transform:scale(1.15);filter:drop-shadow(0 0 12px currentColor)}
-.widget-icon-badge svg{width:28px;height:28px;fill:currentColor}
+.widget-icon-badge{position:absolute;top:4px;right:4px;z-index:3;font-size:22px;opacity:.65;pointer-events:auto;cursor:pointer;transition:all .2s;line-height:1;filter:drop-shadow(0 0 8px currentColor)}
+.widget-icon-badge:hover{opacity:.8;transform:scale(1.1);filter:drop-shadow(0 0 14px currentColor)}
+.widget-icon-badge svg{width:22px;height:22px;fill:currentColor}
 .widget-icon-badge .hort-dots{position:absolute;bottom:-4px;right:0;display:flex;gap:2px}
 
 .widget .del-badge{display:none;position:absolute;top:-2px;left:-2px;width:22px;height:22px;border-radius:50%;background:var(--danger);color:#fff;font-size:12px;align-items:center;justify-content:center;z-index:5;cursor:pointer;border:2px solid var(--bg)}
@@ -307,6 +307,65 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 20px;font-size:13px;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,.5);pointer-events:none}
 .sparkline{width:100%;height:28px}
+
+/* === Clipboard stacked cards === */
+.clip-stack{position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.clip-card{position:absolute;width:82%;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;transition:all .2s;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.clip-card:nth-child(1){top:10%;z-index:3;transform:rotate(-0.5deg)}
+.clip-card:nth-child(2){top:38%;z-index:2;transform:rotate(0.8deg) scale(.97);opacity:.8}
+.clip-card:nth-child(3){top:62%;z-index:1;transform:rotate(-0.3deg) scale(.94);opacity:.55}
+.clip-card-icon{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px}
+.clip-card-text{flex:1;font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'SF Mono','Fira Code',monospace}
+.clip-badge{position:absolute;top:4px;left:4px;background:var(--primary);color:#fff;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;z-index:5}
+
+/* === Code Watch premium styles === */
+.cw-session{display:flex;align-items:flex-start;gap:10px;padding:8px;background:var(--bg);border-radius:10px;min-height:44px;position:relative}
+.cw-ring{width:16px;height:16px;border-radius:50%;flex-shrink:0;position:relative;display:flex;align-items:center;justify-content:center;margin-top:2px}
+.cw-ring .cw-dot{width:10px;height:10px;border-radius:50%}
+.cw-ring.active{animation:cw-spin 2s linear infinite}
+.cw-ring.active::before{content:'';position:absolute;inset:-3px;border-radius:50%;border:2px solid transparent;border-top-color:var(--purple);animation:cw-spin 1.5s linear infinite}
+.cw-ring.active::after{content:'';position:absolute;inset:-6px;border-radius:50%;border:1.5px solid transparent;border-bottom-color:rgba(167,139,250,.3);animation:cw-spin 3s linear infinite reverse}
+@keyframes cw-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.cw-output{font-family:'SF Mono','Fira Code',monospace;font-size:9px;color:#a0aec0;background:rgba(0,0,0,.4);padding:6px 8px;border-radius:6px;line-height:1.5;max-height:42px;overflow:hidden;width:100%;margin-top:4px;border:1px solid rgba(255,255,255,.04)}
+.cw-actions{display:flex;gap:4px;margin-top:4px}
+.cw-btn{padding:3px 10px;border-radius:6px;font-size:9px;font-weight:600;border:none;cursor:pointer;transition:all .15s}
+.cw-btn.continue{background:rgba(167,139,250,.15);color:var(--purple);border:1px solid rgba(167,139,250,.3)}
+.cw-btn.stop{background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.2)}
+.cw-tokens{display:flex;align-items:center;gap:4px;margin-top:4px}
+.cw-token-bar{flex:1;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.cw-token-fill{height:100%;border-radius:2px;transition:width .3s}
+
+/* === Email with real photos === */
+.email-row{display:flex;align-items:center;gap:10px;padding:6px 8px;background:var(--bg);border-radius:10px;min-height:40px}
+.email-row.unread{border-left:3px solid var(--primary)}
+.email-avatar{width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid rgba(255,255,255,.1)}
+.email-unread-badge{position:absolute;top:4px;left:4px;background:var(--primary);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;z-index:5}
+.detail-mail .ml-avatar-img{width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid rgba(255,255,255,.1)}
+
+/* === Calendar pill badge === */
+.cal-pill{padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;background:rgba(59,130,246,.15);color:var(--accent);white-space:nowrap;display:flex;align-items:center;gap:4px;animation:cal-glow 2s ease-in-out infinite}
+@keyframes cal-glow{0%,100%{box-shadow:0 0 6px rgba(59,130,246,.2)}50%{box-shadow:0 0 12px rgba(59,130,246,.4)}}
+
+/* === n8n fail glow === */
+.n8n-fail-glow{animation:n8n-red-pulse 1.5s ease-in-out infinite}
+@keyframes n8n-red-pulse{0%,100%{box-shadow:0 0 8px rgba(239,68,68,.3)}50%{box-shadow:0 0 20px rgba(239,68,68,.6)}}
+
+/* === Weather forecast bars === */
+.weather-bar-row{display:flex;gap:4px;margin-top:6px;align-items:flex-end;height:36px}
+.weather-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
+.weather-bar{width:100%;border-radius:3px 3px 0 0;transition:height .3s;min-height:2px}
+.weather-bar-label{font-size:9px;color:var(--dim)}
+.weather-bar-temp{font-size:10px;font-weight:600;color:var(--text)}
+.weather-rain-warn{display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:8px;background:rgba(96,165,250,.12);border:1px solid rgba(96,165,250,.25);font-size:11px;color:var(--accent);margin-top:6px;animation:rain-blink 2s ease-in-out infinite}
+@keyframes rain-blink{0%,100%{opacity:1}50%{opacity:.6}}
+
+/* === Terminal premium state === */
+.term-state-premium{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:16px;font-weight:700;position:relative;overflow:hidden}
+.term-state-premium.thinking{background:linear-gradient(90deg,rgba(167,139,250,.15),rgba(167,139,250,.08),rgba(167,139,250,.15));background-size:200% 100%;animation:term-grad 3s ease-in-out infinite}
+@keyframes term-grad{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.term-progress{height:2px;background:var(--border);border-radius:1px;overflow:hidden;width:100%}
+.term-progress-fill{height:100%;background:var(--purple);border-radius:1px;transition:width .5s;animation:term-prog-pulse 4s ease-in-out infinite}
+@keyframes term-prog-pulse{0%{opacity:.6}50%{opacity:1}100%{opacity:.6}}
 
 /* Detail card (opens on widget tap) */
 .detail-overlay{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
@@ -565,11 +624,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
             <!-- Terminal -->
             <template v-if="w.type==='terminal'">
-              <div class="term-output">{{ w.c.output }}</div>
-              <div class="term-state" v-if="w.c.state">
-                <span class="pdot" :class="w.c.state"></span>
+              <div class="term-output" style="line-height:1.6;padding:10px 10px;font-size:10.5px">{{ w.c.output }}</div>
+              <div v-if="w.c.state==='thinking'" class="term-progress"><div class="term-progress-fill" style="width:62%"></div></div>
+              <div v-if="w.c.state" class="term-state-premium" :class="w.c.state">
+                <span class="pdot" :class="w.c.state" style="width:8px;height:8px"></span>
                 <span :style="{color:w.c.state==='thinking'?'var(--purple)':'var(--dim)'}">{{ w.c.state.toUpperCase() }}</span>
-                <span v-if="w.c.idle" style="margin-left:auto;opacity:.5;font-size:9px">{{ w.c.idle }}s</span>
+                <span v-if="w.c.state==='thinking'" style="margin-left:auto;font-size:10px;font-weight:400;color:var(--dim);opacity:.7">~38%</span>
+                <span v-if="w.c.idle" style="margin-left:auto;opacity:.5;font-size:10px;font-weight:400">{{ w.c.idle }}s</span>
               </div>
             </template>
 
@@ -578,29 +639,48 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
               <div class="widget-thumb">
                 <template v-if="w.extId==='system-monitor'">
                   <div style="text-align:left;width:100%">
-                    <div style="font-size:32px;font-weight:700;color:var(--accent);line-height:1">{{ Math.round(cpu) }}<span style="font-size:14px;font-weight:400;color:var(--dim)">%</span></div>
-                    <svg class="sparkline" style="height:36px;margin:4px 0" viewBox="0 0 100 28" preserveAspectRatio="none">
+                    <div style="font-size:38px;font-weight:800;color:var(--accent);line-height:1;letter-spacing:-1px">{{ Math.round(cpu) }}<span style="font-size:16px;font-weight:400;color:var(--dim)">%</span></div>
+                    <svg class="sparkline" style="height:52px;margin:4px 0" viewBox="0 0 100 28" preserveAspectRatio="none">
                       <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--primary)" stop-opacity=".3"/><stop offset="100%" stop-color="var(--primary)" stop-opacity="0"/></linearGradient>
+                      <linearGradient id="mg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#a78bfa" stop-opacity=".25"/><stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/></linearGradient>
                       <polyline :points="spark+' 100,28 0,28'" fill="url(#sg)"/>
                       <polyline :points="spark" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+                      <polyline :points="memSpark+' 100,28 0,28'" fill="url(#mg)"/>
+                      <polyline :points="memSpark" fill="none" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="3,2"/>
                     </svg>
-                    <div style="display:flex;gap:12px;font-size:11px">
-                      <span style="color:var(--accent)"><i class="ph-fill ph-memory" style="font-size:12px"></i> 68%</span>
-                      <span style="color:var(--dim)"><i class="ph-fill ph-hard-drives" style="font-size:12px"></i> 45%</span>
+                    <div style="display:flex;gap:12px;font-size:12px">
+                      <span style="color:var(--accent)"><span style="display:inline-block;width:8px;height:3px;border-radius:1px;background:var(--primary);margin-right:4px;vertical-align:middle"></span>CPU</span>
+                      <span style="color:#a78bfa"><span style="display:inline-block;width:8px;height:3px;border-radius:1px;background:#a78bfa;margin-right:4px;vertical-align:middle"></span>68% RAM</span>
+                      <span style="color:var(--dim)"><i class="ph-fill ph-hard-drives" style="font-size:13px"></i> 45%</span>
                     </div>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='network-monitor'">
                   <div style="text-align:left;width:100%">
-                    <div style="display:flex;align-items:baseline;gap:4px"><i class="ph-bold ph-arrow-down" style="font-size:16px;color:var(--success)"></i><span style="font-size:28px;font-weight:700;color:var(--success)">24</span><span style="font-size:12px;color:var(--dim)">MB/s</span></div>
-                    <div style="display:flex;align-items:baseline;gap:4px;margin-top:2px"><i class="ph-bold ph-arrow-up" style="font-size:14px;color:var(--dim)"></i><span style="font-size:16px;font-weight:600;color:var(--dim)">3.2</span><span style="font-size:10px;color:var(--dim)">MB/s</span></div>
+                    <div style="display:flex;align-items:baseline;gap:4px"><i class="ph-fill ph-arrow-circle-down" style="font-size:20px;color:var(--success)"></i><span style="font-size:34px;font-weight:800;color:var(--success);letter-spacing:-1px">24</span><span style="font-size:14px;color:var(--dim)">MB/s</span></div>
+                    <div style="display:flex;align-items:baseline;gap:4px;margin-top:2px"><i class="ph-fill ph-arrow-circle-up" style="font-size:14px;color:var(--dim)"></i><span style="font-size:16px;font-weight:600;color:var(--dim)">3.2</span><span style="font-size:12px;color:var(--dim)">MB/s</span></div>
+                    <svg viewBox="0 0 100 20" style="width:100%;height:22px;margin-top:4px" preserveAspectRatio="none">
+                      <linearGradient id="nsg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--success)" stop-opacity=".25"/><stop offset="100%" stop-color="var(--success)" stop-opacity="0"/></linearGradient>
+                      <polyline :points="netSpark+' 100,20 0,20'" fill="url(#nsg)"/>
+                      <polyline :points="netSpark" fill="none" stroke="var(--success)" stroke-width="1.2"/>
+                    </svg>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='clipboard-history'">
-                  <div style="text-align:left;width:100%">
-                    <div style="font-family:'SF Mono',monospace;font-size:10px;color:var(--text);opacity:.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:rgba(0,0,0,.3);padding:4px 6px;border-radius:4px;margin-bottom:6px">const result = await fetch(...);</div>
-                    <div style="font-size:28px;font-weight:700;color:var(--accent);line-height:1">12</div>
-                    <div style="font-size:10px;color:var(--dim)">entries</div>
+                  <div style="width:100%;height:100%;display:flex;flex-direction:column;gap:6px;position:relative">
+                    <div style="position:absolute;top:0;left:0;background:var(--primary);color:#fff;font-size:11px;font-weight:700;width:26px;height:26px;border-radius:0 8px 8px 0;display:flex;align-items:center;justify-content:center;z-index:2;box-shadow:0 2px 8px rgba(59,130,246,.4);border-radius:14px 0 10px 0">12</div>
+                    <div style="flex:1;display:flex;align-items:center;padding:10px 6px 0 6px;background:rgba(167,139,250,.06);border-radius:10px;border:1px solid rgba(167,139,250,.12);gap:8px;min-height:0;cursor:pointer" @click.stop="showT('Pasted!')">
+                      <i class="ph-fill ph-brackets-curly" style="font-size:20px;color:var(--purple);flex-shrink:0"></i>
+                      <div style="font-family:'SF Mono',monospace;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">const handler = async (req, res) =&gt; {</div>
+                    </div>
+                    <div style="flex:1;display:flex;align-items:center;padding:10px 6px 0 6px;background:var(--bg);border-radius:10px;border:1px solid var(--border);gap:8px;min-height:0;cursor:pointer" @click.stop="showT('Pasted!')">
+                      <i class="ph-fill ph-link" style="font-size:20px;color:var(--accent);flex-shrink:0"></i>
+                      <div style="font-size:12px;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">github.com/openhort/openhort/pull/42</div>
+                    </div>
+                    <div style="flex:1;display:flex;align-items:center;padding:10px 6px 0 6px;background:var(--bg);border-radius:10px;border:1px solid var(--border);gap:8px;min-height:0;cursor:pointer;opacity:.7" @click.stop="showT('Pasted!')">
+                      <i class="ph-fill ph-text-aa" style="font-size:20px;color:var(--dim);flex-shrink:0"></i>
+                      <div style="font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">Refactor the session manager to use unified...</div>
+                    </div>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='llming-lens'">
@@ -659,31 +739,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                   </div>
                 </template>
                 <template v-else-if="w.extId==='openclaw'">
-                  <div style="text-align:left;width:100%;font-size:11px">
-                    <div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
-                      <span style="color:var(--text)"><i class="ph ph-lamp" style="font-size:13px;color:var(--accent);margin-right:4px"></i>Living Room</span>
-                      <div style="display:flex;gap:8px;align-items:center">
-                        <span style="font-size:10px;color:var(--dim)">22°C</span>
-                        <div style="width:28px;height:16px;border-radius:8px;background:var(--primary);position:relative"><div style="position:absolute;top:2px;right:2px;width:12px;height:12px;border-radius:50%;background:#fff"></div></div>
+                  <div style="width:100%;display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start">
+                    <div v-for="room in clawRooms.slice(0,4)" :key="room.id" @click.stop="room.lightOn=!room.lightOn"
+                         :style="{flex:'1 1 calc(50% - 3px)',minWidth:'70px',padding:'10px 8px',borderRadius:'12px',display:'flex',flexDirection:'column',alignItems:'center',gap:'4px',cursor:'pointer',transition:'all .3s',
+                         background:room.lightOn?'rgba(245,158,11,.12)':'var(--bg)',
+                         border:room.lightOn?'1px solid rgba(245,158,11,.35)':'1px solid var(--border)',
+                         boxShadow:room.lightOn?'0 0 20px rgba(245,158,11,.15), inset 0 0 20px rgba(245,158,11,.06)':'none'}">
+                      <i :class="room.icon" :style="{fontSize:'22px',color:room.lightOn?'#f59e0b':'var(--dim)',transition:'color .3s',filter:room.lightOn?'drop-shadow(0 0 8px rgba(245,158,11,.6))':'none'}"></i>
+                      <span style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;text-align:center">{{ room.name.split(' ')[0] }}</span>
+                      <div :style="{width:'40px',height:'22px',borderRadius:'11px',position:'relative',cursor:'pointer',transition:'background .3s',
+                           background:room.lightOn?'#f59e0b':'var(--border)'}">
+                        <div :style="{position:'absolute',top:'2px',width:'18px',height:'18px',borderRadius:'50%',background:'#fff',transition:'all .3s',boxShadow:room.lightOn?'0 0 6px rgba(245,158,11,.5)':'0 1px 2px rgba(0,0,0,.3)',
+                             left:room.lightOn?'20px':'2px'}"></div>
                       </div>
-                    </div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
-                      <span style="color:var(--text)"><i class="ph ph-bed" style="font-size:13px;color:var(--dim);margin-right:4px"></i>Bedroom</span>
-                      <div style="display:flex;gap:8px;align-items:center">
-                        <span style="font-size:10px;color:var(--dim)">19°C</span>
-                        <div style="width:28px;height:16px;border-radius:8px;background:var(--border);position:relative"><div style="position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff"></div></div>
-                      </div>
-                    </div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
-                      <span style="color:var(--text)"><i class="ph ph-cooking-pot" style="font-size:13px;color:var(--dim);margin-right:4px"></i>Kitchen</span>
-                      <div style="display:flex;gap:8px;align-items:center">
-                        <span style="font-size:10px;color:var(--dim)">21°C</span>
-                        <div style="width:28px;height:16px;border-radius:8px;background:var(--primary);position:relative"><div style="position:absolute;top:2px;right:2px;width:12px;height:12px;border-radius:50%;background:#fff"></div></div>
-                      </div>
-                    </div>
-                    <div style="margin-top:6px;width:100%;height:36px;background:var(--bg);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--dim);border:1px solid var(--border);position:relative">
-                      <i class="ph ph-security-camera" style="margin-right:4px;font-size:12px"></i> Front door &mdash; clear
-                      <span style="position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;background:var(--success)"></span>
                     </div>
                   </div>
                 </template>
@@ -708,64 +776,108 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                   </div>
                 </template>
                 <template v-else-if="w.extId==='calendar'">
-                  <div style="text-align:left;width:100%;font-size:11px">
-                    <div style="padding:3px 0;border-bottom:1px solid var(--border)">
-                      <div style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;flex-shrink:0"></span><span style="font-weight:600;color:var(--text)">Team Standup</span><span style="margin-left:auto;font-size:10px;color:var(--accent)">in 23m</span></div>
-                      <div style="font-size:10px;color:var(--dim);margin-left:12px">10:00 &mdash; Zoom</div>
-                    </div>
-                    <div style="padding:3px 0;border-bottom:1px solid var(--border)">
-                      <div style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0"></span><span style="font-weight:600;color:var(--text)">1:1 with Sarah</span><span style="margin-left:auto;font-size:10px;color:var(--dim)">in 2h</span></div>
-                      <div style="font-size:10px;color:var(--dim);margin-left:12px">12:00 &mdash; Office</div>
-                    </div>
-                    <div style="padding:3px 0">
-                      <div style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:#f59e0b;flex-shrink:0"></span><span style="font-weight:600;color:var(--text)">Sprint Review</span><span style="margin-left:auto;font-size:10px;color:var(--dim)">in 5h</span></div>
-                      <div style="font-size:10px;color:var(--dim);margin-left:12px">3:00 PM &mdash; Conf Room B</div>
-                    </div>
+                  <div style="text-align:left;width:100%;display:flex;flex-direction:column;gap:4px">
+                    <template v-for="(ev,ei) in calEvents.slice(0,3)" :key="ev.id">
+                      <div style="display:flex;gap:8px;align-items:stretch;min-height:44px">
+                        <div :style="{width:'4px',borderRadius:'2px',background:ev.color,flexShrink:0}"></div>
+                        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;min-width:0">
+                          <div style="display:flex;align-items:center;gap:5px"><span style="font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ ev.title }}</span><i v-if="ev.hasVideo" class="ph-fill ph-video-camera" style="font-size:13px;color:var(--primary);flex-shrink:0"></i></div>
+                          <div style="font-size:12px;color:var(--dim)">{{ ev.time }} <span v-if="ev.location" style="opacity:.6">&middot; {{ ev.location.length > 15 ? ev.location.slice(0,15) + '...' : ev.location }}</span></div>
+                        </div>
+                        <div v-if="ei===0" class="cal-pill">in 23m</div>
+                      </div>
+                    </template>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='email'">
-                  <div style="text-align:left;width:100%">
-                    <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:4px"><span style="font-size:24px;font-weight:700;color:var(--accent)">{{ unreadCount }}</span><span style="font-size:11px;color:var(--dim)">unread</span></div>
-                    <template v-for="ml in emails.slice(0,3)" :key="ml.id">
-                      <div style="font-size:11px;border-top:1px solid var(--border);padding:3px 0"><div style="color:var(--dim)">{{ ml.from }}</div><div :style="{color:ml.unread?'var(--text)':'var(--dim)',fontWeight:ml.unread?500:400,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}">{{ ml.subject }}</div></div>
+                  <div style="text-align:left;width:100%;display:flex;flex-direction:column;gap:4px;position:relative">
+                    <div class="email-unread-badge">{{ unreadCount }}</div>
+                    <template v-for="(ml,mli) in emails.slice(0,3)" :key="ml.id">
+                      <div class="email-row" :class="{unread:ml.unread}">
+                        <img v-if="ml.avatar" :src="ml.avatar" class="email-avatar">
+                        <div v-else-if="ml.botIcon" :style="{width:'32px',height:'32px',borderRadius:'50%',background:ml.avatarBg,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}"><i :class="ml.botIcon" :style="{fontSize:'18px',color:ml.avatarColor||'#fff'}"></i></div>
+                        <div v-else :style="{width:'32px',height:'32px',borderRadius:'50%',background:ml.avatarBg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:700,color:ml.avatarColor||'var(--dim)',flexShrink:0}">{{ ml.initials }}</div>
+                        <div style="min-width:0;flex:1">
+                          <div style="font-size:12px;font-weight:600;color:var(--text)" :style="{fontWeight:ml.unread?700:400}">{{ ml.from }}</div>
+                          <div style="font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ ml.subject }}</div>
+                        </div>
+                      </div>
                     </template>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='n8n'">
-                  <div style="text-align:left;width:100%">
-                    <div style="display:flex;gap:14px;margin-bottom:6px">
-                      <div style="text-align:center"><span style="font-size:20px;font-weight:700;color:var(--success)">{{ n8nPassed }}</span><div style="font-size:10px;color:var(--dim)">passed</div></div>
-                      <div style="text-align:center"><span style="font-size:20px;font-weight:700;color:var(--danger)">{{ n8nFailed }}</span><div style="font-size:10px;color:var(--dim)">failed</div></div>
-                      <div style="text-align:center"><span style="font-size:20px;font-weight:700;color:var(--accent)">{{ n8nRunning }}</span><div style="font-size:10px;color:var(--dim)">active</div></div>
-                    </div>
-                    <div style="font-size:11px;color:var(--dim)">
-                      <template v-for="wf in n8nWorkflows.slice(0,3)" :key="wf.id">
-                        <div style="display:flex;align-items:center;gap:4px;padding:2px 0"><span class="pdot" :style="{background:wf.status==='failed'?'var(--danger)':wf.status==='running'?'var(--accent)':'var(--success)',width:'5px',height:'5px'}"></span> {{ wf.name }} &mdash; {{ wf.time }}</div>
-                      </template>
+                  <div style="text-align:left;width:100%;display:flex;flex-direction:column;gap:8px">
+                    <div style="display:flex;gap:8px;justify-content:center">
+                      <div style="flex:1;text-align:center;padding:8px 4px;background:rgba(34,197,94,.08);border-radius:10px;border:1px solid rgba(34,197,94,.2)">
+                        <i class="ph-fill ph-check-circle" style="font-size:18px;color:var(--success)"></i>
+                        <div style="font-size:24px;font-weight:700;color:var(--success);line-height:1.1">{{ n8nPassed }}</div>
+                        <div style="font-size:10px;color:var(--dim)">passed</div>
+                        <!-- mini sparkline -->
+                        <svg viewBox="0 0 40 12" style="width:100%;height:12px;margin-top:4px" preserveAspectRatio="none">
+                          <polyline points="0,8 5,6 10,7 15,4 20,5 25,3 30,4 35,2 40,3" fill="none" stroke="var(--success)" stroke-width="1" stroke-linecap="round"/>
+                        </svg>
+                      </div>
+                      <div :style="{flex:1,textAlign:'center',padding:'8px 4px',borderRadius:'10px',border:n8nFailed>0?'1px solid rgba(239,68,68,.4)':'1px solid var(--border)',background:n8nFailed>0?'rgba(239,68,68,.1)':'var(--bg)'}" :class="{'n8n-fail-glow':n8nFailed>0}">
+                        <i class="ph-fill ph-x-circle" :style="{fontSize:'18px',color:n8nFailed>0?'var(--danger)':'var(--dim)'}"></i>
+                        <div :style="{fontSize:'24px',fontWeight:700,color:n8nFailed>0?'var(--danger)':'var(--dim)',lineHeight:'1.1'}">{{ n8nFailed }}</div>
+                        <div style="font-size:10px;color:var(--dim)">failed</div>
+                        <svg v-if="n8nFailed>0" viewBox="0 0 40 12" style="width:100%;height:12px;margin-top:4px" preserveAspectRatio="none">
+                          <polyline points="0,10 5,9 10,10 15,8 20,10 25,4 30,2 35,4 40,2" fill="none" stroke="var(--danger)" stroke-width="1" stroke-linecap="round"/>
+                        </svg>
+                      </div>
+                      <div style="flex:1;text-align:center;padding:8px 4px;background:rgba(96,165,250,.08);border-radius:10px;border:1px solid rgba(96,165,250,.2)">
+                        <i class="ph-fill ph-play-circle" style="font-size:18px;color:var(--accent)"></i>
+                        <div style="font-size:24px;font-weight:700;color:var(--accent);line-height:1.1">{{ n8nRunning }}</div>
+                        <div style="font-size:10px;color:var(--dim)">active</div>
+                        <svg viewBox="0 0 40 12" style="width:100%;height:12px;margin-top:4px" preserveAspectRatio="none">
+                          <polyline points="0,6 5,4 10,6 15,5 20,3 25,5 30,4 35,6 40,5" fill="none" stroke="var(--accent)" stroke-width="1" stroke-linecap="round"/>
+                        </svg>
+                      </div>
                     </div>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='cameras'">
                   <div style="width:100%;display:flex;gap:4px;height:100%">
-                    <div v-for="(cam,ci) in [{name:'Front Door',key:'front'},{name:'Backyard',key:'back'},{name:'Garage',key:'garage'}]" :key="cam.key"
-                         style="flex:1;border-radius:6px;overflow:hidden;position:relative">
-                      <canvas :ref="el=>setCamCanvas(w.id+'_'+cam.key,el)" class="cam-canvas"></canvas>
-                      <span style="position:absolute;bottom:2px;left:3px;font-size:8px;color:rgba(0,255,100,.6);font-family:monospace;text-shadow:0 0 4px rgba(0,0,0,.8)">{{ cam.name }}</span>
-                      <span v-if="cam.key==='front'&&simMotionActive" style="position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--danger);animation:pulse 1s infinite"></span>
+                    <div v-for="(cam,ci) in [{name:'Front Door',key:'frontdoor',short:'FRONT'},{name:'Backyard',key:'backyard',short:'BACK'},{name:'Garage',key:'garage',short:'GARAGE'}]" :key="cam.key"
+                         style="flex:1;border-radius:6px;overflow:hidden;position:relative;background:#0a0a0a">
+                      <video :src="'hort/static/vendor/demo/cam-'+cam.key+'.mp4'" autoplay loop muted playsinline
+                             style="width:100%;height:100%;object-fit:cover;filter:saturate(.4) brightness(.7) contrast(1.1)"></video>
+                      <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 60%,rgba(0,0,0,.5))"></div>
+                      <span style="position:absolute;bottom:3px;left:4px;font-size:9px;color:rgba(0,255,100,.7);font-family:'SF Mono',monospace;text-shadow:0 0 4px rgba(0,0,0,.9);letter-spacing:.5px">{{ cam.short }}</span>
+                      <span style="position:absolute;top:3px;left:4px;font-size:7px;color:rgba(0,255,100,.4);font-family:'SF Mono',monospace">REC</span>
+                      <span style="position:absolute;top:4px;left:24px;width:5px;height:5px;border-radius:50%;background:rgba(255,50,50,.7);animation:pulse 2s infinite"></span>
+                      <span v-if="cam.key==='frontdoor'&&simMotionActive" style="position:absolute;top:3px;right:3px;padding:1px 4px;font-size:7px;font-weight:700;color:var(--danger);background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.4);border-radius:3px;font-family:monospace;animation:pulse 1s infinite">MOTION</span>
                     </div>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='energy'">
                   <div style="text-align:left;width:100%">
-                    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-                      <div><div style="font-size:11px;color:var(--success)"><i class="ph ph-sun" style="font-size:12px"></i> Solar</div><div style="font-size:22px;font-weight:700;color:var(--success)">{{ energySolar.toFixed(1) }} kW</div></div>
-                      <div style="font-size:18px;color:var(--dim);align-self:center"><i class="ph ph-arrow-right"></i></div>
-                      <div style="text-align:right"><div style="font-size:11px;color:var(--accent)"><i class="ph ph-plug" style="font-size:12px"></i> Usage</div><div style="font-size:22px;font-weight:700;color:var(--accent)">{{ energyUsage.toFixed(1) }} kW</div></div>
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                      <div>
+                        <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--success)"><i class="ph-fill ph-sun" style="font-size:16px"></i> Solar</div>
+                        <div style="font-size:24px;font-weight:700;color:var(--success);line-height:1.1">{{ energySolar.toFixed(1) }}<span style="font-size:13px;font-weight:400"> kW</span></div>
+                      </div>
+                      <div style="text-align:right">
+                        <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--accent);justify-content:flex-end"><i class="ph-fill ph-plug" style="font-size:16px"></i> Usage</div>
+                        <div style="font-size:24px;font-weight:700;color:var(--accent);line-height:1.1">{{ energyUsage.toFixed(1) }}<span style="font-size:13px;font-weight:400"> kW</span></div>
+                      </div>
                     </div>
-                    <div style="height:3px;background:var(--border);border-radius:2px;margin-bottom:6px"><div :style="{width:energyBarPct+'%',height:'100%',background:'linear-gradient(to right,var(--success),var(--accent))',borderRadius:'2px',transition:'width .5s'}"></div></div>
-                    <div style="font-size:11px;color:var(--dim)">
-                      <div style="display:flex;justify-content:space-between"><span>Grid export</span><span :style="{color:energyExport>=0?'var(--success)':'var(--danger)'}">{{ energyExport>=0?'+':'' }}{{ energyExport.toFixed(1) }} kW</span></div>
-                      <div style="display:flex;justify-content:space-between"><span>Battery</span><span>87% <i class="ph ph-arrow-up" style="font-size:10px"></i></span></div>
+                    <svg viewBox="0 0 200 32" style="width:100%;height:32px;margin:4px 0" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="eflow" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stop-color="#22c55e"/>
+                          <stop offset="100%" stop-color="#60a5fa"/>
+                        </linearGradient>
+                      </defs>
+                      <rect x="0" y="12" width="200" height="8" rx="4" fill="var(--border)"/>
+                      <rect x="0" y="12" :width="energyBarPct*2" height="8" rx="4" fill="url(#eflow)" style="transition:width .5s"/>
+                      <circle :cx="Math.min(energyBarPct*2, 196)" cy="16" r="6" fill="url(#eflow)" style="transition:cx .5s;filter:drop-shadow(0 0 4px rgba(34,197,94,.5))">
+                        <animate attributeName="opacity" values="1;.5;1" dur="2s" repeatCount="indefinite"/>
+                      </circle>
+                    </svg>
+                    <div style="display:flex;gap:12px;font-size:12px;color:var(--dim)">
+                      <span :style="{color:energyExport>=0?'var(--success)':'var(--danger)'}"><i class="ph-fill ph-arrow-square-out" style="font-size:13px"></i> {{ energyExport>=0?'+':'' }}{{ energyExport.toFixed(1) }} kW</span>
+                      <span><i class="ph-fill ph-battery-charging" style="font-size:13px;color:var(--success)"></i> 87%</span>
                     </div>
                   </div>
                 </template>
@@ -775,23 +887,42 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                       <i :class="simIsDaytime?'ph ph-cloud-sun':'ph ph-moon-stars'" :style="{fontSize:'38px',color:simIsDaytime?'#f59e0b':'#94a3b8',flexShrink:0}"></i>
                       <div><div style="font-size:32px;font-weight:200;color:var(--text);line-height:1">{{ simIsDaytime ? '18' : '11' }}°</div><div style="font-size:11px;color:var(--dim)">{{ simIsDaytime ? 'Partly cloudy' : 'Clear night' }}</div></div>
                     </div>
-                    <div style="font-size:11px;color:var(--accent);margin-top:6px"><i class="ph ph-drop" style="font-size:12px"></i> {{ simIsDaytime ? 'Rain in 45 min' : 'No rain tonight' }}</div>
-                    <div style="display:flex;gap:6px;margin-top:6px;font-size:10px;color:var(--dim)"><span>12p 19°</span><span>3p 17°</span><span>6p 14°</span><span>9p 12°</span></div>
+                    <div v-if="simIsDaytime" class="weather-rain-warn"><i class="ph-fill ph-drop" style="font-size:14px"></i> Rain in 45 min</div>
+                    <div v-else style="font-size:11px;color:var(--dim);margin-top:6px"><i class="ph ph-moon" style="font-size:12px"></i> No rain tonight</div>
+                    <div class="weather-bar-row">
+                      <div class="weather-bar-col" v-for="(wh,whi) in [{t:'12p',v:19,c:'#f59e0b'},{t:'3p',v:17,c:'var(--accent)'},{t:'6p',v:14,c:'var(--accent)'},{t:'9p',v:12,c:'var(--dim)'}]" :key="whi">
+                        <div class="weather-bar-temp">{{ wh.v }}°</div>
+                        <div class="weather-bar" :style="{height:((wh.v-8)*2.5)+'px',background:wh.c,opacity:.7}"></div>
+                        <div class="weather-bar-label">{{ wh.t }}</div>
+                      </div>
+                    </div>
                   </div>
                 </template>
                 <template v-else-if="w.extId==='code-watch'">
-                  <div style="text-align:left;width:100%;font-size:10px">
-                    <div style="padding:3px 0;border-bottom:1px solid var(--border)">
-                      <div style="display:flex;align-items:center;gap:4px"><span class="pdot thinking"></span><span style="font-weight:600;color:var(--purple)">claude_dev</span><span style="margin-left:auto;font-size:9px;color:var(--dim)">14.2k tok</span></div>
-                      <div style="color:var(--dim);margin-left:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">editing controller.py</div>
+                  <div style="width:100%;height:100%;display:flex;flex-direction:column;gap:4px">
+                    <!-- Active session — hero card -->
+                    <div style="flex:2;background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.15);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;min-height:0">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <div class="cw-ring active"><div class="cw-dot" style="background:var(--purple)"></div></div>
+                        <span style="font-size:14px;font-weight:700;color:var(--purple)">claude_dev</span>
+                        <span style="margin-left:auto;font-size:11px;color:var(--dim)">23m</span>
+                      </div>
+                      <div style="flex:1;font-family:'SF Mono',monospace;font-size:10px;color:#c8d0dc;background:rgba(0,0,0,.4);padding:6px 8px;border-radius:6px;overflow:hidden;line-height:1.5;min-height:0">Reading hort/controller.py...<br>Refactoring session manager<br>to use unified registry...</div>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <div style="flex:1;height:3px;background:rgba(167,139,250,.15);border-radius:2px"><div style="width:71%;height:100%;background:var(--purple);border-radius:2px"></div></div>
+                        <span style="font-size:10px;color:var(--dim)">14.2k</span>
+                      </div>
                     </div>
-                    <div style="padding:3px 0;border-bottom:1px solid var(--border)">
-                      <div style="display:flex;align-items:center;gap:4px"><span class="pdot idle"></span><span style="font-weight:600;color:var(--dim)">claude_test</span><span style="margin-left:auto;font-size:9px;color:var(--dim)">8.1k tok</span></div>
-                      <div style="color:var(--dim);margin-left:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">idle &mdash; test_api.py &mdash; 4m</div>
-                    </div>
-                    <div style="padding:3px 0">
-                      <div style="display:flex;align-items:center;gap:4px"><span class="pdot" style="background:var(--success)"></span><span style="font-weight:600;color:var(--success)">claude_fix</span><span style="margin-left:auto;font-size:9px;color:var(--dim)">3.5k tok</span></div>
-                      <div style="color:var(--dim);margin-left:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">done &mdash; fixed utils.py</div>
+                    <!-- Other sessions — compact row each -->
+                    <div style="display:flex;gap:4px;flex:1;min-height:0">
+                      <div style="flex:1;background:var(--bg);border-radius:10px;padding:8px;display:flex;align-items:center;gap:6px;border:1px solid var(--border)">
+                        <div style="width:10px;height:10px;border-radius:50%;background:var(--dim);flex-shrink:0"></div>
+                        <div style="min-width:0"><div style="font-size:12px;font-weight:600;color:var(--dim)">claude_test</div><div style="font-size:10px;color:var(--dim);opacity:.6">idle 4m</div></div>
+                      </div>
+                      <div style="flex:1;background:var(--bg);border-radius:10px;padding:8px;display:flex;align-items:center;gap:6px;border:1px solid rgba(34,197,94,.15)">
+                        <div style="width:10px;height:10px;border-radius:50%;background:var(--success);flex-shrink:0"></div>
+                        <div style="min-width:0"><div style="font-size:12px;font-weight:600;color:var(--success)">claude_fix</div><div style="font-size:10px;color:var(--dim);opacity:.6">done 8m</div></div>
+                      </div>
                     </div>
                   </div>
                 </template>
@@ -884,17 +1015,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
                   <div class="widget-thumb" style="padding:8px">
                     <template v-if="w.extId==='system-monitor'"><div style="text-align:left;width:100%"><span style="font-size:20px;font-weight:700;color:var(--accent)">{{ Math.round(cpu) }}%</span><div style="font-size:9px;color:var(--dim)">CPU</div></div></template>
                     <template v-else-if="w.extId==='llming-lens'"><div style="width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e,#0f3460);border-radius:4px;display:flex;gap:4px;align-items:center;justify-content:center"><div v-for="n in ['VS','Ch','Te']" :key="n" style="width:28%;height:70%;background:#111;border-radius:3px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:7px;color:var(--dim)">{{n}}</div></div></template>
-                    <template v-else-if="w.extId==='network-monitor'"><div style="text-align:left;width:100%"><div style="font-size:14px;font-weight:700;color:var(--success)">&darr;24</div><div style="font-size:10px;color:var(--dim)">&uarr;3.2 MB/s</div></div></template>
-                    <template v-else-if="w.extId==='clipboard-history'"><div style="text-align:left;width:100%"><div style="font-size:20px;font-weight:700;color:var(--accent)">12</div><div style="font-size:9px;color:var(--dim)">entries</div></div></template>
+                    <template v-else-if="w.extId==='network-monitor'"><div style="text-align:left;width:100%"><div style="font-size:14px;font-weight:700;color:var(--success)"><i class="ph-fill ph-arrow-circle-down" style="font-size:12px"></i> 24 MB/s</div><div style="font-size:12px;color:var(--dim)"><i class="ph-fill ph-arrow-circle-up" style="font-size:10px"></i> 3.2 MB/s</div></div></template>
+                    <template v-else-if="w.extId==='clipboard-history'"><div style="display:flex;align-items:center;gap:6px;width:100%"><i class="ph-fill ph-clipboard-text" style="font-size:16px;color:var(--accent)"></i><div><div style="font-size:18px;font-weight:700;color:var(--accent);line-height:1">12</div><div style="font-size:9px;color:var(--dim)">entries</div></div></div></template>
                     <template v-else-if="w.extId==='now-playing'"><div style="width:100%;height:100%;background:linear-gradient(135deg,#1a0a2e,#2d1b4e);border-radius:4px;display:flex;align-items:flex-end;padding:4px"><span style="font-size:8px;color:#fff;font-weight:600">M83</span></div></template>
-                    <template v-else-if="w.extId==='calendar'"><div style="text-align:left;width:100%"><div style="font-size:9px;font-weight:600;color:var(--accent)">3 events</div><div style="font-size:8px;color:var(--dim)">next: 23m</div></div></template>
-                    <template v-else-if="w.extId==='email'"><div style="text-align:left;width:100%"><div style="font-size:16px;font-weight:700;color:var(--accent)">{{unreadCount}}</div><div style="font-size:8px;color:var(--dim)">unread</div></div></template>
-                    <template v-else-if="w.extId==='n8n'"><div style="display:flex;gap:6px"><span style="font-size:12px;font-weight:700;color:var(--success)">{{n8nPassed}}</span><span style="font-size:12px;font-weight:700;color:var(--danger)">{{n8nFailed}}</span></div></template>
-                    <template v-else-if="w.extId==='cameras'"><div style="display:flex;gap:2px;width:100%;height:80%"><div v-for="n in 3" :key="n" style="flex:1;background:var(--bg);border-radius:2px;border:1px solid var(--border)"></div></div></template>
-                    <template v-else-if="w.extId==='energy'"><div style="text-align:left;width:100%"><div style="font-size:12px;font-weight:700;color:var(--success)">{{energySolar.toFixed(1)}}kW</div><div style="font-size:8px;color:var(--dim)">&rarr; {{energyUsage.toFixed(1)}}kW</div></div></template>
+                    <template v-else-if="w.extId==='calendar'"><div style="text-align:left;width:100%"><div style="font-size:12px;font-weight:600;color:var(--accent)">3 events</div><div style="font-size:10px;color:var(--dim)">next: 23m</div></div></template>
+                    <template v-else-if="w.extId==='email'"><div style="text-align:left;width:100%"><div style="font-size:18px;font-weight:700;color:var(--accent)">{{unreadCount}}</div><div style="font-size:10px;color:var(--dim)">unread</div></div></template>
+                    <template v-else-if="w.extId==='n8n'"><div style="display:flex;gap:6px;align-items:center"><i class="ph-fill ph-check-circle" style="font-size:10px;color:var(--success)"></i><span style="font-size:13px;font-weight:700;color:var(--success)">{{n8nPassed}}</span><i class="ph-fill ph-x-circle" style="font-size:10px;color:var(--danger)"></i><span style="font-size:13px;font-weight:700;color:var(--danger)">{{n8nFailed}}</span></div></template>
+                    <template v-else-if="w.extId==='cameras'"><div style="display:flex;gap:2px;width:100%;height:80%"><div v-for="n in 3" :key="n" style="flex:1;background:rgba(0,20,0,.5);border-radius:2px;border:1px solid rgba(0,255,100,.15);position:relative"><span style="position:absolute;top:1px;left:2px;width:3px;height:3px;border-radius:50%;background:rgba(255,50,50,.6)"></span></div></div></template>
+                    <template v-else-if="w.extId==='energy'"><div style="text-align:left;width:100%"><div style="font-size:14px;font-weight:700;color:var(--success)"><i class="ph-fill ph-sun" style="font-size:10px"></i> {{energySolar.toFixed(1)}} kW</div><div style="font-size:10px;color:var(--dim)"><i class="ph-fill ph-plug" style="font-size:9px"></i> {{energyUsage.toFixed(1)}} kW</div></div></template>
                     <template v-else-if="w.extId==='weather'"><div style="text-align:left;width:100%"><div style="font-size:18px;font-weight:200">18°</div></div></template>
-                    <template v-else-if="w.extId==='openclaw'"><div style="text-align:left;width:100%"><div style="font-size:9px;color:var(--dim)">3 rooms</div></div></template>
-                    <template v-else-if="w.extId==='code-watch'"><div style="text-align:left;width:100%"><div style="display:flex;gap:3px;margin-bottom:2px"><span class="pdot thinking" style="width:4px;height:4px"></span><span class="pdot idle" style="width:4px;height:4px"></span><span class="pdot" style="background:var(--success);width:4px;height:4px"></span></div><div style="font-size:8px;color:var(--dim)">3 sessions</div></div></template>
+                    <template v-else-if="w.extId==='openclaw'"><div style="display:flex;gap:3px;width:100%;justify-content:center"><div v-for="r in clawRooms.slice(0,3)" :key="r.id" :style="{width:'14px',height:'14px',borderRadius:'4px',display:'flex',alignItems:'center',justifyContent:'center',background:r.lightOn?'rgba(245,158,11,.2)':'var(--border)'}"><i :class="r.icon" :style="{fontSize:'8px',color:r.lightOn?'#f59e0b':'var(--dim)'}"></i></div></div></template>
+                    <template v-else-if="w.extId==='code-watch'"><div style="text-align:left;width:100%"><div style="display:flex;gap:4px;margin-bottom:3px"><span class="pdot thinking" style="width:8px;height:8px"></span><span class="pdot idle" style="width:8px;height:8px"></span><span class="pdot" style="background:var(--success);width:8px;height:8px"></span></div><div style="font-size:10px;color:var(--dim)">3 sessions</div></div></template>
                     <template v-else><i :class="w.c.iconClass||'ph ph-puzzle-piece'" style="font-size:20px;opacity:.5;color:var(--primary)"></i></template>
                   </div>
                 </template>
@@ -1307,7 +1438,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
               <span style="background:var(--primary);color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:700">{{ unreadCount }}</span>
             </div>
             <div v-for="ml in emails" :key="ml.id" class="detail-mail" :class="{unread:ml.unread}">
-              <div class="ml-avatar" :style="{background:ml.avatarBg,color:ml.avatarColor||'var(--dim)'}">{{ ml.initials }}</div>
+              <img v-if="ml.avatar" :src="ml.avatar" class="ml-avatar-img">
+              <div v-else-if="ml.botIcon" class="ml-avatar" :style="{background:ml.avatarBg,color:ml.avatarColor||'#fff'}"><i :class="ml.botIcon" style="font-size:18px"></i></div>
+              <div v-else class="ml-avatar" :style="{background:ml.avatarBg,color:ml.avatarColor||'var(--dim)'}">{{ ml.initials }}</div>
               <div style="flex:1;min-width:0">
                 <div style="display:flex;align-items:baseline;gap:6px"><span class="ml-from" :style="{fontWeight:ml.unread?700:400}">{{ ml.from }}</span><span class="ml-time">{{ ml.time }}</span></div>
                 <div class="ml-subj" :style="{color:ml.unread?'var(--text)':'var(--dim)'}">{{ ml.subject }}</div>
@@ -1778,8 +1911,15 @@ createApp({
     }
 
     const cpu=ref(23),cpuH=reactive([20,22,18,20,15,22,12,18,10,14,8,23,20,18,15,22,19,21,17,20]);
-    setInterval(()=>{const v=Math.max(5,Math.min(95,cpu.value+(Math.random()-.5)*12));cpu.value=v;cpuH.push(v);if(cpuH.length>20)cpuH.shift()},1000);
+    const memH=reactive([60,62,65,63,66,64,68,67,65,68,70,69,67,68,66,69,71,68,67,68]);
+    setInterval(()=>{const v=Math.max(5,Math.min(95,cpu.value+(Math.random()-.5)*12));cpu.value=v;cpuH.push(v);if(cpuH.length>20)cpuH.shift();const mv=Math.max(40,Math.min(90,memH[memH.length-1]+(Math.random()-.5)*4));memH.push(mv);if(memH.length>20)memH.shift()},1000);
     const spark=computed(()=>cpuH.map((v,i)=>`${i*(100/(cpuH.length-1))},${28-v*.28}`).join(' '));
+    const memSpark=computed(()=>memH.map((v,i)=>`${i*(100/(memH.length-1))},${28-v*.28}`).join(' '));
+
+    // Network sparkline data
+    const netH=reactive([15,18,22,20,24,19,23,25,21,18,20,24,22,26,20,18,24,22,20,24]);
+    setInterval(()=>{const v=Math.max(5,Math.min(40,netH[netH.length-1]+(Math.random()-.5)*8));netH.push(v);if(netH.length>20)netH.shift()},1200);
+    const netSpark=computed(()=>netH.map((v,i)=>`${i*(100/(netH.length-1))},${20-v*.5}`).join(' '));
 
     const timeStr=ref('');
     function uTime(){const d=new Date();timeStr.value=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
@@ -1816,10 +1956,10 @@ createApp({
 
     // Email mock data
     const emails=reactive([
-      {id:1,from:'Alex Chen',initials:'AC',avatarBg:'rgba(59,130,246,.2)',avatarColor:'var(--primary)',subject:'Re: Deployment pipeline update',preview:'Looks good to me, let\'s ship it after the standup...',time:'9:42 AM',unread:true},
-      {id:2,from:'Sarah Kim',initials:'SK',avatarBg:'rgba(34,197,94,.2)',avatarColor:'var(--success)',subject:'Q2 OKR draft for review',preview:'Hey, I\'ve updated the draft with the new targets...',time:'9:15 AM',unread:true},
-      {id:3,from:'GitHub',initials:'GH',avatarBg:'rgba(255,255,255,.08)',subject:'[openhort] PR #42 merged',preview:'feat: widget home screen with data flow visibility...',time:'8:30 AM',unread:true},
-      {id:4,from:'Lisa Wang',initials:'LW',avatarBg:'rgba(167,139,250,.2)',avatarColor:'var(--purple)',subject:'Slides for tomorrow',preview:'Attached the updated deck, please check slide 3...',time:'Yesterday',unread:false},
+      {id:1,from:'Alex Chen',initials:'AC',avatar:'hort/static/vendor/demo/face-alex.jpg',avatarBg:'rgba(59,130,246,.2)',avatarColor:'var(--primary)',subject:'Re: Deployment pipeline update',preview:'Looks good to me, let\'s ship it after the standup...',time:'9:42 AM',unread:true},
+      {id:2,from:'Sarah Kim',initials:'SK',avatar:'hort/static/vendor/demo/face-sarah.jpg',avatarBg:'rgba(34,197,94,.2)',avatarColor:'var(--success)',subject:'Q2 OKR draft for review',preview:'Hey, I\'ve updated the draft with the new targets...',time:'9:15 AM',unread:true},
+      {id:3,from:'GitHub',initials:'GH',avatar:null,avatarBg:'#24292f',avatarColor:'#fff',subject:'[openhort] PR #42 merged',preview:'feat: widget home screen with data flow visibility...',time:'8:30 AM',unread:true,isBot:true,botIcon:'ph-fill ph-github-logo'},
+      {id:4,from:'Lisa Wang',initials:'LW',avatar:'hort/static/vendor/demo/face-lisa.jpg',avatarBg:'rgba(167,139,250,.2)',avatarColor:'var(--purple)',subject:'Slides for tomorrow',preview:'Attached the updated deck, please check slide 3...',time:'Yesterday',unread:false},
       {id:5,from:'Jira',initials:'J',avatarBg:'rgba(59,130,246,.15)',subject:'HORT-128 moved to Done',preview:'Michael moved HORT-128 to Done column...',time:'Yesterday',unread:false},
     ]);
 
@@ -2869,7 +3009,7 @@ createApp({
       lensMode,lensWinSearch,lensFilterText,lensFilters,lensFilterSize,lensWinSize,lensScreens,filteredLensWindows,selectedLensWindows,lensAllFilterMatches,
       hortGroups,getHortGroup,getGroupedWidgets,desktopTints,widgetStyle,widgetGridStyle,viewportStyle,colOffset,
       gridCells,dragW,dragGhost,onDragStart,onDrop,onGridDragOver,onGridDrop,
-      desktops,activeDesktop,lemmingColor,trackStyle,getWidgets,cpu,spark,timeStr,llmings,catalog,filteredCatalog,activeCatData,dwResults,
+      desktops,activeDesktop,lemmingColor,trackStyle,getWidgets,cpu,spark,memSpark,netSpark,timeStr,llmings,catalog,filteredCatalog,activeCatData,dwResults,
       favWidgets,recentWidgets,
       selectedWidget,zoomedOut,overviewDrop,lpCircle,trackEl,vpEl,swipeDrag,ovCardW,ovCardH,ovScale,ovContentW,ovContentH,
       deviceView,activeDevice,devices,pullDown,deviceHeaderH,pageEls,
