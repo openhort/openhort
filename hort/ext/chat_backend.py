@@ -107,9 +107,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "recover at any time (server restart, device reconnect). Never assume a tool "
     "is permanently broken based on past failures.\n\n"
     "When reporting system info, give concrete numbers from the tool data. "
-    "Don't speculate or add disclaimers — just report what the tools return. "
-    "Example: 'CPU 34%, Memory 14.2/48 GB (81%), top processes: Chrome (12%), "
-    "node (8%), python (5%)' — not 'the tool shows some processes'."
+    "Don't speculate or add disclaimers — just report what the tools return."
 )
 
 _APPEND_PROMPT = (
@@ -481,28 +479,52 @@ class ChatBackendManager:
         logger.info("Container backend ready (image=%s)", image)
 
     def _build_prompt(self) -> None:
-        """Build the system prompt from the base prompt + SOUL.md sections."""
-        from hort.ext.skills import SoulSection, build_system_prompt
+        """Build the system prompt dynamically from all llming SOULs.
 
-        raw_data = self._bridge.load_skills()
-
-        all_preambles: list[str] = []
-        all_sections: list[Any] = []
-        for soul in raw_data:
-            if soul.get("preamble"):
-                all_preambles.append(soul["preamble"])
-            for s in soul.get("sections", []):
-                all_sections.append(SoulSection(**s))
-
-        combined_preamble = "\n\n".join(all_preambles)
+        Fetches SOUL texts from the main server (all llmings) and
+        appends them to the base prompt. No hardcoded tool mentions.
+        """
         base = self._base_prompt or DEFAULT_SYSTEM_PROMPT
-        self._system_prompt, self._disabled_tools = build_system_prompt(
-            combined_preamble, all_sections, base_prompt=base,
-        )
-        logger.info(
-            "System prompt built: %d sections, %d disabled tools, %d chars",
-            len(all_sections), len(self._disabled_tools), len(self._system_prompt),
-        )
+        parts = [base]
+
+        # Fetch SOULs from all llmings
+        try:
+            import httpx
+            resp = httpx.get("http://localhost:8940/api/debug/souls", timeout=5.0)
+            if resp.status_code == 200:
+                souls = resp.json()
+                for s in souls:
+                    parts.append(f"\n--- {s['llming']} ---\n{s['soul']}")
+                logger.info("System prompt: %d llming SOULs loaded", len(souls))
+        except Exception as exc:
+            logger.warning("Could not fetch SOULs: %s", exc)
+
+        # Also load SOUL.md sections from manifest (legacy path)
+        try:
+            from hort.ext.skills import SoulSection, build_system_prompt
+            raw_data = self._bridge.load_skills()
+            all_preambles: list[str] = []
+            all_sections: list[Any] = []
+            for soul in raw_data:
+                if soul.get("preamble"):
+                    all_preambles.append(soul["preamble"])
+                for sec in soul.get("sections", []):
+                    all_sections.append(SoulSection(**sec))
+            if all_preambles or all_sections:
+                combined = "\n\n".join(all_preambles)
+                base_with_souls = "\n\n".join(parts)
+                self._system_prompt, self._disabled_tools = build_system_prompt(
+                    combined, all_sections, base_prompt=base_with_souls,
+                )
+                logger.info("System prompt built: %d sections, %d chars",
+                            len(all_sections), len(self._system_prompt))
+                return
+        except Exception:
+            pass
+
+        self._system_prompt = "\n\n".join(parts)
+        self._disabled_tools = []
+        logger.info("System prompt built: %d chars", len(self._system_prompt))
 
     def stop(self) -> None:
         """Stop the MCP bridge, destroy container sessions, clear state."""

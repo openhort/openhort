@@ -552,6 +552,22 @@ def _register_routes(app: FastAPI) -> None:
                 })
         return tools
 
+    @app.get("/api/debug/souls")
+    async def debug_souls() -> list[dict[str, Any]]:
+        """Get all llming SOUL texts for system prompt building."""
+        from hort.llming.base import LlmingBase
+
+        if not hasattr(app.state, "llming_registry"):
+            return []
+        souls: list[dict[str, Any]] = []
+        for name, inst in app.state.llming_registry._instances.items():
+            if not isinstance(inst, LlmingBase):
+                continue
+            soul = inst.soul
+            if soul:
+                souls.append({"llming": name, "soul": soul})
+        return souls
+
     @app.post("/api/debug/eval")
     async def debug_eval(request: Request) -> dict[str, Any]:
         """Execute JS in the active browser session and return the result."""

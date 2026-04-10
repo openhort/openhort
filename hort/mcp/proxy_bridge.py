@@ -25,28 +25,48 @@ _SERVER_URL = "http://localhost:8940"
 
 
 class _ProxyProvider:
-    """Single MCP provider that proxies ALL tool calls to the main server."""
+    """Single MCP provider that proxies ALL tool calls to the main server.
 
-    def __init__(self, server_url: str, tools: list[dict[str, Any]]) -> None:
+    Tools are fetched LIVE on every get_mcp_tools() call — never cached.
+    This ensures new llmings, changed powers, and runtime state are
+    always reflected immediately.
+    """
+
+    def __init__(self, server_url: str) -> None:
         self._server_url = server_url
-        self._tools = tools
-        self._routing: dict[str, tuple[str, str]] = {}
-        for t in tools:
-            self._routing[t["name"]] = (t["_llming"], t["_power"])
+        self._tools_cache: list[dict[str, Any]] = []
+        self._cache_time: float = 0
 
     @property
     def plugin_id(self) -> str:
         return "openhort"
 
+    def _refresh_tools(self) -> list[dict[str, Any]]:
+        """Fetch current tools from the main server. Cached for 5 seconds."""
+        import time
+        now = time.monotonic()
+        if self._tools_cache and (now - self._cache_time) < 5.0:
+            return self._tools_cache
+        try:
+            import httpx
+            resp = httpx.get(f"{self._server_url}/api/debug/tools", timeout=5.0)
+            if resp.status_code == 200:
+                self._tools_cache = resp.json()
+                self._cache_time = now
+        except Exception:
+            pass  # use stale cache
+        return self._tools_cache
+
     def get_mcp_tools(self) -> list[Any]:
         from hort.ext.mcp import MCPToolDef
+        tools = self._refresh_tools()
         return [
             MCPToolDef(
                 name=f"{t['_llming']}__{t['_power']}",
                 description=f"[{t['_llming']}] {t['description']}",
                 input_schema=t.get("inputSchema", {}),
             )
-            for t in self._tools
+            for t in tools
         ]
 
     async def execute_mcp_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
@@ -96,27 +116,6 @@ class _ProxyProvider:
             )
 
 
-def fetch_tools(server_url: str = _SERVER_URL, retries: int = 30) -> list[dict[str, Any]]:
-    """Fetch all MCP tool definitions from the main server.
-
-    Retries until the server is ready (it starts in parallel with the bridge).
-    """
-    import time
-    import httpx as _httpx
-
-    for i in range(retries):
-        try:
-            resp = _httpx.get(f"{server_url}/api/debug/tools", timeout=5.0)
-            if resp.status_code == 200:
-                return resp.json()
-        except Exception:
-            pass
-        if i < retries - 1:
-            time.sleep(1)
-            if i == 0:
-                logger.info("Waiting for main server...")
-    logger.error("Failed to fetch tools after %d retries", retries)
-    return []
 
 
 def run_proxy_bridge(
@@ -132,8 +131,7 @@ def run_proxy_bridge(
     import asyncio
     from hort.mcp.bridge import MCPBridge, MCPSseServer, run_stdio
 
-    # Start with empty provider — tools loaded after server is ready
-    provider = _ProxyProvider(server_url, [])
+    provider = _ProxyProvider(server_url)
     bridge = MCPBridge([provider])
 
     if mode == "sse":
@@ -144,18 +142,14 @@ def run_proxy_bridge(
         logger.info("SSE server: http://localhost:%d/sse", server.port)
         logger.info("Container URL: http://host.docker.internal:%d/sse", server.port)
 
-        # Fetch tools in background (main server may not be ready yet)
-        async def _load_tools() -> None:
-            tools = await asyncio.get_event_loop().run_in_executor(None, fetch_tools, server_url)
-            provider._tools = tools
-            provider._routing = {}
-            for t in tools:
-                provider._routing[f"{t['_llming']}__{t['_power']}"] = (t["_llming"], t["_power"])
-            # Rebuild bridge's provider cache
-            bridge._providers = {provider.plugin_id: provider}
+        # Initial tool fetch (best-effort, will retry on first use)
+        async def _initial_fetch() -> None:
+            tools = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: provider._refresh_tools()
+            )
             logger.info("Bridge ready: %d tools from %s", len(tools), server_url)
 
-        loop.create_task(_load_tools())
+        loop.create_task(_initial_fetch())
         loop.run_forever()
     else:
         asyncio.run(run_stdio(bridge))

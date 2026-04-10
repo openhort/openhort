@@ -10,5 +10,6 @@
   "icon": "ph ph-video-camera",
   "author": "openhort",
   "llming_type": "tool",
-  "mcp": true
+  "mcp": true,
+  "soul": "SOUL.md"
 }
