@@ -102,6 +102,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 .widget{background:var(--surface);border-radius:14px;border:1.5px solid #2a4a6e;overflow:hidden;cursor:pointer;transition:border-color .25s;display:flex;flex-direction:column;position:relative}
 .widget:hover{border-color:#3d6a9a}
+.widget.buzzing{animation:widgetBuzz .4s ease-in-out 3}
+@keyframes widgetBuzz{0%,100%{transform:scale(1)}25%{transform:scale(1.02)}75%{transform:scale(.98)}}
 
 /* Page positioning */
 .page{position:relative;transition:background 0.3s ease}
@@ -509,8 +511,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .notif-container{position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:100;width:90%;max-width:420px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
 .notif-toast{position:relative;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:12px;cursor:pointer;animation:notifSlideIn .3s ease-out;transition:opacity .3s,transform .3s;pointer-events:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)}
 .notif-toast .notif-stripe{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:12px 0 0 12px}
-.notif-toast.critical{border-color:rgba(239,68,68,.4);animation:notifSlideIn .3s ease-out,notifPulse 2s infinite}
+.notif-toast.critical{border-color:rgba(239,68,68,.5);border-width:2px;animation:notifSlideIn .3s ease-out,notifPulse 1.5s infinite;padding:14px 16px}
+.notif-toast.critical .notif-stripe{width:6px}
 .notif-toast.high{border-color:rgba(245,158,11,.3)}
+/* Critical screen flash overlay */
+.critical-flash{position:fixed;inset:0;z-index:90;pointer-events:none;animation:critFlash 1s ease-out forwards}
+@keyframes critFlash{0%{background:rgba(239,68,68,.15)}30%{background:rgba(239,68,68,.08)}100%{background:transparent}}
 @keyframes notifSlideIn{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}
 @keyframes notifPulse{0%,100%{box-shadow:0 8px 24px rgba(0,0,0,.4)}50%{box-shadow:0 0 12px rgba(239,68,68,.25),0 8px 24px rgba(0,0,0,.4)}}
 .notif-more-badge{padding:4px 12px;border-radius:8px;background:var(--surface);border:1px solid var(--border);font-size:11px;color:var(--dim);text-align:center;pointer-events:auto;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3)}
@@ -549,6 +555,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 
   <div class="toast" v-if="toast">{{ toast }}</div>
+  <!-- Critical event screen flash -->
+  <div v-if="criticalFlash" class="critical-flash" :key="criticalFlash"></div>
 
   <!-- Navbar -->
   <div class="navbar">
@@ -647,7 +655,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <div v-if="dragGhost" class="drag-ghost" :style="dragGhost"></div>
           <!-- All widgets with explicit or auto positioning -->
           <template v-for="(w,wi) in getWidgets(desk)" :key="w.id">
-                <div class="widget" :class="['w-'+w.size,{selected:selectedWidget===w.id,dragging:dragW===w,'claude-thinking':w.type==='terminal'&&w.c.state==='thinking'}]"
+                <div class="widget" :class="['w-'+w.size,{selected:selectedWidget===w.id,dragging:dragW===w,'claude-thinking':w.type==='terminal'&&w.c.state==='thinking',buzzing:buzzingWidgets[w.extId]}]"
                      :style="widgetGridStyle(w,desk)"
                      :draggable="editMode" @dragstart="onDragStart($event,w,desk)" @dragover.prevent @drop="onDrop($event,w,desk)"
                      @click="!editMode&&onWidgetClick(w)" @contextmenu.prevent.stop="onWCtx($event,w,desk)"
@@ -1642,6 +1650,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="dsec">
           <div class="di" @click="deskIdx=0;drawer=false" style="font-weight:600"><i class="ph ph-house" style="color:var(--primary)"></i>Horts</div>
         </div>
+
+        <!-- Notification feed -->
+        <div class="dsec" v-if="notifications.length">
+          <div class="dsec-t">Notifications <span v-if="unreadNotifCount" style="background:var(--danger);color:#fff;padding:1px 6px;border-radius:8px;font-size:9px;margin-left:4px">{{ unreadNotifCount }}</span></div>
+          <div v-for="n in notifications.slice(0,8)" :key="n.id" class="di" @click="openNotifSource(n);drawer=false" :style="{opacity:n.read?.6:1}">
+            <i :class="n.sourceIcon" :style="{color:n.sourceColor}"></i>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :style="{fontWeight:n.read?400:600}">{{ n.title }}</div>
+              <div style="font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.message }}</div>
+            </div>
+            <span style="font-size:10px;color:var(--dim);flex-shrink:0">{{ notifTimeAgo(n.timestamp) }}</span>
+          </div>
+          <div v-if="notifications.length>8" class="di" style="justify-content:center;color:var(--dim);font-size:12px">+{{ notifications.length-8 }} more</div>
+          <div class="di" style="justify-content:center;color:var(--dim);font-size:12px" @click="clearAllNotifs()"><i class="ph ph-trash" style="font-size:14px"></i> Clear all</div>
+        </div>
+
         <div class="dsec">
           <div class="di" @click="showT('Settings...');drawer=false"><i class="ph ph-gear"></i>Settings</div>
           <div class="di" @click="showT('Help & Docs...');drawer=false"><i class="ph ph-question"></i>Help</div>
@@ -1883,6 +1907,7 @@ createApp({
     }
 
     // === Notification system ===
+    const criticalFlash=ref(0);
     const notifications=reactive([]);
     const notifId=ref(0);
     const notifMenuOpen=ref(false);
@@ -1922,11 +1947,20 @@ createApp({
         const existing=widgetBadges[opts.widgetExtId];
         if(existing){
           existing.count++;
-          // Escalate severity
           const order={critical:3,high:2,medium:1,low:0};
           if((order[opts.severity]||0)>(order[existing.severity]||0))existing.severity=opts.severity;
         }else{
           widgetBadges[opts.widgetExtId]={severity:opts.severity,count:1};
+        }
+        // Auto-switch desktop for critical/high events
+        if(opts.severity==='critical'){
+          switchToWidget(opts.widgetExtId,false);
+          criticalFlash.value++;
+        }else if(opts.severity==='high'){
+          switchToWidget(opts.widgetExtId,false);
+        }else{
+          // Just buzz if on the same desktop
+          buzzWidget(opts.widgetExtId);
         }
       }
     }
@@ -1936,16 +1970,33 @@ createApp({
       return widgetBadges[eid]||null;
     }
 
+    // Switch to the desktop containing a widget and optionally open it
+    function switchToWidget(extId,openDetail){
+      for(let di=0;di<desktops.length;di++){
+        const w=desktops[di].widgets.find(w=>w.extId===extId);
+        if(w){
+          deskIdx.value=di;
+          nextTick(()=>snapTrack());
+          // Buzz the widget
+          buzzWidget(extId);
+          if(openDetail)setTimeout(()=>{detailWidget.value=w},300);
+          return w;
+        }
+      }
+      return null;
+    }
+
+    // Widget buzz animation
+    const buzzingWidgets=reactive({});
+    function buzzWidget(extId){
+      buzzingWidgets[extId]=true;
+      setTimeout(()=>{delete buzzingWidgets[extId]},1500);
+    }
+
     function openNotifSource(n){
       n.visible=false;
       n.read=true;
-      // Find widget by extId and open detail
-      if(n.widgetExtId){
-        for(const d of desktops){
-          const w=d.widgets.find(w=>w.extId===n.widgetExtId);
-          if(w){detailWidget.value=w;break}
-        }
-      }
+      if(n.widgetExtId) switchToWidget(n.widgetExtId,true);
     }
 
     function clearAllNotifs(){
@@ -3209,7 +3260,8 @@ createApp({
       notifications,notifMenuOpen,visibleNotifs,unreadNotifCount,
       notifColor,notifTimeAgo,openNotifSource,getWidgetBadge,clearAllNotifs,
       simNotifIntruder,simNotifDoorbell,simNotifClaudeDone,simNotifTempAlert,
-      simNotifEmail,simNotifWashing,simNotifSong,simNotifBackup}
+      simNotifEmail,simNotifWashing,simNotifSong,simNotifBackup,
+      buzzingWidgets,criticalFlash}
   }
 }).mount('#app');
 </script>
