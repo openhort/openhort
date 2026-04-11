@@ -352,7 +352,7 @@
   HortExtension.promoteToFullscreen = function (id) {
     HortExtension.closeFloat(id);
     var provider = HortExtension.getProvider(id);
-    HortExtension.navigate('/' + provider + '/' + id);
+    HortExtension.navigate('/llming/' + provider + '/' + id);
   };
 
   HortExtension.toggleMinimize = function (id) {
@@ -598,7 +598,7 @@
    */
   HortExtension.openViewer = function (windowId, targetId) {
     var provider = HortExtension.getProvider('llming-lens');
-    var path = '/' + provider + '/llming-lens/screens/' + windowId;
+    var path = '/llming/' + provider + '/llming-lens/screens/' + windowId;
     if (targetId) path += '?target=' + encodeURIComponent(targetId);
     HortExtension.navigate(path);
   };
@@ -608,7 +608,8 @@
    * @param {string} terminalId
    */
   HortExtension.openTerminal = function (terminalId) {
-    HortExtension.navigate('/core/terminal/' + terminalId);
+    var provider = HortExtension.getProvider('terminal');
+    HortExtension.navigate('/llming/' + provider + '/terminal/' + terminalId);
   };
 
   /**
@@ -628,7 +629,7 @@
       }
     }
     var provider = HortExtension.getProvider(id);
-    var path = '/' + provider + '/' + id;
+    var path = '/llming/' + provider + '/' + id;
     if (sub != null) path += '/' + encodeURIComponent(String(sub));
     HortExtension.navigate(path);
   };

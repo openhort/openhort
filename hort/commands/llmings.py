@@ -110,3 +110,25 @@ async def llming_debug(controller: Any, name: str = "") -> dict[str, Any]:
         info["has_credentials"] = inst.credentials is not None
         info["soul_length"] = len(inst.soul) if inst.soul else 0
     return {"data": info}
+
+
+@router.handler("execute_power")
+async def llming_execute_power(
+    controller: Any, name: str = "", power: str = "", args: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Execute a power on a llming (for UI cards to call MCP tools)."""
+    from hort.llming.base import LlmingBase
+
+    registry = get_llming_registry()
+    if not registry:
+        return {"error": "no registry"}
+    inst = registry.get_instance(name)
+    if inst is None:
+        return {"error": f"llming '{name}' not found"}
+    if not isinstance(inst, LlmingBase):
+        return {"error": f"'{name}' is not a LlmingBase"}
+    try:
+        result = await inst.execute_power(power, args or {})
+        return {"name": name, "power": power, "result": result}
+    except Exception as e:
+        return {"error": str(e)}

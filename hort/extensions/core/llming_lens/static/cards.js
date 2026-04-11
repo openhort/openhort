@@ -183,7 +183,7 @@ class LlmingLensExt extends HortExtension {
         function onSelect(item) {
           if (item.id === 'windows') {
             // Open window overview (screens index)
-            HortExtension.navigate('/core/llming-lens/screens');
+            HortExtension.openLlming('llming-lens', 'screens');
           } else {
             HortExtension.openViewer(item.windowId);
           }

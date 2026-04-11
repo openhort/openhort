@@ -298,7 +298,8 @@ class LlmingRegistry:
         from hort.ext.scheduler import PluginScheduler
         from hort.ext.store import FilePluginStore
 
-        base_dir = Path("~/.hort/plugins").expanduser()
+        from hort.hort_config import hort_data_dir
+        base_dir = hort_data_dir() / "plugins"
         name = instance._instance_name
 
         instance._store = FilePluginStore(name, base_dir=base_dir)

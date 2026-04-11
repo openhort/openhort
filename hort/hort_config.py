@@ -23,6 +23,20 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def hort_data_dir() -> Path:
+    """Return the instance-specific data directory.
+
+    When ``HORT_INSTANCE_NAME`` is set, data is stored under
+    ``~/.hort/instances/{name}/`` to isolate multiple instances on one machine.
+    Otherwise falls back to ``~/.hort/`` (single-instance default).
+    """
+    import os
+    instance = os.environ.get("HORT_INSTANCE_NAME", "")
+    if instance:
+        return Path(f"~/.hort/instances/{instance}").expanduser()
+    return Path("~/.hort").expanduser()
+
+
 @dataclass
 class LlmingConfig:
     """Configuration for a single llming."""

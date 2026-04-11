@@ -39,7 +39,7 @@
       return { view: 'picker' };
     }
 
-    var m = cleanPath.match(/^\/([^/]+)\/([^/]+)(?:\/(.+))?$/);
+    var m = cleanPath.match(/^\/llming\/([^/]+)\/([^/]+)(?:\/(.+))?$/);
     if (m) {
       return {
         view: 'llming',
@@ -54,7 +54,7 @@
   }
 
   function buildPath(provider, name, sub, params) {
-    var p = _basePath + '/' + provider + '/' + name;
+    var p = _basePath + '/llming/' + provider + '/' + name;
     if (sub != null) p += '/' + String(sub);
     if (params) {
       var qs = typeof params === 'string' ? params
@@ -122,6 +122,10 @@
       // Migrate legacy hash URLs to clean paths
       if (location.hash && location.hash.length > 2) {
         var hashPath = location.hash.replace(/^#/, '');
+        // Add /llming prefix if missing
+        if (hashPath.match(/^\/[^/]+\/[^/]+/) && !hashPath.startsWith('/llming/')) {
+          hashPath = '/llming' + hashPath;
+        }
         history.replaceState(null, '', _basePath + hashPath);
       }
 

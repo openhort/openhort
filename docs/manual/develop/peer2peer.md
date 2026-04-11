@@ -265,6 +265,31 @@ To connect without authorization:
 2. Have a valid one-time token (expires in 60s, consumed on use)
 3. Beat the brute force backoff (exponential, up to 60s per attempt)
 
+### Multi-Instance Isolation
+
+When multiple openhort instances run on the same machine (e.g. dev + production
+on different ports), each instance must connect P2P viewers to its own local
+server, not a sibling instance.
+
+**Isolation layers:**
+
+| Layer | Mechanism | Prevents |
+|-------|-----------|----------|
+| Room ID | SHA-256 of bot token (unique per instance) | Signaling cross-talk |
+| Token store | In-memory per process | Token from instance A rejected by B |
+| DataChannel proxy | Reads `HORT_HTTP_PORT` env var | Traffic routed to correct local port |
+
+!!! warning "Historical bug (fixed)"
+    Prior to 2026-04-11, `DataChannelProxy` hard-coded `127.0.0.1:8940` as the
+    local target. On multi-instance setups, all P2P traffic was proxied to port
+    8940 regardless of which instance handled the signaling. The proxy now reads
+    `HORT_HTTP_PORT` from the environment to target the correct instance.
+
+The signaling layer (relay room + one-time token) was always instance-specific.
+The bug was in the data plane: after successful authentication, the proxy
+tunneled requests to the wrong port. The fix in `dc_proxy.py` ensures the proxy
+targets the port of the instance that owns the connection.
+
 ## Reconnect Tokens
 
 P2P connections survive page reloads and server restarts without requiring a new Telegram `/p2p` link.

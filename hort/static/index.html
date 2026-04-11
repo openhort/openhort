@@ -370,10 +370,14 @@
 
   async function fetchConnectors() {
     try {
-      const msg = await sendControlRequest({ type: 'connectors.list' });
-      const messaging = msg ? msg.data : {};
-      // Merge messaging into existing connectors (lan/cloud come from other sources)
-      state.connectors.messaging = messaging || {};
+      // Fetch LAN/cloud/messaging status via REST (fast, no WS needed)
+      const resp = await fetch(apiUrl('/api/connectors'));
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.lan) state.connectors.lan = data.lan;
+        if (data.cloud) state.connectors.cloud = data.cloud;
+        if (data.messaging) state.connectors.messaging = data.messaging;
+      }
     } catch {}
   }
 
@@ -482,7 +486,7 @@
           title: msg.title,
           alive: true,
         });
-        HortRouter.push('/core/terminal/' + encodeURIComponent(msg.terminal_id));
+        HortExtension.openTerminal(msg.terminal_id);
         break;
       case 'terminal_list':
         state.terminals = msg.terminals || [];
@@ -1525,7 +1529,10 @@
 
         // Update URL without stacking history (cycling windows)
         const qp = win.target_id ? '?target=' + encodeURIComponent(win.target_id) : '';
-        HortRouter.replace('/core/llming-lens/screens/' + win.window_id + qp);
+        const _curRoute = HortRouter.current();
+        if (_curRoute?.name) {
+          HortRouter.replace('/llming/' + _curRoute.provider + '/' + _curRoute.name + '/screens/' + win.window_id + qp);
+        }
 
         state.view = 'viewer';
         state.overviewOpen = false;
@@ -2013,7 +2020,7 @@
           case 'Escape': HortRouter.back(); e.preventDefault(); break;
           case 'f': applyAutoFit(); e.preventDefault(); break;
           case 'v': applyFitVertical(); e.preventDefault(); break;
-          case 'g': HortExtension.navigate('/core/llming-lens/screens'); e.preventDefault(); break;
+          case 'g': { const r = HortRouter.current(); if (r?.name) HortExtension.openLlming(r.name, 'screens'); e.preventDefault(); break; }
           case '1': jumpTo('left'); e.preventDefault(); break;
           case '2': jumpTo('center'); e.preventDefault(); break;
           case '3': jumpTo('right'); e.preventDefault(); break;
@@ -3234,7 +3241,7 @@
       }
 
       function openTerminal(terminalId) {
-        HortRouter.push('/core/terminal/' + encodeURIComponent(terminalId));
+        HortExtension.openTerminal(terminalId);
       }
 
       function openTmuxTerminal(terminalId) {
@@ -3682,7 +3689,7 @@
           </button>
           <button class="llming-action" @click="__hort?.viewerApplyAutoFit?.()" title="Auto-fit (F)"><i class="ph-bold ph-corners-out"></i></button>
           <button class="llming-action" @click="__hort?.viewerApplyFitVertical?.()" title="Fit vertical (V)"><i class="ph-bold ph-arrows-out-line-vertical"></i></button>
-          <button class="llming-action" @click="HortExtension.navigate('/core/llming-lens/screens')" title="Overview (G)"><i class="ph ph-squares-four"></i></button>
+          <button class="llming-action" @click="HortExtension.openLlming(HortRouter.current()?.name, 'screens')" title="Overview (G)"><i class="ph ph-squares-four"></i></button>
           <button class="llming-action" :class="{ active: state.settingsOpen }" @click.stop="state.settingsOpen = !state.settingsOpen" title="Settings"><i class="ph ph-gear-six"></i></button>
           <button class="llming-action hide-desktop" @click="__hort?.viewerToggleMobileKeyboard?.()" title="Toggle keyboard (K)"><i class="ph ph-keyboard"></i></button>
         </template>

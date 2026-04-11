@@ -167,7 +167,8 @@ class ExtensionRegistry:
             return
 
         name = manifest.name
-        base_dir = Path("~/.hort/plugins").expanduser()
+        from hort.hort_config import hort_data_dir
+        base_dir = hort_data_dir() / "plugins"
 
         instance._instance_name = name
         instance._class_name = name

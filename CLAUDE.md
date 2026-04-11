@@ -125,7 +125,8 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - [Cross-Platform Testing](docs/manual/develop/cross-platform-testing.md) — Azure VM provisioning, E2E testing, distribution strategy
 - [Distribution & Installation](docs/manual/develop/distribution.md) — pipx/Docker/deb packaging, `hort setup` wizard, macOS .app bundle for Screen Recording
 - [Client Apps](docs/manual/develop/client-apps.md) — native WebView wrappers, deep linking (`openhort://`), QR scanner, native bridge protocol (`nav.update`), P2P auto-reconnect, theme delegation
-- [SPA Navigation](docs/manual/develop/spa-navigation.md) — History API router, unified toolbar, clean URLs (`/{provider}/{name}/{sub}`), llming sub-pages, back-button guard, deep-link reload, server catch-all
+- [SPA Navigation](docs/manual/develop/spa-navigation.md) — History API router, unified toolbar, clean URLs (`/llming/{provider}/{name}/{sub}`), llming sub-pages, back-button guard, deep-link reload, server catch-all
+- [Multi-Instance Isolation](docs/manual/develop/multi-instance.md) — `HORT_INSTANCE_NAME`, `hort_data_dir()`, per-instance data dirs, P2P port isolation, zero cross-instance interference
 - [Llmings](docs/manual/develop/llmings.md) — panel architecture, shared components, plugin lifecycle
 - [Access Server](docs/manual/develop/access-server.md) — remote proxy, Azure deployment, tunnel protocol
 - [Container Environments](docs/manual/develop/containers.md) — Docker/Azure container management, preview panel
