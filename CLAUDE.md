@@ -352,11 +352,8 @@ Startup must complete in <3s. Connector starts are non-blocking background tasks
 - **Credentials are ephemeral** — provisioned in-memory via the control channel. Never persisted to disk inside containers.
 - **`hort/envoy/`** — Envoy server, protocol, and host client code.
 ### Subprocess Isolation
-- **All llming code lives in `llmings/`** — separate package, NOT imported by the main process
-- **IPC protocol** (`hort/lifecycle/ipc_protocol.py`) — newline-delimited JSON over Unix sockets
-- **Runner** (`hort/lifecycle/runner.py`) — subprocess entry point, loads any llming by manifest
-- **LlmingProcess + LlmingProxy** (`hort/lifecycle/llming_process.py`) — host-side management, drop-in Llming replacement
-- Platform providers (macos_windows, linux_native, etc.) remain in-process for latency
+- See [Llming Isolation](docs/manual/internals/llming-isolation.md) — group-based process model, IPC protocol, runner, proxy
+- See [Card API](docs/manual/develop/card-api.md) — push-based pulses, vault/scrolls/power access from JS
 
 ### Debugging Stale Processes
 When the server behaves unexpectedly (old code running, Telegram conflicts, port busy):

@@ -69,6 +69,7 @@ class ExtensionManifest(BaseModel):
     homepage: str = ""
     icon: str = ""  # Phosphor icon class (e.g. "ph ph-thermometer")
     llming_type: str = ""  # "platform", "connector", "monitor", "tool", ""
+    group: str = ""  # Process group (e.g. "core.systeminfo"). Empty = own process.
 
     @property
     def plugin_type(self) -> str:
@@ -99,3 +100,9 @@ class ExtensionManifest(BaseModel):
 
     # === Dependencies ===
     depends_on: list[str] = Field(default_factory=list)
+
+    # === Pulse channels ===
+    publishes: list[str] = Field(default_factory=list)  # Channels this llming emits on
+
+    # === Cross-llming access ===
+    reads_vaults: list[str] = Field(default_factory=list)  # Other llmings' vaults this can read

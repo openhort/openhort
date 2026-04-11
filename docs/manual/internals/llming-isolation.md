@@ -1,8 +1,9 @@
 # Llming Isolation
 
-Every llming runs in its own subprocess. No exceptions. A community
-llming CANNOT access another llming's memory, credentials, or imports.
-The main hort process is a pure router — it never loads llming code.
+Llmings run in subprocesses, grouped by `group` field in the manifest.
+Llmings in the same group share a process. Llmings without a group get
+their own process. The main hort process is a pure router — it never
+loads llming code.
 
 ## Why
 
@@ -11,10 +12,44 @@ In-process llmings share Python memory. Any llming can:
 - Read globals, singletons, registries
 - Access credentials from the OS keychain
 - Monkey-patch framework internals
+- Block the entire server with a synchronous call
 
-Subprocess isolation eliminates all of this. Each llming runs in its
+Subprocess isolation eliminates all of this. Each group runs in its
 own Python process with its own memory space. The only way to interact
-with the outside world is through the defined protocol.
+with the outside world is through IPC.
+
+## Process Groups
+
+Llmings declare a `group` in their manifest. Llmings in the same group
+share a subprocess. Llmings without a group get their own process.
+
+```json
+// system-monitor/manifest.json
+{"name": "system-monitor", "group": "core.systeminfo", ...}
+
+// disk-usage/manifest.json
+{"name": "disk-usage", "group": "core.systeminfo", ...}
+
+// network-monitor/manifest.json
+{"name": "network-monitor", "group": "core.systeminfo", ...}
+
+// telegram-connector/manifest.json (no group = own process)
+{"name": "telegram-connector", ...}
+```
+
+Result:
+
+| Process | Llmings |
+|---------|---------|
+| `core.systeminfo` | system-monitor, disk-usage, network-monitor, process-manager |
+| `core.media` | llming-cam, llming-lens, screenshot-capture |
+| `core.comms` | telegram-connector, llming-wire |
+| (own process) | hue-bridge |
+| (own process) | peer2peer |
+| (container) | community-plugin |
+
+**Within a group**: llmings share memory, can call each other directly.
+**Across groups**: all communication goes through IPC to the main process.
 
 ## Architecture
 
@@ -24,27 +59,37 @@ graph TB
         Router["Router"]
         WS["WebSocket server"]
         HTTP["HTTP API"]
+        Tick["Tick channels"]
     end
 
-    subgraph Llming1["subprocess: system-monitor"]
-        L1["Llming instance"]
+    subgraph G1["subprocess: core.systeminfo"]
+        L1a["system-monitor"]
+        L1b["disk-usage"]
+        L1c["network-monitor"]
     end
 
-    subgraph Llming2["subprocess: telegram"]
-        L2["Llming instance"]
+    subgraph G2["subprocess: core.media"]
+        L2a["llming-cam"]
+        L2b["llming-lens"]
     end
 
-    subgraph Llming3["container: community-plugin"]
-        L3["Llming instance"]
-        E3["Envoy"]
-        L3 --- E3
+    subgraph G3["subprocess: telegram"]
+        L3["telegram-connector"]
     end
 
-    Router -->|IPC| L1
-    Router -->|IPC| L2
-    Router -->|"Envoy wire"| E3
+    subgraph G4["container: community-plugin"]
+        L4["Llming instance"]
+        E4["Envoy"]
+        L4 --- E4
+    end
+
+    Router -->|IPC| G1
+    Router -->|IPC| G2
+    Router -->|IPC| G3
+    Router -->|"Envoy wire"| E4
     WS --> Router
     HTTP --> Router
+    Tick --> Router
 ```
 
 The main process NEVER imports llming code. It only knows:
@@ -82,46 +127,44 @@ Nothing else. No shared memory, no shared imports, no shared globals.
 
 ### Llming → Llming (via router)
 
-Llmings never talk directly. All cross-llming communication goes
-through the router, which enforces access levels:
+Cross-group communication goes through the router:
 
+```python
+# In Python (same group = direct, cross-group = IPC)
+result = await self.llmings["hue-bridge"].call("set_light", {"id": "1", "on": True})
+data = await self.vaults["system-monitor"].read("latest")
+
+# In JS (card API, always through server WS)
+const result = await this.call("set_light", {id: "1", on: true}, "hue-bridge");
+const data = await this.vaultRead("latest", "system-monitor");
 ```
-Llming A → pulse_emit("cpu", {value: 42}, access="public")
-  → Router checks: public → broadcast to all subscribers
-  → Llming B receives pulse (if subscribed)
 
-Llming A → storage_read("llming-b", "metrics", {key: "cpu"})
-  → Router checks: vault group = "shared", wire allows A → B
-  → Router reads from B's storage, returns to A
-```
-
-## The Five Parts Over IPC
-
-Each of the five llming parts works over the IPC boundary:
-
-### Soul
-- Main reads `SOUL.md` from the llming's directory
-- Injected into AI system prompts by the main process
-- The llming subprocess never touches the Soul directly
+## Powers, Pulses, Storage Over IPC
 
 ### Powers
-- Llming declares powers at startup via `register_powers`
-- Main exposes them as MCP tools, WS commands, or REST endpoints
-- When called, main sends `execute_power` over IPC
-- Llming executes, returns result over IPC
-- The main never runs power code — it only routes
+- Defined with `@power` decorator — framework auto-discovers and routes
+- Main registers them as MCP tools + WS commands
+- Calls routed: WS → main → IPC → subprocess → execute → IPC → main → WS
 
-### Pulse
-- Llming declares pulse fields with access levels via `register_pulses`
-- Llming pushes state updates via `pulse_update`
-- Main stores latest state, broadcasts to subscribers
-- Other llmings subscribe via the router (access levels enforced)
-- Pulse routing into storage happens in the main process
+### Pulses
+- Push-only named channels. `await self.emit("channel", data)`
+- Main broadcasts to subscribed viewers via WS push
+- Python llmings subscribe with `@on("channel")` decorator
+- JS cards subscribe with `this.subscribe("channel", handler)`
+- **Pulses can NEVER be read** — subscribe or miss them
+
+### Vaults / Storage
+- Each llming has own storage (scrolls + crates)
+- `self.save("key", data)` / `self.load("key")` for own vault
+- `self.vaults["other"].read("key")` for cross-llming reads
+- JS: `this.vaultRead("key")` / `this.vaultWrite("key", data)`
+- Cross-group reads go through IPC, permissions from manifest
 
 ### Cards
-- Llming serves static JS/CSS from its directory (main mounts as /ext/)
-- Card data (for thumbnails, live updates) sent via `card_update` over IPC
-- The JS (`LlmingClient`) runs in the browser, not in the subprocess
+- Static JS/CSS served from llming directory (main mounts as `/ext/`)
+- Cards subscribe to pulses and read vaults via the card API
+- Card API goes through the control WebSocket (WS → main → response)
+- See [Card API](../develop/card-api.md)
 - Card code has NO access to the llming's Python — only to data pushed via IPC
 
 ### Envoy
@@ -168,47 +211,48 @@ decides which credentials each llming gets based on the config.
 llmings:
   system-monitor:
     tier: subprocess        # default for all llmings
-  
-  telegram-connector:
-    tier: subprocess        # same default
+    group: core.systeminfo  # optional — share process with other llmings
   
   community-weather:
     tier: container         # untrusted, full sandbox
     container:
       image: weather-llming:latest
       memory: 256m
-      network: restricted   # can only reach weather API
+      network: restricted
 ```
 
-There is no `in-process` tier. ALL llmings run in subprocesses.
-The only difference is subprocess (trusted, local filesystem) vs
-container (untrusted, Docker sandbox).
+Two tiers: subprocess (trusted, local filesystem) and container
+(untrusted, Docker sandbox). Group is optional — llmings without
+a group get their own subprocess.
 
 ## Startup Sequence
 
 ```
-1. Main process starts
-2. Reads manifests from all llming directories
-3. Spawns one subprocess per llming
-4. Each subprocess:
-   a. Imports and instantiates the Llming class
+1. Main process starts, opens port immediately (<3s)
+2. Reads manifests from llmings/ directory
+3. Groups llmings by manifest `group` field
+4. Spawns one subprocess per group (+ one per ungrouped llming)
+5. Each subprocess:
+   a. Loads all llmings in its group
    b. Connects to main via IPC
-   c. Sends register_powers + register_pulses
-   d. Main sends activate with config
-   e. Llming runs activate(), starts background tasks
-5. Main is ready — all powers/pulses registered, router active
+   c. Sends register_powers for all llmings
+   d. Main sends activate with config for each
+   e. Llmings run activate()
+6. Main wires @on subscriptions and fires initial tick channels
+7. llming:started events emitted for each llming
+8. @on_ready handlers fire when all dependencies are ready
 ```
 
 ## Hot Reload
 
 ```
 1. File change detected in llming's directory
-2. Main sends deactivate to THAT llming's subprocess
+2. Main sends deactivate to THAT group's subprocess
 3. Wait for clean shutdown (5s)
 4. Kill subprocess
-5. Spawn new subprocess with updated code
-6. Re-register powers/pulses
-7. Other llmings unaffected
+5. Spawn new subprocess with updated code for entire group
+6. Re-register powers
+7. Other groups unaffected
 ```
 
 Only the changed llming restarts. The main process never restarts
