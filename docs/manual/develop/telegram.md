@@ -191,7 +191,7 @@ The bot constructs the Mini App URL dynamically with config via query parameters
 
 ```python
 # Remote access (signaling through Telegram)
-url = f"https://openhort.github.io/openhort/hort/extensions/core/peer2peer/static/viewer.html?signal=telegram"
+url = f"https://openhort.github.io/openhort/llmings/core/peer2peer/static/viewer.html?signal=telegram"
 
 # LAN access (direct HTTP to server)
 url = f"https://192.168.1.10:8950/p2p?signal=http"
@@ -214,7 +214,7 @@ The viewer HTML must be served over HTTPS. GitHub Pages is free and takes 30 sec
 The viewer is then available at:
 
 ```
-https://openhort.github.io/openhort/hort/extensions/core/peer2peer/static/viewer.html
+https://openhort.github.io/openhort/llmings/core/peer2peer/static/viewer.html
 ```
 
 !!! note "Why not raw.githubusercontent.com?"
@@ -231,7 +231,7 @@ from aiogram.types import MenuButtonWebApp, WebAppInfo
 await bot.set_chat_menu_button(
     menu_button=MenuButtonWebApp(
         text="Open openhort",
-        web_app=WebAppInfo(url="https://openhort.github.io/openhort/hort/extensions/core/peer2peer/static/viewer.html?signal=telegram")
+        web_app=WebAppInfo(url="https://openhort.github.io/openhort/llmings/core/peer2peer/static/viewer.html?signal=telegram")
     )
 )
 ```
@@ -244,7 +244,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 keyboard = InlineKeyboardMarkup(inline_keyboard=[[
     InlineKeyboardButton(
         text="Open openhort",
-        web_app=WebAppInfo(url="https://openhort.github.io/openhort/hort/extensions/core/peer2peer/static/viewer.html?signal=telegram")
+        web_app=WebAppInfo(url="https://openhort.github.io/openhort/llmings/core/peer2peer/static/viewer.html?signal=telegram")
     )
 ]])
 await message.answer("Tap to connect:", reply_markup=keyboard)
@@ -323,10 +323,10 @@ def validate_init_data(init_data: str, bot_token: str) -> bool:
 
 | File | Purpose |
 |------|---------|
-| `hort/extensions/core/telegram_connector/provider.py` | Bot setup, polling, commands |
-| `hort/extensions/core/telegram_connector/static/panel.js` | Settings panel UI |
+| `llmings/core/telegram_connector/provider.py` | Bot setup, polling, commands |
+| `llmings/core/telegram_connector/static/panel.js` | Settings panel UI |
 | `hort/peer2peer/webrtc.py` | aiortc WebRTC peer |
-| `hort/extensions/core/peer2peer/static/viewer.html` | P2P viewer (Telegram Mini App and standalone) |
+| `llmings/core/peer2peer/static/viewer.html` | P2P viewer (Telegram Mini App and standalone) |
 
 ## Related
 

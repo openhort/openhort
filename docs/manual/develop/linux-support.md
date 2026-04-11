@@ -46,8 +46,8 @@ openhort has two distinct Linux extensions for different use cases:
 
 | Extension | Directory | Use Case | How It Works |
 |-----------|-----------|----------|--------------|
-| **linux-native** | `hort/extensions/core/linux_native/` | Server runs **on** Linux | Calls X11 tools directly via `subprocess` |
-| **linux-windows** | `hort/extensions/core/linux_windows/` | Server runs on **macOS**, controls a Linux container | Calls X11 tools via `docker exec` |
+| **linux-native** | `llmings/core/linux_native/` | Server runs **on** Linux | Calls X11 tools directly via `subprocess` |
+| **linux-windows** | `llmings/core/linux_windows/` | Server runs on **macOS**, controls a Linux container | Calls X11 tools via `docker exec` |
 
 ```mermaid
 flowchart LR
@@ -176,7 +176,7 @@ When `sys.platform == "linux"`, the server's `_register_targets()` automatically
 
 ```python title="hort/app.py"
 if sys.platform == "linux":
-    from hort.extensions.core.linux_native.provider import LinuxNativeExtension
+    from llmings.core.linux_native.provider import LinuxNativeExtension
     ext = LinuxNativeExtension()
     ext.activate({})
     registry.register(
@@ -192,8 +192,8 @@ This mirrors the macOS path which registers `local-macos` with `MacOSWindowsExte
 
 | File | Purpose |
 |------|---------|
-| `hort/extensions/core/linux_native/provider.py` | `LinuxNativeExtension` — native X11 platform provider |
-| `hort/extensions/core/linux_native/extension.json` | Extension manifest (`platforms: ["linux"]`) |
+| `llmings/core/linux_native/provider.py` | `LinuxNativeExtension` — native X11 platform provider |
+| `llmings/core/linux_native/extension.json` | Extension manifest (`platforms: ["linux"]`) |
 | `deploy/linux/Dockerfile` | Ubuntu 24.04 server image |
 | `deploy/linux/entrypoint.sh` | Xvfb + fluxbox + server startup |
 | `deploy/linux/docker-compose.yml` | One-command deployment |

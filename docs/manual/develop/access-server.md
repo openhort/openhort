@@ -322,7 +322,7 @@ The QR code is generated server-side via the `/api/qr?url=...` endpoint (uses `q
 
 ## Cloud Connector UI
 
-The cloud connector panel (`hort/extensions/core/cloud_connector/static/panel.js`) is a `HortExtension` that provides:
+The cloud connector panel (`llmings/core/cloud_connector/static/panel.js`) is a `HortExtension` that provides:
 
 - **Connection status:** green/red dot showing tunnel state
 - **Three tabs** (when connected):

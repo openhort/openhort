@@ -288,13 +288,13 @@ sequenceDiagram
 
 ```bash
 # List all sessions
-poetry run python -m hort.extensions.claude_chat --list-sessions
+poetry run python -m llmings.claude_chat --list-sessions
 
 # Destroy a specific session
-poetry run python -m hort.extensions.claude_chat --destroy-session abc123
+poetry run python -m llmings.claude_chat --destroy-session abc123
 
 # Run all cleanup policies
-poetry run python -m hort.extensions.claude_chat --cleanup
+poetry run python -m llmings.claude_chat --cleanup
 ```
 
 ## Metadata Storage
@@ -350,7 +350,7 @@ metadata (e.g., Claude's conversation session ID for resume).
 ### Basic sandboxed chat
 
 ```bash
-poetry run python -m hort.extensions.claude_chat --container
+poetry run python -m llmings.claude_chat --container
 # Prints: Session abc123def456
 # Chat normally, then Ctrl-C
 # Prints: Session preserved: --session abc123def456
@@ -359,7 +359,7 @@ poetry run python -m hort.extensions.claude_chat --container
 ### Resume a previous session
 
 ```bash
-poetry run python -m hort.extensions.claude_chat -c --session abc123def456
+poetry run python -m llmings.claude_chat -c --session abc123def456
 # Workspace files from previous session are still there
 # Claude conversation resumes automatically
 ```
@@ -367,7 +367,7 @@ poetry run python -m hort.extensions.claude_chat -c --session abc123def456
 ### Custom resource limits
 
 ```bash
-poetry run python -m hort.extensions.claude_chat -c \
+poetry run python -m llmings.claude_chat -c \
   --memory 2g --cpus 4 --model opus
 ```
 
@@ -415,7 +415,7 @@ hort/sandbox/                          ← Core (any extension can use)
   mcp.py           — MCP server config, tool filtering
   mcp_proxy.py     — SSE proxy for outside-container MCPs
 
-hort/extensions/claude_chat/           ← Claude extension
+llmings/claude_chat/           ← Claude extension
   auth.py          — get_oauth_token (macOS Keychain)
   chat.py          — interactive chat loop
   Dockerfile       — layered image (base → Claude CLI → user)

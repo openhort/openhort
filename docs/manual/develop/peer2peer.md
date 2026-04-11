@@ -119,7 +119,7 @@ sequenceDiagram
 
 ## Viewer Architecture
 
-The viewer (`hort/extensions/core/peer2peer/static/viewer.html`) is deployed to `openhort.ai/p2p/viewer.html` via Cloudflare Pages. It is a **thin transparent proxy** containing only:
+The viewer (`llmings/core/peer2peer/static/viewer.html`) is deployed to `openhort.ai/p2p/viewer.html` via Cloudflare Pages. It is a **thin transparent proxy** containing only:
 
 ```mermaid
 flowchart LR
@@ -1091,7 +1091,7 @@ Framework-agnostic — no openhort extension dependencies.
 | `video_track.py` | `ScreenCaptureTrack` + `WebMEncoder` — VP8/VP9 video |
 | `webm_stream.py` | `WebMStreamer` — VP8/VP9 WebM over WebSocket (proxy mode) |
 
-## Extension (`hort/extensions/core/peer2peer/`)
+## Extension (`llmings/core/peer2peer/`)
 
 | File | Purpose |
 |------|---------|

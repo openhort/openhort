@@ -12,7 +12,7 @@ hort/sandbox/                      ← CORE (covered by main test suite)
   mcp.py               — MCP server config, scope resolution, tool filtering
   mcp_proxy.py         — SSE proxy for outside-container MCPs + tool filtering
 
-hort/extensions/claude_chat/       ← EXTENSION (Claude-specific)
+llmings/claude_chat/       ← EXTENSION (Claude-specific)
   __init__.py          — package marker
   __main__.py          — CLI entry point (argparse + session management)
   chat.py              — main chat loop, _build_args(), local vs container

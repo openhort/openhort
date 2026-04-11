@@ -527,7 +527,7 @@ flowchart LR
 | `deploy/linux/Dockerfile` | Docker distribution (Linux) |
 | `deploy/linux/docker-compose.yml` | One-command Docker deployment |
 | `deploy/linux/entrypoint.sh` | Container startup (Xvfb + server) |
-| `hort/extensions/core/linux_native/` | Native Linux platform provider |
-| `hort/extensions/core/peer2peer/azure_vm.py` | Existing Azure VM provisioning (reusable) |
+| `llmings/core/linux_native/` | Native Linux platform provider |
+| `llmings/core/peer2peer/azure_vm.py` | Existing Azure VM provisioning (reusable) |
 | `scripts/deploy-access.sh` | Azure App Service deployment (reference) |
 | `tests/test_e2e_remote.py` | Cross-platform E2E tests (to be created) |

@@ -6,7 +6,7 @@ Developer reference for the `openhort/code-watch` llming — tmux session manage
 
 ```
 hort/tmux.py                              Core tmux operations
-hort/extensions/core/code_watch/
+llmings/core/code_watch/
     extension.json                        Manifest (MCP, groups, risk level)
     provider.py                           MCP tools + get_status() + state detector bridge
     detect.py                             Claude Code state machine

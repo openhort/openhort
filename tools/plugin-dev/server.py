@@ -4,7 +4,7 @@ Usage:
     poetry run python tools/plugin-dev/server.py <plugin_path>
 
 Example:
-    poetry run python tools/plugin-dev/server.py hort/extensions/core/system_monitor
+    poetry run python tools/plugin-dev/server.py llmings/core/system_monitor
 
 Features:
 - Loads a single plugin from disk (Python + JS)
@@ -598,7 +598,7 @@ app.mount('#app');
 def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: python tools/plugin-dev/server.py <plugin_path>")
-        print("Example: python tools/plugin-dev/server.py hort/extensions/core/system_monitor")
+        print("Example: python tools/plugin-dev/server.py llmings/core/system_monitor")
         sys.exit(1)
 
     plugin_dir = Path(sys.argv[1]).resolve()

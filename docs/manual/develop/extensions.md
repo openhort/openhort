@@ -15,7 +15,7 @@ The openhort extension system makes every platform-specific capability replaceab
 ## Directory Layout
 
 ```
-hort/extensions/                    # Built-in extensions (shipped with the package)
+llmings/                    # Built-in extensions (shipped with the package)
   core/
     <extension_name>/
       extension.json                # Manifest
@@ -23,7 +23,7 @@ hort/extensions/                    # Built-in extensions (shipped with the pack
       provider.py                   # Entry point module
       static/                       # Optional client-side assets
 
-~/.hort/extensions/                 # Third-party extensions (future, separate repo)
+~/.llmings/                 # Third-party extensions (future, separate repo)
   <provider>/
     <extension_name>/
       extension.json
@@ -35,7 +35,7 @@ The `provider` directory is a namespace that identifies who maintains the extens
 **Current layout:**
 
 ```
-hort/extensions/
+llmings/
   core/
     macos_windows/                  # macOS window management (Quartz + SkyLight)
       extension.json
@@ -743,7 +743,7 @@ openhort-extensions/          # external repo
 ### Fetching & Caching
 
 ```
-~/.hort/extensions/           # cached extensions
+~/.llmings/           # cached extensions
   core/
     macos_windows@0.1.0/
   community/
@@ -795,9 +795,9 @@ The reference platform extension. Provides all four platform capabilities on mac
 | `PlatformProvider` | `hort/ext/types.py` | Unified ABC combining all platform capabilities |
 | Manifest model | `hort/ext/manifest.py` | Pydantic model for `extension.json` |
 | Registry | `hort/ext/registry.py` | Discovery, loading, capability resolution |
-| Built-in extensions | `hort/extensions/core/<name>/` | Shipped with the package |
-| Core macOS ext | `hort/extensions/core/macos_windows/` | macOS platform implementation |
-| Core Linux ext | `hort/extensions/core/linux_windows/` | Linux container platform implementation |
+| Built-in extensions | `llmings/core/<name>/` | Shipped with the package |
+| Core macOS ext | `llmings/core/macos_windows/` | macOS platform implementation |
+| Core Linux ext | `llmings/core/linux_windows/` | Linux container platform implementation |
 
 ## Deep-Link URLs
 

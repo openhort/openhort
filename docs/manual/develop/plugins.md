@@ -1,24 +1,67 @@
-# Plugin Ecosystem
+# Llming Development
 
-## Overview
+!!! warning "This page is being rewritten"
+    The content below describes the **legacy plugin system** (PluginBase, mixins).
+    The current system uses the **unified Llming API** with `@power` decorators,
+    typed models, and named pulse channels. See CLAUDE.md for the current API.
 
-The openhort plugin system turns the remote viewer into an extensible platform. Plugins can monitor systems, display widgets, process intents (photos, GPS, files), provide AI tools via MCP, and run background jobs — all with isolated storage, sandboxed routes, and a unified UI.
+## Current Architecture (v3)
 
-**Design principles:**
+All llming code lives in `llmings/` (separate from `hort/` framework). Each llming runs in its own subprocess.
 
-1. **Composable** — a plugin is any combination of UI, backend, scheduler, MCP, documents, intents
-2. **Isolated** — each plugin has its own data store, file store, config, routes, and scheduler
-3. **Testable** — every plugin is testable standalone via `PluginTestHarness`, no server needed
-4. **Dynamic** — plugins can be loaded/unloaded at runtime (if no extra Python deps)
-5. **Backward compatible** — existing `ExtensionBase` extensions keep working unchanged
+### Minimal Llming
 
-## Quick Start
+```
+llmings/core/my_llming/
+  manifest.json
+  __init__.py
+  provider.py
+  static/cards.js       # optional UI
+  SOUL.md               # optional AI prompt
+```
+
+```python
+# provider.py
+from hort.llming import Llming, power, on, PowerOutput
+
+class MyLlming(Llming):
+    @power("get_status", description="Get current status")
+    async def get_status(self) -> StatusResponse:
+        return StatusResponse(value=42)
+
+    @power("cpu", description="CPU usage", command="/cpu")
+    async def cpu_command(self) -> str:
+        return f"CPU: {self._cpu}%"
+
+    @on("tick:1hz")
+    async def poll(self, data: dict) -> None:
+        self._cpu = get_cpu()
+        self.save("latest", {"cpu": self._cpu})
+```
+
+### Key Concepts
+
+- **`@power`** — declares a power (MCP tool by default, `mcp=False` to hide). No manual `get_powers()` or `execute_power()`.
+- **`@on`** — subscribes to a named pulse channel. Built-in: `tick:10hz`, `tick:1hz`, `tick:slow`, `llming:started`, `llming:stopped`.
+- **`@on_ready`** — fires when dependencies are loaded.
+- **`PowerOutput(code=200)`** — HTTP status codes for responses.
+- **`self.save/load`** — one-liner storage with defaults.
+- **`self.llmings["name"].call()`** — cross-llming power calls.
+- **`self.vaults["name"].read()`** — read other llmings' shared data.
+
+---
+
+## Legacy Plugin System (v1/v2)
+
+!!! note "The content below describes the old system and is kept for reference during migration."
+
+## Quick Start (Legacy)
 
 ### Minimal Backend Plugin
 
 ```
-hort/extensions/core/my_plugin/
-  extension.json
+llmings/core/my_plugin/
+  manifest.json
   __init__.py
   provider.py
 ```
@@ -52,7 +95,7 @@ class MyPlugin(PluginBase):
 ### Minimal UI-Only Plugin
 
 ```
-hort/extensions/core/my_widget/
+llmings/core/my_widget/
   extension.json
   __init__.py
   static/
@@ -132,7 +175,7 @@ A plugin can be any combination of these roles:
 ### Directory Layout
 
 ```
-hort/extensions/                    # Built-in extensions (shipped with package)
+llmings/                    # Built-in extensions (shipped with package)
   core/
     <plugin_name>/
       extension.json                # Manifest (required)
@@ -142,7 +185,7 @@ hort/extensions/                    # Built-in extensions (shipped with package)
         panel.js                    # HortExtension subclass
       tests/                        # Plugin-specific tests (optional)
 
-~/.hort/extensions/                 # User-installed extensions (future)
+~/.llmings/                 # User-installed extensions (future)
   <provider>/
     <plugin_name>/
       extension.json
@@ -579,7 +622,7 @@ Add `"soul": "SOUL.md"` to `extension.json`:
 ### File layout
 
 ```
-hort/extensions/core/my_plugin/
+llmings/core/my_plugin/
   extension.json
   provider.py
   SOUL.md          ← agent instructions
@@ -1247,7 +1290,7 @@ Rendering priority: `html` → `markdown` → `text`. If HTML sending fails, `se
 
 ### Creating a New Connector
 
-1. Create an extension directory under `hort/extensions/core/` (e.g. `discord_connector/`)
+1. Create an extension directory under `llmings/core/` (e.g. `discord_connector/`)
 2. Inherit from both `PluginBase` and `ConnectorBase`
 3. Implement the required abstract members:
    - `connector_id` (property) — unique ID string like `"discord"`

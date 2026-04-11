@@ -5,7 +5,7 @@ Developer reference for the `openhort/llming-wire` extension — built-in chat U
 ## Module Structure
 
 ```
-hort/extensions/core/llming_wire/
+llmings/core/llming_wire/
     extension.json                 Manifest (UI widget, risk level)
     provider.py                    REST API + chat backend routing
     __init__.py

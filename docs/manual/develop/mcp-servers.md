@@ -327,7 +327,7 @@ Give Claude file reading but block writes and deletes:
 === "Inline"
 
     ```bash
-    poetry run python -m hort.extensions.claude_chat \
+    poetry run python -m llmings.claude_chat \
       --mcp "fs=npx -y @anthropic/mcp-filesystem /home/user/project" \
       --mcp-config <(echo '{"mcpServers":{"fs":{"command":"npx","args":["-y","@anthropic/mcp-filesystem","/home/user/project"],"toolFilter":{"deny":["write_file","create_directory","move_file"]}}}}')
     ```
@@ -368,7 +368,7 @@ Claude runs in a container but queries a database on the host:
 ```
 
 ```bash
-poetry run python -m hort.extensions.claude_chat \
+poetry run python -m llmings.claude_chat \
   --container --memory 1g --cpus 2 \
   --mcp-config db-config.json
 ```
@@ -409,7 +409,7 @@ hort/sandbox/
   mcp.py           — config models, parsing, scope resolution, filtering
   mcp_proxy.py     — McpSseProxy (stdio↔SSE bridge), ProxyManager
 
-hort/extensions/claude_chat/
+llmings/claude_chat/
   chat.py          — integrates MCP setup into the chat loop
 ```
 

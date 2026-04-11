@@ -237,20 +237,21 @@ llmings:
 
 ## Isolation: No Direct Imports
 
-Llmings CANNOT import each other's code:
+All llming code lives in `llmings/` (separate package). The main process never imports from it. Each llming runs in its own subprocess.
 
 ```python
 # FORBIDDEN — direct coupling
-from hort.extensions.core.system_monitor.provider import SystemMonitor
+from llmings.core.system_monitor.provider import SystemMonitor
 
-# ALLOWED — message bus
-cpu = await self.call("system-monitor", "get_cpu_status", {"include_per_core": True})
+# ALLOWED — call powers via handle
+result = await self.llmings["system-monitor"].call("get_metrics")
 
-# ALLOWED — pulse subscription
-self.subscribe("system-monitor", "cpu_spike", self._on_cpu_spike)
+# ALLOWED — subscribe to named channels
+@on("cpu_spike")
+async def handle_spike(self, data: dict) -> None: ...
 
-# ALLOWED — pulse read
-pulse = await self.read_pulse("system-monitor")
+# ALLOWED — read shared vault data
+data = await self.vaults["system-monitor"].read("latest_metrics")
 ```
 
 ### Inter-Llming Communication

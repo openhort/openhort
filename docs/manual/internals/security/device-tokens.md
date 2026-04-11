@@ -120,5 +120,5 @@ credentials), but no new sessions can be established.
 |------|---------|
 | `hort/peer2peer/device_tokens.py` | `DeviceTokenStore` — MongoDB-backed CRUD + verification |
 | `hort/peer2peer/relay_poller.py` | `RelayPoller` — HTTP polling + temporary WebSocket for SDP |
-| `hort/extensions/core/peer2peer/provider.py` | `/pair` and `/devices` Telegram commands |
+| `llmings/core/peer2peer/provider.py` | `/pair` and `/devices` Telegram commands |
 | `www_openhort_ai/workers/relay/index.js` | Cloudflare Worker — HTTP mailbox endpoints |

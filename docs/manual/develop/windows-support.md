@@ -258,7 +258,7 @@ Use `scp` for direct file sync instead of git push/pull cycles:
 scp hort/termd_client.py hortuser@<IP>:C:/openhort/src/hort/termd_client.py
 
 # Sync entire directory
-scp -r hort/extensions/core/windows_native/ hortuser@<IP>:C:/openhort/src/hort/extensions/core/windows_native/
+scp -r llmings/core/windows_native/ hortuser@<IP>:C:/openhort/src/llmings/core/windows_native/
 ```
 
 After syncing, reinstall the editable package if module structure changed:
@@ -327,7 +327,7 @@ When `sys.platform == "win32"`, the server automatically registers a `local-wind
 
 ```python title="hort/app.py"
 if sys.platform == "win32":
-    from hort.extensions.core.windows_native.provider import WindowsNativeExtension
+    from llmings.core.windows_native.provider import WindowsNativeExtension
     ext = WindowsNativeExtension()
     ext.activate({})
     registry.register(
@@ -358,7 +358,7 @@ if sys.platform == "win32":
 
 | File | Purpose |
 |------|---------|
-| `hort/extensions/core/windows_native/provider.py` | `WindowsNativeExtension` — Win32 platform provider |
-| `hort/extensions/core/windows_native/extension.json` | Extension manifest (`platforms: ["win32"]`) |
+| `llmings/core/windows_native/provider.py` | `WindowsNativeExtension` — Win32 platform provider |
+| `llmings/core/windows_native/extension.json` | Extension manifest (`platforms: ["win32"]`) |
 | `scripts/ci/setup-windows.ps1` | PowerShell setup for Azure VMs |
 | `scripts/ci/spinup.sh` | One-command VM provisioning (includes Windows) |

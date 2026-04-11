@@ -14,7 +14,7 @@ flowchart LR
         API --> Store["ConversationStore"]
     end
 
-    subgraph Extensions ["hort/extensions/llms/"]
+    subgraph Extensions ["llmings/llms/"]
         CLI --> CC["claude_code\nClaudeCodeProvider"]
         API --> LA["llming_api\nLlmingProvider"]
         CLI -.-> CX["codex (future)"]
@@ -228,35 +228,35 @@ base image. The base layer (~200 MB) is cached and shared.
 
 ## CLI Reference
 
-### Claude Code (`hort.extensions.llms.claude_code`)
+### Claude Code (`llmings.llms.claude_code`)
 
 ```bash
-poetry run python -m hort.extensions.llms.claude_code
-poetry run python -m hort.extensions.llms.claude_code -c --memory 1g
-poetry run python -m hort.extensions.llms.claude_code -c --session <id>
-poetry run python -m hort.extensions.llms.claude_code --mcp "fs=npx ..."
+poetry run python -m llmings.llms.claude_code
+poetry run python -m llmings.llms.claude_code -c --memory 1g
+poetry run python -m llmings.llms.claude_code -c --session <id>
+poetry run python -m llmings.llms.claude_code --mcp "fs=npx ..."
 ```
 
-### llming API (`hort.extensions.llms.llming_api`)
+### llming API (`llmings.llms.llming_api`)
 
 ```bash
 # Local mode (API key from env)
-poetry run python -m hort.extensions.llms.llming_api -m claude_haiku
+poetry run python -m llmings.llms.llming_api -m claude_haiku
 
 # Container mode (key isolated via secret_env)
-poetry run python -m hort.extensions.llms.llming_api -c --api-key sk-...
+poetry run python -m llmings.llms.llming_api -c --api-key sk-...
 
 # Resume conversation
-poetry run python -m hort.extensions.llms.llming_api --conversation <id>
+poetry run python -m llmings.llms.llming_api --conversation <id>
 
 # Container + MCP
-poetry run python -m hort.extensions.llms.llming_api -c \
+poetry run python -m llmings.llms.llming_api -c \
   --mcp "db=npx -y @anthropic/mcp-postgres"
 
 # Management
-poetry run python -m hort.extensions.llms.llming_api --list-conversations
-poetry run python -m hort.extensions.llms.llming_api --list-sessions
-poetry run python -m hort.extensions.llms.llming_api --cleanup
+poetry run python -m llmings.llms.llming_api --list-conversations
+poetry run python -m llmings.llms.llming_api --list-sessions
+poetry run python -m llmings.llms.llming_api --cleanup
 ```
 
 ## Module Structure
@@ -275,11 +275,11 @@ hort/sandbox/                              Core infrastructure
   mcp_proxy.py      SSE proxy for outside-container MCPs
   Dockerfile        Base sandbox image
 
-hort/extensions/llms/claude_code/          Claude Code CLI
+llmings/llms/claude_code/          Claude Code CLI
   provider.py       ClaudeCodeProvider(CLIProvider)
   Dockerfile        FROM base + claude-code
 
-hort/extensions/llms/llming_api/           llming-models SDK
+llmings/llms/llming_api/           llming-models SDK
   provider.py       LlmingProvider(APIProvider)
   container_entry.py  In-container entrypoint (streams JSON)
   Dockerfile        FROM base + llming-models

@@ -3,7 +3,7 @@
 Run explicitly with an API key:
 
     ANTHROPIC_API_KEY=sk-... poetry run pytest \
-        hort/extensions/llms/llming_models_ext/tests/ -v -m integration
+        llmings/llms/llming_models_ext/tests/ -v -m integration
 """
 
 from __future__ import annotations

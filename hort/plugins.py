@@ -107,9 +107,26 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
                     )
                     inst._scheduler.start_job(spec, fn)
 
-        # Start ConnectorBase instances (legacy — will be removed)
-        from hort.ext.connectors import ConnectorBase
-        if isinstance(inst, ConnectorBase) and hasattr(inst, "start"):
+        # Track as ready and emit lifecycle pulse
+        ready_set.add(name)
+        await bus.emit_channel("llming:started", {"name": name})
+
+    # Wire command registry for ConnectorBase instances (legacy)
+    from hort.ext.connectors import CommandRegistry, ConnectorBase, SYSTEM_COMMANDS
+    cmd_registry = CommandRegistry()
+    _global_cmd_registry[0] = cmd_registry
+    cmd_registry.register_system(SYSTEM_COMMANDS)
+    for name, inst in registry._instances.items():
+        if isinstance(inst, Llming) and not isinstance(inst, ConnectorBase):
+            commands = inst.get_connector_commands()
+            if commands:
+                cmd_registry.register_llming(name, inst, commands)
+
+    # Start ConnectorBase instances in background
+    for name, inst in registry._instances.items():
+        if isinstance(inst, ConnectorBase):
+            inst.set_command_registry(cmd_registry)
+
             async def _start_bg(n: str, c: Any) -> None:
                 try:
                     await c.start()
@@ -117,10 +134,6 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
                 except Exception as e:
                     logger.error("Failed to start connector %s: %s", n, e)
             asyncio.create_task(_start_bg(name, inst))
-
-        # Track as ready and emit lifecycle pulse
-        ready_set.add(name)
-        await bus.emit_channel("llming:started", {"name": name})
 
     # Fire @on_ready handlers whose dependencies are all met
     for deps, handler in ready_waiters:
@@ -130,7 +143,7 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
             except Exception:
                 logger.exception("on_ready handler failed")
 
-    logger.info("Llmings started (%d instances)", len(ready_set))
+    logger.info("Llmings started (%d instances, %d commands registered)", len(ready_set), len(cmd_registry._commands) if hasattr(cmd_registry, '_commands') else 0)
 
     # Apply power settings from config
     try:
@@ -165,6 +178,14 @@ async def _tick_loop(bus: Any) -> None:
         # tick:slow — every 50th tick (5s)
         if counter % 50 == 0:
             await bus.emit_channel("tick:slow", {"ts": now})
+
+
+_global_cmd_registry: list = [None]  # mutable container for the singleton
+
+
+def get_command_registry():
+    """Get the global command registry (available after llming startup)."""
+    return _global_cmd_registry[0]
 
 
 # Backward-compatible alias

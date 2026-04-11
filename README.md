@@ -226,9 +226,9 @@ The extension system makes platform capabilities replaceable and composable. See
 
 Key concepts:
 - **`PlatformProvider`** — unified ABC for window listing, capture, input, workspaces
-- **`ExtensionBase`** — lifecycle hooks (`activate`/`deactivate`) for all extensions
-- **`HortExtension`** (JS) — client-side extension base for Quasar UI panels
-- Built-in extensions live in `hort/extensions/core/`
+- **`Llming`** — unified base class with `@power` decorators, `@on` pulse subscriptions, typed I/O
+- **`LlmingClient`** (JS) — client-side extension base for Quasar UI panels
+- Built-in llmings live in `llmings/core/` (separate from the `hort/` framework)
 
 ## Quality
 

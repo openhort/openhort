@@ -4,10 +4,10 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 
 ## Terminology
 
-- **Llming** — an extension unit. The universal building block. Has up to five parts: Soul, Powers, Pulse, Cards, Envoy. Server class: `Llming` (`hort/llming/base.py`). Client class: `LlmingClient` (`hort/static/vendor/hort-ext.js`).
+- **Llming** — an extension unit. The universal building block. Has up to five parts: Soul, Powers, Pulse, Cards, Envoy. Server class: `Llming` (`hort/llming/base.py`). Client class: `LlmingClient` (`hort/static/vendor/hort-ext.js`). All llming code lives in `llmings/` (separate from the `hort/` framework package). Each llming runs in its own subprocess.
 - **Soul** (`SOUL.md`) — what a Llming knows and how it behaves. Markdown file with feature-gated sections. Injected into the AI system prompt.
-- **Powers** — what a Llming can do. Three types: MCP (AI tools), COMMAND (slash commands), ACTION (typed Python functions).
-- **Pulse** — what a Llming radiates. Live state (readable) + events (subscribable). Like Redis pub/sub.
+- **Powers** — what a Llming can do. Defined with `@power` decorator, auto-routed by the framework. Every power is an MCP tool by default (`mcp=False` to hide). Input/output are Pydantic models (`PowerInput`/`PowerOutput`). `PowerOutput` uses HTTP status codes (200/403/404/500). No manual `get_powers()` or `execute_power()` dispatch needed.
+- **Pulse** — named channel events. Push-only (`self.emit("channel", data)`), subscribe with `@on("channel")` decorator or `self.channels["channel"].subscribe(handler)` at runtime. `get_pulse()` exists for UI thumbnail rendering only — NOT for cross-llming data. Built-in tick channels: `tick:10hz`, `tick:1hz`, `tick:slow`. Lifecycle events: `llming:started`, `llming:stopped`.
 - **Cards** — how a Llming looks. Grid thumbnails, detail panels, widgets, float windows.
 - **Envoy** — the Llming's execution agent inside a sub-hort (container/VM/remote machine). Runs locally inside the isolation boundary. Handles MCP (stdio + SSE, SDK-agnostic), process management, credential provisioning, and streaming output. Speaks H2H protocol over stdio/TCP. Works with any MCP client (Claude Code, OpenAI, Anthropic SDK). openhort can also run as a standalone MCP reverse proxy with policy enforcement. See [Envoy Architecture](docs/manual/internals/envoy-architecture.md).
 - **Circuits** — visual flow editor for wiring Llmings, triggers, and actions into automated workflows (`/hortmap`).
@@ -41,17 +41,18 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/spaces.py` — macOS Spaces detection and switching (SkyLight)
 - `hort/network.py` — LAN IP detection, QR code generation
 - `hort/cert.py` — Self-signed TLS certificate generation
-- `hort/llming/` — Llming framework (`Llming` base class, registry, powers, pulse bus)
+- `hort/llming/` — Llming framework: `base.py` (Llming class), `decorators.py` (`@power`, `@on`, `@on_ready`), `models.py` (`PowerInput`, `PowerOutput`, `PulseEvent`), `handles.py` (self.llmings, self.vaults, self.channels), `llm_executor.py` (LlmExecutor base for LLM providers), `powers.py`, `pulse.py` (named channel bus), `bus.py` (MessageBus + power_catalog)
+- `hort/lifecycle/` — Subprocess isolation: `manager.py` (ManagedProcess), `worker.py` (Worker base), `runner.py` (llming subprocess entry point), `llming_process.py` (LlmingProcess + LlmingProxy), `ipc_protocol.py` (IPC message types)
 - `hort/envoy/` — Envoy agent (MCP stdio server, control channel, host client)
-- `hort/ext/` — Llming framework internals (types, manifest, registry, scheduler, store)
+- `hort/ext/` — Framework internals: `registry.py` (extension discovery/loading), `manifest.py`, `scheduler.py`, `store.py`, `claude_auth.py` (cross-platform credential extraction)
 - `hort/containers/` — Container management (base ABC, Docker provider, registry)
-- `hort/ext/connectors.py` — Connector framework (ConnectorBase, CommandRegistry, ConnectorMixin)
-- `hort/ext/chat_backend.py` — Chat backend (routes messages to Claude Code, MCP bridge, credential refresh)
+- `hort/ext/chat_backend.py` — Chat backend (routes messages to LLM executor, MCP bridge)
 - `hort/commands/` — WS command modules (llmings, config, cam, wire, debug, sources)
-- `hort/plugins.py` — Llming lifecycle (discovery, loading, scheduler/connector startup, shutdown)
-- `hort/extensions/core/` — Built-in platform extensions (macOS, Linux, LAN/Cloud/Telegram connectors)
+- `hort/plugins.py` — Llming lifecycle (discovery, loading, @on wiring, non-blocking startup, tick channels)
+- `llmings/` — ALL llming implementations (separate package, NOT part of hort). Main process never imports from here.
+- `llmings/core/` — Built-in llmings (system-monitor, telegram, hue-bridge, peer2peer, etc.)
+- `llmings/llms/` — LLM executor llmings (claude_code, llming_models_ext)
 - `hort/peer2peer/` — Reusable P2P hole punching library (STUN, signaling ABC, punch coordinator, UDP tunnel)
-- `hort/extensions/core/peer2peer/` — P2P extension (Azure VM provisioning, connector commands, MCP tools)
 - `hort/access/` — Remote access proxy server (Azure deployment, tunnel protocol, token auth)
 - `hort/access/docker-compose.yml` — Docker Compose for local dev and Azure deployment
 - `hort/static/index.html` — Quasar/Vue 3 mobile-first UI
@@ -162,6 +163,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 ## Critical Rules
 
+- **NEVER claim the server is working without verifying in a real browser.** curl checks are NOT sufficient. Use Playwright headless to load the dashboard, verify WebSocket connects, thumbnails render, and pages navigate. At minimum: take a screenshot of the main grid showing live thumbnails. If Playwright is unavailable, use Chrome MCP tools. API-only checks (curl, httpie) do NOT verify the frontend — the SPA may fail to load, WebSockets may not connect, or Cards JS may error silently.
 - **NEVER commit personal info, credentials, or identifiable data.** No real usernames, email addresses, API keys, tokens, registry hostnames, or organization names in code, config examples, docs, or test fixtures. Use generic placeholders (`alice_dev`, `user@example.com`, `yourregistry.azurecr.io`). The only exception is the LICENSE file copyright.
 - **NEVER expose internal errors to users.** Stack traces, docker commands, container IDs, file paths, Python exceptions — NONE of this may ever appear in Telegram messages, web chat responses, API responses to unauthenticated clients, or any user-facing channel. Catch all exceptions and return safe generic messages ("Something went wrong. Try again."). Full details go to logs only. See [Error Handling](docs/manual/internals/security/error-handling.md).
 - **Sandbox containers run until hort stops.** Containers are created on first use and persist across messages. On `hort stop` or status bar quit, ALL sandbox containers (`ohsb-*`) are stopped and removed. On `hort start`, orphaned containers from crashes are cleaned up. Never create containers eagerly at startup.
@@ -183,7 +185,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 ## Quality Standards
 
-- 100% test coverage (`pytest --cov=hort`, excludes `hort/extensions/` and `hort/terminal.py` which are integration-tested)
+- 100% test coverage (`pytest --cov=hort`, excludes `llmings/` and `hort/terminal.py` which are integration-tested)
 - mypy strict on `hort/` (tests excluded)
 - Pydantic v2 for all data models
 - OS-level Quartz wrappers isolated behind `_raw_*` functions for testability
@@ -276,42 +278,85 @@ bash scripts/deploy-access.sh
 - **Service worker:** Never register SW when proxied (`_basePath` set). Old cached SWs must be manually unregistered.
 - **Llming scripts:** Script URLs from `/api/llmings` must be prefixed with `basePath` for proxy routing.
 
-### Llming Architecture Rules
-- **`activate()` always called** — even without config (receives `{}`). Initialize all instance vars here.
-- **`on_viewer_connect(session_id, controller)`** — called when a browser viewer connects. Use for browser-side resource init (e.g., browser cameras).
-- **`on_viewer_disconnect(session_id)`** — called when a viewer disconnects. Clean up viewer-specific resources.
-- **Live data in memory** — never write volatile metrics to disk. Use `self._latest`, `self._history`.
-- **Disk for persistence only** — clipboard entries, user config, saved tokens.
-- **No locks** — `LocalBlobStore` uses atomic file writes (`tempfile + os.replace`). No threading.Lock (deadlocks on hot-reload).
-- **Thumbnail data flow:** Python `get_pulse()` → JS `_feedStore()` → `renderThumbnail()` → canvas → grid card.
+### Llming API — Powers, Pulses, Storage
+
+**Defining powers** — use `@power` decorator, no manual routing:
+```python
+from hort.llming import Llming, power, PowerOutput
+
+class MyLlming(Llming):
+    @power("get_metrics", description="Get system metrics")
+    async def get_metrics(self) -> MetricsResponse:
+        return MetricsResponse(cpu=42.0)
+
+    @power("cpu", description="CPU usage", command="/cpu")
+    async def cpu_command(self) -> str:
+        return f"CPU: {self._cpu}%"
+
+    @power("internal", description="Not for AI", mcp=False)
+    async def internal(self) -> PowerOutput:
+        return PowerOutput(code=200, message="done")
+```
+
+**Data models** — all cross-boundary data is typed and versioned:
+- `PowerInput(version=1)` — power request parameters
+- `PowerOutput(version=1, code=200)` — HTTP-like status codes (200/403/404/500), `.ok` property
+- `PulseEvent(version=1)` — named channel event payloads
+- All inherit from `LlmingData(version=1)`
+
+**Pulse channels** — push-only named channels, subscribe with `@on`:
+```python
+@on("cpu_spike")
+async def handle_spike(self, data: dict) -> None: ...
+
+@on("tick:1hz")
+async def poll(self, data: dict) -> None: ...
+
+# Or at runtime:
+self.channels["cpu_spike"].subscribe(self.handler)
+```
+
+**Cross-llming communication:**
+```python
+result = await self.llmings["system-monitor"].call("get_metrics")
+data = await self.vaults["system-monitor"].read("latest_metrics")
+catalog = await self.discover("system-monitor")
+```
+
+**Storage one-liners:**
+```python
+self.save("key", {"cpu": 42})
+data = self.load("key", default={"cpu": 0})
+```
+
+**LlmExecutor** — base class for LLM providers (Claude Code, Codex, etc.). Session lifecycle: `create_session` → `send_message` → `end_session`. All are standard Powers callable by any llming.
 
 ### Llming Lifecycle (startup/shutdown)
 ```
 create_app()          → setup_llmings() discovers manifests, registers API routes (NO loading)
-on_event("startup")   → load_llmings_sync() → start_llmings() → schedulers → connectors
-on_event("shutdown")  → stop_llmings() → stop connectors → stop schedulers
+on_event("startup")   → load_llmings_sync() → start_llmings():
+                          1. Build @power handler maps
+                          2. Wire @on subscriptions
+                          3. Start scheduler jobs
+                          4. Start connectors (background tasks)
+                          5. Fire @on_ready handlers
+                          6. Emit llming:started events
+                          7. Start tick channels (tick:10hz, tick:1hz, tick:slow)
+on_event("shutdown")  → stop_llmings() → emit llming:stopped → deactivate all
 ```
-This ensures each llming is loaded exactly once and cleaned up on shutdown. With `--reload`, the old worker shuts down cleanly before the new one starts.
+Startup must complete in <3s. Connector starts are non-blocking background tasks.
 
 ### Envoy (container execution)
 - **MCP is always local** — Envoy runs inside the container as an MCP stdio server. No network hop for tool discovery.
 - **Tools are dynamic** — host pushes current tool definitions before each LLM invocation. No caching, no stale state.
 - **Credentials are ephemeral** — provisioned in-memory via the control channel. Never persisted to disk inside containers.
-- **`ChatBackendManager` is a singleton** — all connectors (Wire, Telegram) share one instance via `get_chat_manager()`. Multiple managers = multiple bridges = port conflicts.
 - **`hort/envoy/`** — Envoy server, protocol, and host client code.
-
-### Connector Framework
-- **Files:** `hort/ext/connectors.py` (framework), `hort/extensions/core/telegram_connector/` (Telegram impl)
-- **Classes:** `ConnectorBase` (abstract connector), `ConnectorMixin` (llming commands), `CommandRegistry` (routing), `ConnectorResponse` (multi-format response)
-- **System commands** (help, status, link, etc.) defined in the connector provider — llmings CANNOT override them
-- **Llming commands** registered via `ConnectorMixin.get_connector_commands()` on any `Llming` subclass
-- **Response fallback:** `render_text()` picks best format for the connector (HTML → Markdown → plain text). `send_response()` auto-falls back to plain text on parse failure.
-- **Telegram specifics:**
-  - Use **HTML** (`<b>bold</b>`) not Markdown v1 (`*bold*`) — Markdown v1 breaks on em-dashes and `/` characters
-  - `delete_webhook(drop_pending_updates=True)` before polling to claim exclusive access (prevents conflicts on restart)
-  - Retry logic (5 attempts with backoff) for `TelegramConflictError`
-  - Requires `TELEGRAM_BOT_TOKEN` env var; ACL via `allowed_users` config
-- **UI panels:** Each connector has `static/cards.js` extending `LlmingClient`, using `connector-panel` CSS classes (same pattern as LAN/Cloud panels)
+### Subprocess Isolation
+- **All llming code lives in `llmings/`** — separate package, NOT imported by the main process
+- **IPC protocol** (`hort/lifecycle/ipc_protocol.py`) — newline-delimited JSON over Unix sockets
+- **Runner** (`hort/lifecycle/runner.py`) — subprocess entry point, loads any llming by manifest
+- **LlmingProcess + LlmingProxy** (`hort/lifecycle/llming_process.py`) — host-side management, drop-in Llming replacement
+- Platform providers (macos_windows, linux_native, etc.) remain in-process for latency
 
 ### Debugging Stale Processes
 When the server behaves unexpectedly (old code running, Telegram conflicts, port busy):
@@ -342,29 +387,23 @@ Provider interfaces and conversation management for both CLI-executed LLMs (Clau
 Key files: `hort/llm/{base,cli_provider,api_provider,history}.py`
 Tests: `poetry run pytest tests/test_llm*.py -v`
 
-## Claude Code Extension (hort/extensions/llms/claude_code/)
+## LLM Executors (llmings/core/claude_code/, llmings/llms/)
 
-First LLM extension — Claude Code CLI. Extends `CLIProvider`. Others (Mistral, Gemini, Codex) follow the same pattern.
+LLM providers are standard llmings extending `LlmExecutor`. Session lifecycle: `create_session` → `send_message` → `end_session`. All are Powers — callable by any llming or connector.
+
+**Claude Code** (`llmings/core/claude_code/`) — `ClaudeCodeExecutor(LlmExecutor)`. Wraps Claude Code CLI.
+**llming-models** (`llmings/llms/llming_models_ext/`) — `LlmingModelsExecutor(LlmExecutor)`. Multi-provider SDK (Anthropic, OpenAI, Mistral).
+
+Anyone can create a new LLM executor (e.g. Codex) by extending `LlmExecutor` and implementing `_send()`.
 
 ```bash
-# Local chat
-poetry run python -m hort.extensions.llms.claude_code
-
-# Container chat (sandboxed, auth from macOS Keychain)
-poetry run python -m hort.extensions.llms.claude_code --container
-
-# Container with resource limits + MCP servers
-poetry run python -m hort.extensions.llms.claude_code -c --memory 512m --cpus 2 \
-  --mcp "fs=npx -y @anthropic/mcp-filesystem /tmp"
-
-# Session management
-poetry run python -m hort.extensions.llms.claude_code --list-sessions
-poetry run python -m hort.extensions.llms.claude_code -c --session <id>  # resume
-poetry run python -m hort.extensions.llms.claude_code --cleanup
+# CLI chat
+poetry run python -m llmings.llms.claude_code
+poetry run python -m llmings.llms.claude_code --container
 ```
 
-Key files: `hort/extensions/llms/claude_code/{provider,chat,stream,typewriter,auth}.py`
-Tests: `poetry run pytest hort/extensions/llms/claude_code/tests/ -v`
+Key files: `llmings/core/claude_code/{provider,auth,stream,typewriter}.py`, `llmings/llms/llming_models_ext/provider.py`
+Tests: `poetry run pytest tests/test_llm_executor.py -v`
 
 ## Documentation Site
 
