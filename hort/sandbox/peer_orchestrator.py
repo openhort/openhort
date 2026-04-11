@@ -204,7 +204,7 @@ class PeerOrchestrator:
     def run(self) -> None:
         """Main entry point — set up containers, run collaboration, clean up."""
         from hort.sandbox import SessionConfig, SessionManager
-        from hort.extensions.core.claude_code.auth import get_oauth_token
+        from hort.ext.claude_auth import get_oauth_token
 
         token = get_oauth_token()
         mgr = SessionManager()
@@ -214,8 +214,8 @@ class PeerOrchestrator:
         claude_image = "openhort-sandbox-claude:latest"
         if not mgr.image_ready(claude_image):
             claude_dir = str(
-                Path(__file__).resolve().parent.parent
-                / "extensions" / "llms" / "claude_code"
+                Path(__file__).resolve().parent.parent.parent
+                / "llmings" / "llms" / "claude_code"
             )
             mgr.build_image(claude_image, claude_dir)
 

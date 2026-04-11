@@ -11,19 +11,19 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from hort.extensions.core.screen_watcher.capture import (
+from llmings.core.screen_watcher.capture import (
     crop_region,
     frame_hash,
     frames_differ,
 )
-from hort.extensions.core.screen_watcher.models import (
+from llmings.core.screen_watcher.models import (
     REGION_PRESETS,
     RegionConfig,
     ScreenWatcherConfig,
     WatchRule,
     resolve_region,
 )
-from hort.extensions.core.screen_watcher.provider import ScreenWatcher
+from llmings.core.screen_watcher.provider import ScreenWatcher
 from hort.signals.models import Signal
 
 

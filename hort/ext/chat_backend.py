@@ -52,7 +52,7 @@ def _get_claude_api_key(force: bool = False) -> str:
         return _cached_api_key
 
     try:
-        from hort.extensions.core.claude_code.auth import get_api_key
+        from hort.ext.claude_auth import get_api_key
         key = get_api_key()
         if key:
             _cached_api_key = key
@@ -649,8 +649,8 @@ class ChatBackendManager:
         image = self._agent_cfg.image
         if not self._session_manager.image_ready(image):
             dockerfile_dir = str(
-                Path(__file__).resolve().parent.parent
-                / "extensions" / "llms" / "claude_code"
+                Path(__file__).resolve().parent.parent.parent
+                / "llmings" / "llms" / "claude_code"
             )
             self._session_manager.build_image(image, dockerfile_dir)
         logger.info("Container backend ready (image=%s)", image)

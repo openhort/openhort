@@ -110,6 +110,17 @@ class ConnectorCommand:
     system: bool = False  # True = cannot be overridden by plugins
 
 
+# System commands available in all connectors. Defined here (framework)
+# so the main process doesn't need to import llming code.
+SYSTEM_COMMANDS = [
+    ConnectorCommand(name="start", description="Welcome message", system=True),
+    ConnectorCommand(name="help", description="List all commands", system=True),
+    ConnectorCommand(name="link", description="Get a temporary access link", system=True),
+    ConnectorCommand(name="status", description="Server status", system=True),
+    ConnectorCommand(name="targets", description="List connected machines", system=True),
+]
+
+
 class ConnectorBase(ABC):
     """Abstract base for messaging connectors (Telegram, Discord, etc.)."""
 

@@ -86,7 +86,7 @@ def _static_hash() -> str:
     if ext_js.exists():
         h.update(ext_js.read_bytes())
     # Extension assets (js, css, html)
-    ext_dir = Path(__file__).parent / "extensions" / "core"
+    ext_dir = Path(__file__).parent.parent / "llmings" / "core"
     if ext_dir.exists():
         for f in sorted(ext_dir.rglob("*")):
             if f.suffix in (".js", ".css", ".html") and f.is_file():
@@ -109,7 +109,7 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     # Mount extension static directories
-    _ext_dir = Path(__file__).parent / "extensions" / "core"
+    _ext_dir = Path(__file__).parent.parent / "llmings" / "core"
     if _ext_dir.exists():
         for ext_path in _ext_dir.iterdir():
             static_dir = ext_path / "static"
@@ -369,7 +369,7 @@ def _refresh_docker_targets() -> None:
             target_id = f"docker-{name}"
             if registry.get_provider(target_id) is None:
                 try:
-                    from hort.extensions.core.linux_windows.provider import (
+                    from llmings.core.linux_windows.provider import (  # noqa: platform provider (in-process for latency)
                         LinuxWindowsExtension,
                     )
                     from hort.targets import TargetInfo
@@ -433,7 +433,7 @@ def _register_targets() -> None:
     # Register local macOS target (only on macOS)
     if sys.platform == "darwin":
         try:
-            from hort.extensions.core.macos_windows.provider import (
+            from llmings.core.macos_windows.provider import (  # noqa: platform provider (in-process)
                 MacOSWindowsExtension,
             )
 
@@ -448,7 +448,7 @@ def _register_targets() -> None:
     # Register native Linux target (only on Linux with X11)
     if sys.platform == "linux":
         try:
-            from hort.extensions.core.linux_native.provider import (
+            from llmings.core.linux_native.provider import (  # noqa: platform provider (in-process)
                 LinuxNativeExtension,
             )
 
@@ -465,7 +465,7 @@ def _register_targets() -> None:
     # Register native Windows target (only on Windows)
     if sys.platform == "win32":
         try:
-            from hort.extensions.core.windows_native.provider import (
+            from llmings.core.windows_native.provider import (  # noqa: platform provider (in-process)
                 WindowsNativeExtension,
             )
 
@@ -498,7 +498,7 @@ def _register_routes(app: FastAPI) -> None:
     @app.get("/p2p", response_class=HTMLResponse)
     async def p2p_viewer_page() -> HTMLResponse:
         """Serve the P2P viewer (works in Telegram Mini App and standalone browser)."""
-        path = Path(__file__).parent / "extensions" / "core" / "peer2peer" / "static" / "viewer.html"
+        path = Path(__file__).parent.parent / "llmings" / "core" / "peer2peer" / "static" / "viewer.html"
         return HTMLResponse(content=path.read_text())
 
     @app.get("/hortmap", response_class=HTMLResponse)
@@ -974,7 +974,7 @@ def _register_routes(app: FastAPI) -> None:
     @app.get("/api/hosted-apps/catalog")
     async def hosted_apps_catalog() -> dict[str, Any]:
         """List available app types."""
-        from hort.extensions.core.hosted_apps.catalog import get_catalog
+        from llmings.core.hosted_apps.catalog import get_catalog  # noqa: static data (TODO: route via IPC)
         return {"catalog": get_catalog()}
 
     @app.post("/api/hosted-apps/instances")
@@ -1620,7 +1620,7 @@ def _register_routes(app: FastAPI) -> None:
     # SPA fallback — serve index.html for 404s that look like llming routes.
     # This avoids catch-all path params that shadow other routes.
     _spa_providers: set[str] = set()
-    _ext_root = Path(__file__).parent / "extensions"
+    _ext_root = Path(__file__).parent.parent / "llmings"
     if _ext_root.exists():
         for p in _ext_root.iterdir():
             if p.is_dir() and not p.name.startswith("."):

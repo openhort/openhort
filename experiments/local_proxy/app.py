@@ -324,7 +324,7 @@ def _refresh_docker_targets() -> None:
             target_id = f"docker-{name}"
             if registry.get_provider(target_id) is None:
                 try:
-                    from hort.extensions.core.linux_windows.provider import (
+                    from llmings.core.linux_windows.provider import (
                         LinuxWindowsExtension,
                     )
                     from hort.targets import TargetInfo
@@ -357,7 +357,7 @@ def _register_targets() -> None:
     # Register local macOS target (only on macOS)
     if sys.platform == "darwin":
         try:
-            from hort.extensions.core.macos_windows.provider import (
+            from llmings.core.macos_windows.provider import (
                 MacOSWindowsExtension,
             )
 
@@ -372,7 +372,7 @@ def _register_targets() -> None:
     # Register native Linux target (only on Linux with X11)
     if sys.platform == "linux":
         try:
-            from hort.extensions.core.linux_native.provider import (
+            from llmings.core.linux_native.provider import (
                 LinuxNativeExtension,
             )
 
@@ -389,7 +389,7 @@ def _register_targets() -> None:
     # Register native Windows target (only on Windows)
     if sys.platform == "win32":
         try:
-            from hort.extensions.core.windows_native.provider import (
+            from llmings.core.windows_native.provider import (
                 WindowsNativeExtension,
             )
 
@@ -803,7 +803,7 @@ def _register_routes(app: FastAPI) -> None:
     @app.get("/api/hosted-apps/catalog")
     async def hosted_apps_catalog() -> dict[str, Any]:
         """List available app types."""
-        from hort.extensions.core.hosted_apps.catalog import get_catalog
+        from llmings.core.hosted_apps.catalog import get_catalog
         return {"catalog": get_catalog()}
 
     @app.post("/api/hosted-apps/instances")

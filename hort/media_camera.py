@@ -256,7 +256,7 @@ class CameraProvider(MediaProvider):
 
             def build_command(self) -> list[str]:
                 import sys
-                return [sys.executable, "-m", "hort.extensions.core.llming_cam.worker"]
+                return [sys.executable, "-m", "llmings.core.llming_cam.worker"]
 
             async def on_message(self, msg: dict) -> None:
                 msg_type = msg.get("type", "")

@@ -42,7 +42,7 @@ def _load_mcp_extensions(
     """
     from hort.ext.registry import _parse_manifest
 
-    extensions_dir = Path(__file__).parent.parent / "extensions"
+    extensions_dir = Path(__file__).parent.parent.parent / "llmings"
     providers: list[Any] = []
     all_skills: list[dict[str, Any]] = []
 
@@ -66,7 +66,7 @@ def _load_mcp_extensions(
             continue
 
         spec = importlib.util.spec_from_file_location(
-            f"hort.extensions.{manifest.name}.{module_name}", module_file
+            f"llmings.{manifest.name}.{module_name}", module_file
         )
         if spec is None or spec.loader is None:
             continue

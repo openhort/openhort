@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from hort.extensions.core.code_watch.detect import ClaudeState, detect_state
+from llmings.core.code_watch.detect import ClaudeState, detect_state
 
 
 # ── Idle states ───────────────────────────────────────────────────

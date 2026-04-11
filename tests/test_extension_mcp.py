@@ -21,14 +21,14 @@ class TestMatchFilter:
     """Test the app name filter patterns."""
 
     def test_exact_match(self) -> None:
-        from hort.extensions.core.llming_lens.provider import _match_filter
+        from llmings.core.llming_lens.provider import _match_filter
 
         assert _match_filter("Google Chrome", "Google Chrome")
         assert _match_filter("Google Chrome", "google chrome")  # case-insensitive
         assert not _match_filter("Firefox", "Google Chrome")
 
     def test_glob_pattern(self) -> None:
-        from hort.extensions.core.llming_lens.provider import _match_filter
+        from llmings.core.llming_lens.provider import _match_filter
 
         assert _match_filter("Google Chrome", "*Chrome*")
         assert _match_filter("Google Chrome", "Google*")
@@ -36,26 +36,26 @@ class TestMatchFilter:
         assert not _match_filter("Firefox", "Chrome*")
 
     def test_regex_pattern(self) -> None:
-        from hort.extensions.core.llming_lens.provider import _match_filter
+        from llmings.core.llming_lens.provider import _match_filter
 
         assert _match_filter("Google Chrome", "/^Google.*/")
         assert _match_filter("google chrome", "/^google.*/i")
         assert not _match_filter("Firefox", "/^Google.*/")
 
     def test_empty_filter(self) -> None:
-        from hort.extensions.core.llming_lens.provider import _match_filter
+        from llmings.core.llming_lens.provider import _match_filter
 
         assert _match_filter("anything", "")
 
     def test_matches_any(self) -> None:
-        from hort.extensions.core.llming_lens.provider import _matches_any
+        from llmings.core.llming_lens.provider import _matches_any
 
         assert _matches_any("Google Chrome", ["*Chrome*", "Firefox"])
         assert _matches_any("Firefox", ["Chrome", "Firefox"])
         assert not _matches_any("Safari", ["Chrome", "Firefox"])
 
     def test_filter_windows(self) -> None:
-        from hort.extensions.core.llming_lens.provider import _filter_windows
+        from llmings.core.llming_lens.provider import _filter_windows
 
         windows = [
             WindowInfo(window_id=1, owner_name="Google Chrome", window_name="Tab 1",
@@ -85,7 +85,7 @@ class TestGridAnnotation:
     def test_annotate_grid(self) -> None:
         from PIL import Image
 
-        from hort.extensions.core.llming_lens.provider import _annotate_grid
+        from llmings.core.llming_lens.provider import _annotate_grid
 
         img = Image.new("RGB", (800, 600), (0, 0, 0))
         result = _annotate_grid(img)
@@ -94,7 +94,7 @@ class TestGridAnnotation:
         assert result.mode == "RGB" or result.mode == "RGBA"
 
     def test_grid_cell_to_region(self) -> None:
-        from hort.extensions.core.llming_lens.provider import LlmingLens
+        from llmings.core.llming_lens.provider import LlmingLens
 
         lens = LlmingLens()
         region = lens._grid_cell_to_region("A1")
@@ -107,7 +107,7 @@ class TestGridAnnotation:
         assert region == {"x": 0.25, "y": 0.25, "w": 0.25, "h": 0.25}
 
     def test_grid_cell_invalid(self) -> None:
-        from hort.extensions.core.llming_lens.provider import LlmingLens
+        from llmings.core.llming_lens.provider import LlmingLens
 
         lens = LlmingLens()
         with pytest.raises(ValueError):
@@ -174,7 +174,7 @@ class TestLlmingLensTools:
     """Test LlmingLens MCP tool implementations."""
 
     def _make_lens(self, app_filter: str | None = None) -> Any:
-        from hort.extensions.core.llming_lens.provider import LlmingLens
+        from llmings.core.llming_lens.provider import LlmingLens
         from hort.ext.scheduler import PluginScheduler
         import logging
 
@@ -211,7 +211,7 @@ class TestLlmingLensTools:
                        bounds=WindowBounds(x=0, y=0, width=800, height=600),
                        space_index=1),
         ]
-        with patch("hort.extensions.core.llming_lens.provider.list_windows", return_value=mock_windows, create=True):
+        with patch("llmings.core.llming_lens.provider.list_windows", return_value=mock_windows, create=True):
             with patch("hort.windows.list_windows", return_value=mock_windows):
                 result = asyncio.get_event_loop().run_until_complete(
                     lens.execute_mcp_tool("list_windows", {})
@@ -358,7 +358,7 @@ class TestUserActivity:
     """Test user input detection."""
 
     def test_user_recently_active_function_exists(self) -> None:
-        from hort.extensions.core.llming_lens.provider import _user_recently_active
+        from llmings.core.llming_lens.provider import _user_recently_active
         # Just verify it returns a bool (actual behavior depends on macOS state)
         result = _user_recently_active(0.0)
         assert isinstance(result, bool)

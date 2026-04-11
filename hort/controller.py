@@ -452,10 +452,13 @@ class HortController(BaseController):
             except Exception:
                 pass
 
-            from hort.extensions.core.code_watch.provider import _detect_session_state
+            try:
+                from llmings.core.code_watch.provider import _detect_session_state  # noqa: llming import (TODO: route via IPC)
+            except ImportError:
+                _detect_session_state = None
 
             for s in list_sessions():
-                info = _detect_session_state(s.short_name, s.current_command)
+                info = _detect_session_state(s.short_name, s.current_command) if _detect_session_state else {}
                 terminals.append({
                     "terminal_id": f"tmux:{s.short_name}",
                     "target_id": default_target,

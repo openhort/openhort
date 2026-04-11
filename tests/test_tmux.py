@@ -332,7 +332,7 @@ class TestCodeWatchMCP:
     @pytest.fixture()
     def extension(self):
         """Create a CodeWatch extension instance with minimal context."""
-        from hort.extensions.core.code_watch.provider import CodeWatch
+        from llmings.core.code_watch.provider import CodeWatch
         from hort.ext.scheduler import PluginScheduler
         from unittest.mock import MagicMock
         import logging

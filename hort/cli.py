@@ -240,7 +240,7 @@ def open() -> None:
 @cli.command(name="llmings")
 def list_llmings() -> None:
     """List all installed llmings (extensions)."""
-    ext_dir = Path(__file__).parent / "extensions" / "core"
+    ext_dir = Path(__file__).parent.parent / "llmings" / "core"
 
     table = Table(title="Installed Llmings", border_style="dim")
     table.add_column("Name", style="bold")
@@ -278,7 +278,7 @@ def list_llmings() -> None:
     console.print()
 
     # Also check LLM extensions
-    llm_dir = Path(__file__).parent / "extensions" / "llms"
+    llm_dir = Path(__file__).parent.parent / "llmings" / "llms"
     if llm_dir.exists():
         llm_table = Table(title="LLM Providers", border_style="dim")
         llm_table.add_column("Name", style="bold")
@@ -458,7 +458,7 @@ def topology() -> None:
 
     # Show extensions
     import json
-    ext_dir = Path(__file__).parent / "extensions" / "core"
+    ext_dir = Path(__file__).parent.parent / "llmings" / "core"
     if ext_dir.exists():
         ext_node = tree.add("[bold]📦 Llmings[/]")
         for ext_path in sorted(ext_dir.iterdir()):

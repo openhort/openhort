@@ -1,0 +1,9 @@
+{
+  "name": "test-llming",
+  "version": "0.0.1",
+  "description": "Minimal llming for isolation tests",
+  "provider": "test",
+  "platforms": ["darwin", "linux", "win32"],
+  "capabilities": [],
+  "entry_point": "provider:TestLlming"
+}

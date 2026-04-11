@@ -25,5 +25,6 @@ Usage::
 """
 
 from hort.lifecycle.manager import ManagedProcess, ProcessManager
+from hort.lifecycle.llming_process import LlmingProcess, LlmingProxy
 
-__all__ = ["ManagedProcess", "ProcessManager"]
+__all__ = ["ManagedProcess", "ProcessManager", "LlmingProcess", "LlmingProxy"]

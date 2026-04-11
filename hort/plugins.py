@@ -18,7 +18,7 @@ from hort.ext.registry import ExtensionRegistry
 
 logger = logging.getLogger("hort.llmings")
 
-EXTENSIONS_DIR = Path(__file__).parent / "extensions"
+EXTENSIONS_DIR = Path(__file__).parent.parent / "llmings"
 
 
 def setup_llmings(app: FastAPI) -> ExtensionRegistry:
@@ -140,8 +140,8 @@ async def _start_connectors(registry: ExtensionRegistry) -> None:  # pragma: no 
     cmd_registry = CommandRegistry()
     _global_cmd_registry[0] = cmd_registry
 
-    # Register system commands
-    from hort.extensions.core.telegram_connector.provider import SYSTEM_COMMANDS
+    # Register system commands (defined in the framework, not in llming code)
+    from hort.ext.connectors import SYSTEM_COMMANDS
     cmd_registry.register_system(SYSTEM_COMMANDS)
 
     # Collect commands from all Llming instances (skip connectors themselves)

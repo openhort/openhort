@@ -19,7 +19,7 @@ if [ ! -d "$WEBSITE_DIR" ]; then
   exit 1
 fi
 
-SOURCE="$SCRIPT_DIR/../hort/extensions/core/peer2peer/static/viewer.html"
+SOURCE="$SCRIPT_DIR/../llmings/core/peer2peer/static/viewer.html"
 DEST="$WEBSITE_DIR/public/p2p/viewer.html"
 
 mkdir -p "$(dirname "$DEST")"
