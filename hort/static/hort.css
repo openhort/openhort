@@ -259,9 +259,17 @@ body {
 
 /* ===== SHARED LLMING LAYOUT ===== */
 .llming-view {
-    position: fixed; inset: 0; background: var(--el-bg);
+    position: fixed; inset: 0; top: 40px; background: var(--el-bg);
     display: none; flex-direction: column;
 }
+.unified-toolbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    box-sizing: border-box;
+}
+.unified-toolbar.picker-mode {
+    padding: 6px 12px; gap: 8px;
+}
+.unified-toolbar.picker-mode .logo-svg { height: 32px; }
 .llming-view.visible { display: flex; }
 .llming-content { flex: 1; overflow: hidden; position: relative; }
 
@@ -457,7 +465,7 @@ body {
 
 /* Overview grid */
 .overview {
-    display: none; position: fixed; inset: 0; z-index: 350;
+    display: none; position: fixed; inset: 0; top: 40px; z-index: 350;
     background: rgba(0,0,0,0.85); flex-direction: column;
 }
 .overview.open { display: flex; }

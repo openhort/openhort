@@ -1,0 +1,94 @@
+{
+  "name": "Two-Story House",
+  "desc": "130 sqm, floor 0: living, kitchen, WC; floor 1: master, 2 kids, bath",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 40, 0],
+        [0, 0, 0, 52],
+        [40, 0, 40, 52],
+        [0, 52, 40, 52],
+        [0, 28, 16, 28],
+        [16, 28, 16, 52],
+        [32, 44, 32, 52],
+        [32, 44, 40, 44],
+        [16, 28, 40, 28]
+      ],
+      "doors": [
+        { "x": 20, "z": 52, "o": "h", "type": "door-n" },
+        { "x": 8, "z": 28, "o": "h", "type": "door-n" },
+        { "x": 24, "z": 28, "o": "h", "type": "door-n" },
+        { "x": 32, "z": 48, "o": "v", "type": "door-s" }
+      ],
+      "windows": [
+        { "x": 8, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 24, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 0, "z": 10, "o": "v", "type": "window-l" },
+        { "x": 40, "z": 10, "o": "v", "type": "window-l" }
+      ],
+      "furniture": [
+        { "type": "bookshelf", "x": 1, "z": 1, "rot": 0 },
+        { "type": "tv", "x": 8, "z": 5, "rot": 0 },
+        { "type": "coffee-table", "x": 8, "z": 9, "rot": 0 },
+        { "type": "sofa", "x": 7, "z": 16, "rot": 0 },
+        { "type": "armchair", "x": 14, "z": 16, "rot": 0 },
+        { "type": "counter", "x": 37, "z": 29, "rot": 90 },
+        { "type": "stove", "x": 37, "z": 32, "rot": 90 },
+        { "type": "sink", "x": 37, "z": 35, "rot": 90 },
+        { "type": "fridge", "x": 36, "z": 38, "rot": 0 },
+        { "type": "dining-table", "x": 20, "z": 32, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 29, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 39, "rot": 180 },
+        { "type": "chair", "x": 17, "z": 34, "rot": 270 },
+        { "type": "chair", "x": 25, "z": 34, "rot": 90 },
+        { "type": "stairs-straight", "x": 2, "z": 34, "rot": 0 },
+        { "type": "toilet", "x": 33, "z": 45, "rot": 0 },
+        { "type": "basin", "x": 37, "z": 45, "rot": 0 }
+      ]
+    },
+    "1": {
+      "walls": [
+        [0, 0, 40, 0],
+        [0, 0, 0, 52],
+        [40, 0, 40, 52],
+        [0, 52, 40, 52],
+        [16, 20, 16, 52],
+        [0, 24, 16, 24],
+        [16, 0, 16, 20],
+        [16, 20, 40, 20],
+        [16, 40, 40, 40],
+        [0, 40, 16, 40]
+      ],
+      "doors": [
+        { "x": 8, "z": 24, "o": "h", "type": "door-n" },
+        { "x": 16, "z": 8, "o": "v", "type": "door-s" },
+        { "x": 16, "z": 28, "o": "v", "type": "door-s" },
+        { "x": 8, "z": 40, "o": "h", "type": "door-n" }
+      ],
+      "windows": [
+        { "x": 4, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 28, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 40, "z": 30, "o": "v", "type": "window-l" },
+        { "x": 0, "z": 46, "o": "v", "type": "window-s" }
+      ],
+      "furniture": [
+        { "type": "bed-double", "x": 1, "z": 1, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 1, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 7, "rot": 0 },
+        { "type": "wardrobe", "x": 1, "z": 12, "rot": 0 },
+        { "type": "bed-single", "x": 17, "z": 1, "rot": 0 },
+        { "type": "desk", "x": 23, "z": 1, "rot": 0 },
+        { "type": "wardrobe", "x": 34, "z": 1, "rot": 0 },
+        { "type": "bed-single", "x": 17, "z": 22, "rot": 0 },
+        { "type": "desk", "x": 23, "z": 22, "rot": 0 },
+        { "type": "wardrobe", "x": 34, "z": 22, "rot": 0 },
+        { "type": "bookshelf", "x": 17, "z": 33, "rot": 0 },
+        { "type": "bathtub", "x": 1, "z": 41, "rot": 0 },
+        { "type": "toilet", "x": 7, "z": 41, "rot": 0 },
+        { "type": "basin", "x": 7, "z": 46, "rot": 0 },
+        { "type": "shower", "x": 11, "z": 41, "rot": 0 },
+        { "type": "stairs-straight", "x": 2, "z": 30, "rot": 180 }
+      ]
+    }
+  }
+}

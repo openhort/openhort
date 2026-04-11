@@ -39,6 +39,12 @@
           _loadedScripts.add(p.ui_script_url);
         }
       }
+      // Store provider info per extension for URL construction
+      for (const p of _pluginsData) {
+        if (p.name && p.provider) {
+          LlmingClient.setProvider(p.name, p.provider);
+        }
+      }
       await Promise.allSettled(promises);
     } catch (e) {
       console.warn('[plugins] Discovery failed:', e);

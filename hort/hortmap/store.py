@@ -10,7 +10,11 @@ from hort.hortmap.models import HortConfig
 
 logger = logging.getLogger("hort.hortmap.store")
 
-_HORTMAP_DIR = Path("~/.hort/hortmap").expanduser()
+def _hortmap_dir() -> Path:
+    from hort.hort_config import hort_data_dir
+    return hort_data_dir() / "hortmap"
+
+_HORTMAP_DIR = _hortmap_dir()
 
 
 def _ensure_dir() -> None:

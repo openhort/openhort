@@ -61,7 +61,8 @@ class LocalFileStore(PluginFileStore):
 
     def __init__(self, plugin_id: str, base_dir: Path | None = None) -> None:
         if base_dir is None:
-            base_dir = Path("~/.hort/plugins").expanduser()
+            from hort.hort_config import hort_data_dir
+            base_dir = hort_data_dir() / "plugins"
         from hort.ext.blobstore import LocalBlobStore
         self._blobs = LocalBlobStore(base_dir, plugin_id + ".files")
 

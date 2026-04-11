@@ -239,15 +239,6 @@
       }
     }
 
-    /**
-     * Notify all active extensions that the WS disconnected.
-     */
-    static notifyDisconnect() {
-      for (const [, instance] of _instances) {
-        try { instance.onDisconnect(); } catch (e) { console.error('[ext:disconnect]', e); }
-      }
-    }
-
     /** Override in subclass: called on every WS connect/reconnect. */
     onConnect() {}
 
@@ -372,18 +363,13 @@
 
   /**
    * Promote a floating window to fullscreen.
-   * Closes the float and opens the llming in fullscreen view.
-   * The llming calls this when it needs more space (e.g., viewer mode).
+   * Closes the float and opens the llming in fullscreen view via the router.
    */
   LlmingClient.promoteToFullscreen = function (id) {
     LlmingClient.closeFloat(id);
-    // The host app listens for this and opens fullscreen
-    if (LlmingClient._promoteCallback) {
-      LlmingClient._promoteCallback(id);
-    }
+    var provider = LlmingClient.getProvider(id);
+    LlmingClient.navigate('/llming/' + provider + '/' + id);
   };
-
-  LlmingClient._promoteCallback = null;
 
   LlmingClient.toggleMinimize = function (id) {
     const win = _floatWindows.get(id);
@@ -576,6 +562,93 @@
 
   /** Base path for API calls (empty string when local, proxy prefix when remote). */
   LlmingClient.basePath = _basePath;
+
+  // ── Navigation API ─────────────────────────────────────────────
+  //
+  // Extensions use these instead of touching state.view directly.
+  // Backed by HortRouter (hort-router.js), which must be loaded first
+  // or at the same time.
+
+  /** @type {Object<string, string>} id → provider mapping */
+  const _providerMap = {};
+
+  /**
+   * Store the provider for an extension (called during plugin discovery).
+   * @param {string} id - Extension id (e.g. 'llming-lens')
+   * @param {string} provider - Provider namespace (e.g. 'core')
+   */
+  LlmingClient.setProvider = function (id, provider) {
+    _providerMap[id] = provider;
+  };
+
+  /**
+   * Get the provider for an extension.
+   * @param {string} id
+   * @returns {string} provider (defaults to 'core')
+   */
+  LlmingClient.getProvider = function (id) {
+    return _providerMap[id] || 'core';
+  };
+
+  /**
+   * Navigate to a route. Extensions use this instead of touching state.view.
+   * @param {string} path - Hash path, e.g. '/core/llming-wire'
+   */
+  LlmingClient.navigate = function (path) {
+    if (root.HortRouter) root.HortRouter.push(path);
+  };
+
+  /**
+   * Go back in navigation history.
+   * @returns {boolean} false if already at root
+   */
+  LlmingClient.back = function () {
+    if (root.HortRouter) return root.HortRouter.back();
+    return false;
+  };
+
+  /**
+   * Open the viewer for a specific window (llming-lens/screens sub-route).
+   * @param {number} windowId - OS window ID (-1 for desktop)
+   * @param {string} [targetId] - Target machine ID
+   */
+  LlmingClient.openViewer = function (windowId, targetId) {
+    var provider = LlmingClient.getProvider('llming-lens');
+    var path = '/llming/' + provider + '/llming-lens/screens/' + windowId;
+    if (targetId) path += '?target=' + encodeURIComponent(targetId);
+    LlmingClient.navigate(path);
+  };
+
+  /**
+   * Open a terminal session.
+   * @param {string} terminalId
+   */
+  LlmingClient.openTerminal = function (terminalId) {
+    var provider = LlmingClient.getProvider('terminal');
+    LlmingClient.navigate('/llming/' + provider + '/terminal/' + terminalId);
+  };
+
+  /**
+   * Open a llming by id (fullscreen or float based on screen size).
+   * @param {string} id - Extension id (e.g. 'llming-wire')
+   * @param {string} [sub] - Optional sub-route
+   */
+  LlmingClient.openLlming = function (id, sub) {
+    var ExtClass = _registry.get(id);
+    if (!sub && ExtClass && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
+      var mode = LlmingClient.resolveDisplayMode(ExtClass);
+      if (mode === 'float') {
+        LlmingClient.openFloat(id, ExtClass.llmingWidgets[0], {
+          title: ExtClass.llmingTitle || ExtClass.name || id,
+        });
+        return;
+      }
+    }
+    var provider = LlmingClient.getProvider(id);
+    var path = '/llming/' + provider + '/' + id;
+    if (sub != null) path += '/' + encodeURIComponent(String(sub));
+    LlmingClient.navigate(path);
+  };
 
   // Expose globally
   root.LlmingClient = LlmingClient;

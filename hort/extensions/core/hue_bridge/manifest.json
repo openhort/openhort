@@ -1,0 +1,29 @@
+{
+  "name": "hue-bridge",
+  "version": "0.1.0",
+  "description": "Philips Hue smart light control",
+  "provider": "core",
+  "platforms": ["darwin", "linux", "win32"],
+  "capabilities": ["mcp"],
+  "entry_point": "provider:HueBridge",
+  "icon": "ph ph-lamp",
+  "author": "openhort",
+  "llming_type": "tool",
+  "features": {
+    "auto_discover": {
+      "description": "Auto-discover Hue Bridge on local network",
+      "default": true
+    }
+  },
+  "jobs": [
+    {
+      "id": "poll-lights",
+      "method": "poll_lights",
+      "interval_seconds": 10,
+      "run_on_activate": false
+    }
+  ],
+  "mcp": true,
+  "ui_widgets": ["hue-bridge-panel"],
+  "ui_script": "static/cards.js"
+}

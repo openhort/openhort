@@ -42,7 +42,10 @@ class TokenStore:
     plaintext is only shown once at creation time.
     """
 
-    def __init__(self, path: str | Path = "~/.hort/tokens.json") -> None:
+    def __init__(self, path: str | Path = "") -> None:
+        if not path:
+            from hort.hort_config import hort_data_dir
+            path = hort_data_dir() / "tokens.json"
         self._path = Path(path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._tokens: list[TokenRecord] = []

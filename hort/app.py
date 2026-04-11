@@ -41,7 +41,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger("hort.app")
 
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -229,6 +229,8 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     @app.post("/api/connectors/cloud/token")
     async def create_cloud_token(request: Request) -> Response:
         """Create or regenerate a cloud access token."""
+        if not hasattr(app.state, "cloud_tokens"):
+            app.state.cloud_tokens = {}
         data = await request.json()
         permanent = data.get("permanent", False)
         from hort.access.tokens import TokenStore
@@ -263,7 +265,11 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     return app
 
 
-_TEMP_TOKEN_FILE = Path("~/.hort/current-temp-token").expanduser()
+def _temp_token_path() -> Path:
+    from hort.hort_config import hort_data_dir
+    return hort_data_dir() / "current-temp-token"
+
+_TEMP_TOKEN_FILE = _temp_token_path()
 
 
 def _create_startup_tokens(app: FastAPI) -> None:  # pragma: no cover
@@ -1610,6 +1616,30 @@ def _register_routes(app: FastAPI) -> None:
                     )
         except WebSocketDisconnect:
             pass
+
+    # SPA fallback — serve index.html for 404s that look like llming routes.
+    # This avoids catch-all path params that shadow other routes.
+    _spa_providers: set[str] = set()
+    _ext_root = Path(__file__).parent / "extensions"
+    if _ext_root.exists():
+        for p in _ext_root.iterdir():
+            if p.is_dir() and not p.name.startswith("."):
+                _spa_providers.add(p.name)  # e.g. "core"
+
+    @app.exception_handler(404)
+    async def _spa_404_handler(request: Request, exc: HTTPException) -> Response:
+        """Serve SPA for paths like /llming/core/llming-lens/screens/-1."""
+        path = request.url.path.lstrip("/")
+        parts = path.split("/")
+        # Match /llming/{provider}/{name}[/{sub}...]
+        if len(parts) >= 3 and parts[0] == "llming" and parts[1] in _spa_providers:
+            return await viewer_page()
+        return Response(
+            content=json.dumps({"detail": "Not Found"}),
+            status_code=404,
+            media_type="application/json",
+        )
+
 
 def _generate_icon(size: int) -> bytes:
     """Generate a simple app icon as PNG bytes."""

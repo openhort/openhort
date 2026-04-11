@@ -1,0 +1,43 @@
+{
+  "name": "Studio Apartment",
+  "desc": "25 sqm open plan, kitchenette, bathroom",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 40, 0],
+        [0, 0, 0, 40],
+        [40, 0, 40, 40],
+        [0, 40, 40, 40],
+        [28, 0, 28, 10],
+        [28, 10, 40, 10]
+      ],
+      "doors": [
+        { "x": 4, "z": 40, "o": "h", "type": "door-n" },
+        { "x": 28, "z": 4, "o": "v", "type": "door-s" }
+      ],
+      "windows": [
+        { "x": 16, "z": 0, "o": "h", "type": "window-l" },
+        { "x": 34, "z": 0, "o": "h", "type": "window-s" }
+      ],
+      "furniture": [
+        { "type": "toilet", "x": 29, "z": 1, "rot": 0 },
+        { "type": "shower", "x": 35, "z": 1, "rot": 0 },
+        { "type": "basin", "x": 29, "z": 5, "rot": 0 },
+        { "type": "counter", "x": 37, "z": 12, "rot": 90 },
+        { "type": "stove", "x": 37, "z": 15, "rot": 90 },
+        { "type": "fridge", "x": 36, "z": 18, "rot": 0 },
+        { "type": "sink", "x": 37, "z": 21, "rot": 90 },
+        { "type": "bed-double", "x": 1, "z": 1, "rot": 0 },
+        { "type": "nightstand", "x": 9, "z": 1, "rot": 0 },
+        { "type": "wardrobe", "x": 1, "z": 11, "rot": 0 },
+        { "type": "sofa", "x": 1, "z": 28, "rot": 0 },
+        { "type": "tv", "x": 1, "z": 22, "rot": 0 },
+        { "type": "coffee-table", "x": 1, "z": 23, "rot": 0 },
+        { "type": "dining-table", "x": 20, "z": 30, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 27, "rot": 0 },
+        { "type": "chair", "x": 21, "z": 37, "rot": 180 },
+        { "type": "chair", "x": 25, "z": 32, "rot": 90 }
+      ]
+    }
+  }
+}

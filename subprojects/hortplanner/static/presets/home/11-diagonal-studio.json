@@ -1,0 +1,44 @@
+{
+  "name": "Diagonal Studio",
+  "desc": "Modern studio with angled walls and 45° furniture layout",
+  "floors": {
+    "0": {
+      "walls": [
+        [0, 0, 20, 0],
+        [0, 0, 0, 20],
+        [20, 0, 20, 12],
+        [0, 20, 12, 20],
+        [12, 20, 12, 16],
+        [20, 12, 16, 12],
+        [16, 12, 16, 14],
+        [12, 16, 14, 16],
+        [14, 16, 16, 14]
+      ],
+      "diagonals": [
+        {"x": 14, "z": 14, "o": "d+"},
+        {"x": 15, "z": 13, "o": "d+"}
+      ],
+      "doors": [
+        {"x": 12, "z": 18, "o": "v", "type": "door-n"}
+      ],
+      "windows": [
+        {"x": 5, "z": 0, "o": "h", "type": "window-l"},
+        {"x": 14, "z": 0, "o": "h", "type": "window-l"}
+      ],
+      "furniture": [
+        {"type": "bed-double", "x": 1, "z": 1, "rot": 0},
+        {"type": "nightstand", "x": 9, "z": 1, "rot": 0},
+        {"type": "sofa", "x": 1, "z": 11, "rot": 45},
+        {"type": "coffee-table", "x": 6, "z": 12, "rot": 45},
+        {"type": "tv", "x": 10, "z": 8, "rot": 225},
+        {"type": "dining-table", "x": 12, "z": 2, "rot": 0},
+        {"type": "chair", "x": 12, "z": 0, "rot": 0},
+        {"type": "chair", "x": 16, "z": 0, "rot": 0},
+        {"type": "chair", "x": 12, "z": 8, "rot": 180},
+        {"type": "chair", "x": 16, "z": 8, "rot": 180},
+        {"type": "desk", "x": 1, "z": 17, "rot": 45},
+        {"type": "floor-lamp", "x": 10, "z": 15, "rot": 0}
+      ]
+    }
+  }
+}

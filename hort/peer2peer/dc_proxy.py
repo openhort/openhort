@@ -46,9 +46,17 @@ class DataChannelProxy:
     def __init__(
         self,
         peer: WebRTCPeer,
-        local_base: str = "http://127.0.0.1:8940",
-        ws_base: str = "ws://127.0.0.1:8940",
+        local_base: str = "",
+        ws_base: str = "",
     ) -> None:
+        if not local_base:
+            import os
+            _port = os.environ.get("HORT_HTTP_PORT", "8940")
+            local_base = f"http://127.0.0.1:{_port}"
+        if not ws_base:
+            import os
+            _port = os.environ.get("HORT_HTTP_PORT", "8940")
+            ws_base = f"ws://127.0.0.1:{_port}"
         self._peer = peer
         self._local_base = local_base
         self._ws_base = ws_base
