@@ -125,6 +125,14 @@ nav:
     - Budget Limits: internals/budget.md
     - Envoy Architecture: internals/envoy-architecture.md
     - Chat Debug API: internals/chat-debug-api.md
+    - Llming Isolation: internals/llming-isolation.md
+    - Process Lifecycle: internals/process-lifecycle.md
+    - Storage:
+      - Overview: internals/storage/index.md
+      - Vaults: internals/storage/vaults.md
+      - Scrolls: internals/storage/scrolls.md
+      - Crates: internals/storage/crates.md
+      - Pulses: internals/storage/pulses.md
     - Testing: internals/testing.md
     - Protocols:
       - Llming Data Types: internals/protocols/llming-types.md

@@ -216,7 +216,7 @@ class CameraProvider(MediaProvider):
     when they reappear (matched by unique device ID).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, use_subprocess: bool = False) -> None:
         self._sessions: dict[str, _CameraSession] = {}
         self._device_map: dict[str, int] = {}  # source_id → cv2 device index
         self._cached_sources: list[tuple[int, str, str]] = []  # (idx, name, uid)
@@ -225,19 +225,78 @@ class CameraProvider(MediaProvider):
         self._browser_devices: dict[str, str] = {}  # source_id → device label (idle browser cams)
         self._discovery_thread: threading.Thread | None = None
         self._discovery_running = False
-        self._start_discovery()
+        self._managed: Any = None  # ManagedProcess for discovery subprocess
+        if use_subprocess:
+            self._start_discovery_subprocess()
+        else:
+            self._start_discovery()
 
     def register_browser_device(self, source_id: str, label: str) -> None:
         """Register a browser camera device as available (not streaming yet)."""
         self._browser_devices[source_id] = label
 
     def _start_discovery(self) -> None:
-        """Start background camera discovery thread."""
+        """Start background camera discovery thread (legacy, in-process)."""
         if self._discovery_running:
             return
         self._discovery_running = True
         self._discovery_thread = threading.Thread(target=self._discovery_loop, daemon=True)
         self._discovery_thread.start()
+
+    def _start_discovery_subprocess(self) -> None:
+        """Start camera discovery as a managed subprocess."""
+        import asyncio
+        from hort.lifecycle import ManagedProcess
+
+        provider = self
+
+        class _CameraDiscovery(ManagedProcess):
+            name = "camera"
+            protocol_version = 1
+
+            def build_command(self) -> list[str]:
+                import sys
+                return [sys.executable, "-m", "hort.extensions.core.llming_cam.worker"]
+
+            async def on_message(self, msg: dict) -> None:
+                msg_type = msg.get("type", "")
+                if msg_type in ("cameras", "cameras_changed"):
+                    cameras = msg.get("cameras", [])
+                    provider._cached_sources = [
+                        (c["index"], c["name"], c["uid"]) for c in cameras
+                    ]
+                    for idx, name, uid in provider._cached_sources:
+                        provider._device_map[f"cam:{uid}"] = idx
+
+                    # Auto-reconnect wanted cameras
+                    new_ids = {f"cam:{uid}" for _, _, uid in provider._cached_sources}
+                    for sid in list(provider._wanted):
+                        if sid in new_ids and sid not in provider._sessions:
+                            for idx, name, uid in provider._cached_sources:
+                                if f"cam:{uid}" == sid:
+                                    session = _CameraSession(idx, name, uid)
+                                    if session.start():
+                                        provider._sessions[sid] = session
+                                    break
+
+                    # Cleanup idle
+                    provider.cleanup_idle()
+
+        self._managed = _CameraDiscovery()
+
+        async def _start() -> None:
+            await self._managed.start()
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_start())
+            else:
+                loop.run_until_complete(_start())
+        except Exception:
+            # Fallback to thread
+            logger.warning("Failed to start camera subprocess, falling back to thread")
+            self._start_discovery()
 
     def _discovery_loop(self) -> None:
         """Background: re-enumerate cameras, auto-reconnect wanted ones."""
@@ -311,10 +370,20 @@ class CameraProvider(MediaProvider):
             time.sleep(_DISCOVERY_INTERVAL)
 
     def shutdown(self) -> None:
-        """Stop discovery thread and all cameras."""
+        """Stop discovery (thread or subprocess) and all cameras."""
         self._discovery_running = False
         if self._discovery_thread:
             self._discovery_thread.join(timeout=3.0)
+        if self._managed:
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self._managed.stop())
+                else:
+                    loop.run_until_complete(self._managed.stop())
+            except Exception:
+                pass
         for session in self._sessions.values():
             if session._running:
                 session.stop()

@@ -110,13 +110,19 @@ DEFAULT_SYSTEM_PROMPT = (
     "Don't speculate or add disclaimers — just report what the tools return."
 )
 
-_APPEND_PROMPT = (
-    "IMPORTANT: This is a mobile messaging chat (like Telegram). "
-    "NEVER use markdown: no **, no `, no #, no bullet points with -. "
-    "Use plain text only. Keep responses short — give the data, skip filler. "
-    "When you receive screenshot data from tools, describe what you see "
-    "in words — never include raw base64 data in your response."
-)
+def _build_append_prompt() -> str:
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return (
+        f"Current time: {now}. "
+        "IMPORTANT: This is a mobile messaging chat. "
+        "NEVER use markdown: no **, no `, no #, no bullet points with -. "
+        "Use plain text only. Keep responses short — give the data, skip filler. "
+        "When you receive screenshot data from tools, describe what you see "
+        "in words — never include raw base64 data in your response. "
+        "Tool results include timestamps. If the user asks about the CURRENT state, "
+        "always take a fresh screenshot — never reuse one older than 30 seconds."
+    )
 
 
 class MCPBridgeProcess:
@@ -305,7 +311,7 @@ def _build_claude_cmd(
     if agent_cfg.max_budget_usd is not None:
         cmd.extend(["--max-budget-usd", str(agent_cfg.max_budget_usd)])
 
-    cmd.extend(["--append-system-prompt", _APPEND_PROMPT])
+    cmd.extend(["--append-system-prompt", _build_append_prompt()])
     # Message MUST come after -- separator because --mcp-config accepts
     # variadic args and would consume the message as a config file path
     cmd.append("--")

@@ -50,6 +50,11 @@ class HortChief(Llming):
                 type=PowerType.COMMAND,
                 description="Sub-hort overview. Use /horts <name> for details.",
             ),
+            Power(
+                name="workers",
+                type=PowerType.COMMAND,
+                description="Show managed subprocess status (admin only).",
+            ),
         ]
 
     async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
@@ -64,6 +69,13 @@ class HortChief(Llming):
         if name == "list_sessions":
             import json
             return {"content": [{"type": "text", "text": json.dumps(self._get_sessions())}]}
+
+        # Slash command: /workers
+        if name == "workers":
+            message = args.get("_message")
+            if not self._is_admin(message):
+                return ConnectorResponse.simple("Permission denied. Admin access required.")
+            return ConnectorResponse.simple(self._build_workers_status())
 
         # Slash command: /horts
         if name == "horts":
@@ -377,3 +389,62 @@ class HortChief(Llming):
             return sessions
         except Exception:
             return []
+
+    def _build_workers_status(self) -> str:
+        """Build a status report of all managed subprocesses."""
+        import time as _time
+        from pathlib import Path
+
+        pid_dir = Path.home() / ".hort" / "pids"
+        if not pid_dir.exists():
+            return "No managed subprocesses."
+
+        pid_files = list(pid_dir.glob("*.pid"))
+        if not pid_files:
+            return "No managed subprocesses."
+
+        lines = ["Managed Workers:", ""]
+        for pf in sorted(pid_files):
+            name = pf.stem
+            try:
+                pid = int(pf.read_text().strip())
+            except (ValueError, OSError):
+                lines.append(f"  {name}: invalid PID file")
+                continue
+
+            # Check if alive
+            try:
+                import os
+                os.kill(pid, 0)
+                alive = True
+            except (OSError, ProcessLookupError):
+                alive = False
+
+            # Get process info
+            status = "running" if alive else "DEAD"
+            age = ""
+            rss = ""
+            if alive:
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ["ps", "-p", str(pid), "-o", "etime=,rss="],
+                        capture_output=True, text=True, timeout=3,
+                    )
+                    parts = result.stdout.strip().split()
+                    if len(parts) >= 1:
+                        age = parts[0]
+                    if len(parts) >= 2:
+                        rss_kb = int(parts[1])
+                        rss = f"{rss_kb // 1024}MB" if rss_kb > 1024 else f"{rss_kb}KB"
+                except Exception:
+                    pass
+
+            info = f"  {name} (PID {pid}): {status}"
+            if age:
+                info += f", uptime {age}"
+            if rss:
+                info += f", {rss}"
+            lines.append(info)
+
+        return "\n".join(lines)

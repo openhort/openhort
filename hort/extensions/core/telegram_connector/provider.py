@@ -114,8 +114,7 @@ class TelegramConnector(Llming, ConnectorBase):
         }
 
     async def start(self) -> None:
-        """Start the Telegram bot polling and MCP bridge (if AI chat enabled)."""
-        # Start MCP bridge for AI chat
+        """Start the Telegram bot as a managed subprocess."""
         if self._ai_chat:
             try:
                 self._ai_chat.start()
@@ -127,166 +126,134 @@ class TelegramConnector(Llming, ConnectorBase):
             self.log.warning("TELEGRAM_BOT_TOKEN not set — Telegram connector disabled")
             return
 
-        try:
-            from aiogram import Bot, Dispatcher
-            from aiogram.types import Message, CallbackQuery
-        except ImportError:
-            self.log.warning("aiogram not installed — Telegram connector disabled")
-            return
-
-        bot = Bot(token=token)
-        dp = Dispatcher()
-        self._bot = bot
+        from hort.lifecycle import ManagedProcess
+        import sys
 
         connector = self
 
-        @dp.message()
-        async def handle_message(message: Message) -> None:
-            if not message.from_user:
-                return
-            username = message.from_user.username or ""
-            self.log.info("Incoming message from @%s: %s", username, (message.text or "")[:80])
-            if connector._allowed_users and username not in connector._allowed_users:
-                self.log.info("ACL rejected user @%s (allowed: %s)", username, connector._allowed_users)
-                return
+        class _TelegramProcess(ManagedProcess):
+            name = "telegram"
+            protocol_version = 1
 
-            msg = IncomingMessage(
-                connector_id="telegram",
-                chat_id=str(message.chat.id),
-                user_id=str(message.from_user.id),
-                username=username,
-                text=message.text or "",
-            )
-            try:
-                response = await connector._handle(msg)
-                if response:
-                    self.log.info("Sending response: text=%d chars", len(response.text or ""))
-                    await connector.send_response(str(message.chat.id), response)
-                else:
-                    self.log.info("No response for message")
-            except Exception:
-                self.log.exception("Error handling message")
-                try:
-                    await bot.send_message(str(message.chat.id), "Something went wrong. Try again.")
-                except Exception:
-                    pass
+            def build_command(self) -> list[str]:
+                return [sys.executable, "-m", "hort.extensions.core.telegram_connector.worker"]
 
-        @dp.callback_query()
-        async def handle_callback(callback: CallbackQuery) -> None:
-            if not callback.from_user or not callback.data:
-                return
-            username = callback.from_user.username or ""
-            if connector._allowed_users and username not in connector._allowed_users:
-                return
+            def get_env(self) -> dict[str, str]:
+                return {"TELEGRAM_BOT_TOKEN": token}
 
-            msg = IncomingMessage(
-                connector_id="telegram",
-                chat_id=str(callback.message.chat.id) if callback.message else "",
-                user_id=str(callback.from_user.id),
-                username=username,
-                callback_data=callback.data,
-            )
-            try:
-                response = await connector._handle(msg)
-                if response and callback.message:
-                    await connector.send_response(str(callback.message.chat.id), response)
-            except Exception as e:
-                self.log.error("Error handling callback: %s", e, exc_info=True)
-            if callback.id:
-                await callback.answer()
+            async def on_message(self, msg: dict) -> None:
+                await connector._handle_worker_message(msg)
 
-        async def polling() -> None:
-            # Drop pending updates to claim exclusive polling (kills old instances)
-            try:
-                await bot.delete_webhook(drop_pending_updates=True)
-            except Exception as e:
-                self.log.warning("Failed to reset webhook: %s", e)
+            async def on_connected(self) -> None:
+                connector.log.info("Telegram worker connected")
 
-            for attempt in range(5):
-                self.log.info("Telegram bot polling started (attempt %d)", attempt + 1)
-                try:
-                    await dp.start_polling(bot)
-                    break
-                except Exception as e:
-                    if "Conflict" in str(e) and attempt < 4:
-                        self.log.warning("Polling conflict, retrying in %ds: %s", 2 * (attempt + 1), e)
-                        await asyncio.sleep(2 * (attempt + 1))
-                    else:
-                        self.log.error("Telegram polling error: %s", e)
-                        break
-
-        self._task = asyncio.create_task(polling())
+        self._managed = _TelegramProcess()
+        ok = await self._managed.start()
+        if ok:
+            self.log.info("Telegram bot polling started (managed subprocess)")
+        else:
+            self.log.error("Failed to start Telegram subprocess")
 
     async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-        if self._bot:
-            await self._bot.session.close()
+        if hasattr(self, "_managed") and self._managed:
+            await self._managed.stop()
         if self._ai_chat:
             self._ai_chat.stop()
 
-    async def send_response(self, chat_id: str, response: ConnectorResponse) -> None:
-        """Send response to Telegram chat."""
-        if not self._bot:
+    async def detach(self) -> None:
+        """Hot-reload: keep subprocess alive, disconnect IPC."""
+        if hasattr(self, "_managed") and self._managed:
+            await self._managed.detach()
+
+    async def _handle_worker_message(self, msg: dict) -> None:
+        """Handle messages from the Telegram worker subprocess."""
+        msg_type = msg.get("type", "")
+
+        if msg_type == "telegram_message":
+            username = msg.get("username", "")
+            self.log.info("Incoming message from @%s: %s", username, msg.get("text", "")[:80])
+
+            if self._allowed_users and username not in self._allowed_users:
+                self.log.info("ACL rejected user @%s", username)
+                return
+
+            incoming = IncomingMessage(
+                connector_id="telegram",
+                chat_id=msg.get("chat_id", ""),
+                user_id=msg.get("user_id", ""),
+                username=username,
+                text=msg.get("text", ""),
+            )
+            try:
+                response = await self._handle(incoming)
+                if response:
+                    await self._send_via_worker(msg.get("chat_id", ""), response)
+            except Exception:
+                self.log.exception("Error handling message")
+                await self._send_text_via_worker(msg.get("chat_id", ""), "Something went wrong. Try again.")
+
+        elif msg_type == "telegram_callback":
+            username = msg.get("username", "")
+            if self._allowed_users and username not in self._allowed_users:
+                return
+
+            incoming = IncomingMessage(
+                connector_id="telegram",
+                chat_id=msg.get("chat_id", ""),
+                user_id=msg.get("user_id", ""),
+                username=username,
+                callback_data=msg.get("callback_data", ""),
+            )
+            try:
+                response = await self._handle(incoming)
+                if response:
+                    await self._send_via_worker(msg.get("chat_id", ""), response)
+            except Exception:
+                self.log.exception("Error handling callback")
+
+    async def _send_via_worker(self, chat_id: str, response: ConnectorResponse) -> None:
+        """Send a response through the worker subprocess."""
+        if not hasattr(self, "_managed") or not self._managed or not self._managed.connected:
             return
 
-        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-
-        # Build keyboard if buttons provided
-        keyboard = None
+        # Build reply_markup for inline buttons
+        reply_markup = None
         if response.buttons:
             rows = []
             for row in response.buttons:
-                btns = []
-                for btn in row:
-                    if btn.callback_data.startswith("p2p_webapp:"):
-                        # Web App button — opens URL in Telegram WebView
-                        url = btn.callback_data[len("p2p_webapp:"):]
-                        btns.append(InlineKeyboardButton(
-                            text=btn.label,
-                            web_app=WebAppInfo(url=url),
-                        ))
-                    else:
-                        btns.append(InlineKeyboardButton(text=btn.label, callback_data=btn.callback_data))
-                rows.append(btns)
-            keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
+                rows.append([{"text": btn.label, "callback_data": btn.callback_data} for btn in row])
+            reply_markup = {"inline_keyboard": rows}
 
-        # Send image if provided
         if response.image:
-            from aiogram.types import BufferedInputFile
-            photo = BufferedInputFile(response.image, filename="screenshot.jpg")
-            await self._bot.send_photo(
-                chat_id, photo,
-                caption=response.image_caption or response.text or "",
-                reply_markup=keyboard,
-            )
+            import base64
+            await self._managed.send({
+                "type": "send_photo",
+                "chat_id": chat_id,
+                "photo": base64.b64encode(response.image).decode(),
+                "caption": response.image_caption or response.text or "",
+            })
             return
 
-        # Send text
         text = self.render_text(response)
         if not text:
             return
 
-        # Split long messages
-        parse_mode = "HTML" if response.html else ("Markdown" if response.markdown else None)
-        for i in range(0, len(text), 4096):
-            chunk = text[i:i + 4096]
-            try:
-                await self._bot.send_message(
-                    chat_id, chunk,
-                    parse_mode=parse_mode,
-                    reply_markup=keyboard if i == 0 else None,
-                )
-            except Exception as e:
-                self.log.warning("Failed to send with parse_mode=%s: %s — falling back to plain text", parse_mode, e)
-                # Retry without parse_mode
-                plain = response.text or text
-                for j in range(0, len(plain), 4096):
-                    await self._bot.send_message(
-                        chat_id, plain[j:j + 4096],
-                        reply_markup=keyboard if j == 0 else None,
-                    )
-                break
+        parse_mode = "HTML" if response.html else None
+        await self._managed.send({
+            "type": "send_message",
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+            "reply_markup": reply_markup,
+        })
+
+    async def _send_text_via_worker(self, chat_id: str, text: str) -> None:
+        if hasattr(self, "_managed") and self._managed and self._managed.connected:
+            await self._managed.send({"type": "send_message", "chat_id": chat_id, "text": text})
+
+    async def send_response(self, chat_id: str, response: ConnectorResponse) -> None:
+        """Send response to Telegram via the worker subprocess."""
+        await self._send_via_worker(chat_id, response)
 
     def set_command_registry(self, registry: CommandRegistry) -> None:
         self._registry = registry

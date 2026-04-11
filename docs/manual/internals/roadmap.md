@@ -84,6 +84,31 @@
 - Auto-rebuild when Dockerfile changes
 - Pin Claude CLI version for reproducibility
 
+### Excalidraw Diagrams
+
+- Replace mermaid diagrams with Excalidraw hand-drawn style
+- `mkdocs-kroki-plugin` + self-hosted Kroki server
+- Excalidraw is MIT licensed
+- Convert key docs: envoy architecture, process lifecycle, llming anatomy
+
+### Envoy Implementation
+
+- `hort/envoy/server.py` — persistent SSE server inside containers (prototype done)
+- `hort/envoy/client.py` — host-side control channel client (prototype done)
+- Integrate with `ChatBackendManager` to replace current MCP proxy bridge
+- Container image: install `hort-envoy` as CMD, remove MCP bridge subprocess
+- Bidirectional: outbound (agent→host tools) + reverse (host→container tools)
+- Standalone proxy mode (`hort proxy`)
+
+### Process Lifecycle
+
+- Implement managed subprocess pattern for Telegram, camera, MCP bridge
+- PID files in `~/.hort/pids/`
+- IPC via Unix sockets in `~/.hort/ipc/`
+- Protocol versioning for hot-reload compatibility
+- Orphan cleanup on startup
+- `hort/lifecycle/` module
+
 ### Testing Gaps
 
 - Container integration tests (`@pytest.mark.docker`)

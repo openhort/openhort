@@ -654,7 +654,9 @@ class LlmingLens(Llming):
             }
 
         import json
+        from datetime import datetime
         coord_text = json.dumps({
+            "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "target": target,
             "window_id": window_id,
             "original_size": {"width": img_w, "height": img_h},

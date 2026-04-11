@@ -80,8 +80,9 @@ class Llming:
 
     # ── Injected services ──
 
-    _store: PluginStore | None = None
-    _files: PluginFileStore | None = None
+    _store: PluginStore | None = None        # legacy — use self.persist/self.runtime
+    _files: PluginFileStore | None = None    # legacy — use self.persist.crates
+    _storage: Any = None                     # Storage instance (runtime + persist)
     _scheduler: PluginScheduler | None = None
     _credentials: Any = None  # CredentialAccess
     _logger: logging.Logger | None = None
@@ -223,15 +224,31 @@ class Llming:
 
     @property
     def store(self) -> PluginStore:
-        """Per-instance namespaced key-value data store."""
+        """Legacy key-value store. Prefer self.persist.scrolls / self.runtime.scrolls."""
         assert self._store is not None, "Store not injected"
         return self._store
 
     @property
     def files(self) -> PluginFileStore:
-        """Per-instance binary file storage."""
+        """Legacy file store. Prefer self.persist.crates / self.runtime.crates."""
         assert self._files is not None, "FileStore not injected"
         return self._files
+
+    @property
+    def persist(self) -> Any:
+        """Persistent storage (survives restarts). Has .scrolls and .crates."""
+        if self._storage is None:
+            from hort.storage.store import StorageManager
+            self._storage = StorageManager.get().get_storage(self._instance_name or self._class_name)
+        return self._storage.persist
+
+    @property
+    def runtime(self) -> Any:
+        """Runtime storage (ephemeral, dies with process). Has .scrolls and .crates."""
+        if self._storage is None:
+            from hort.storage.store import StorageManager
+            self._storage = StorageManager.get().get_storage(self._instance_name or self._class_name)
+        return self._storage.runtime
 
     @property
     def credentials(self) -> Any:

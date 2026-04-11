@@ -264,7 +264,7 @@ class LlmingCam(Llming):
             await self._save_thumb(source_id, b64)
             return {"content": [
                 {"type": "image", "data": b64, "mimeType": "image/webp"},
-                {"type": "text", "text": f"Captured from {source_id} ({len(frame)} bytes)"},
+                {"type": "text", "text": f"Captured from {source_id} at {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ({len(frame)} bytes)"},
             ]}
 
         if name == "start_camera":

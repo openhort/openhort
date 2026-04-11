@@ -25,8 +25,6 @@ graph TB
     Llming -->|"H2H protocol<br/>stdio / TCP"| Wire
     Wire -->|"channels: mcp, process,<br/>auth, stream"| Envoy
 
-    style Envoy fill:#22c55e,color:#fff
-    style Llming fill:#3b82f6,color:#fff
 ```
 
 The Envoy starts with the container and stays alive for its entire
@@ -67,7 +65,6 @@ graph LR
 
     Envoy -->|"control channel"| Host["openhort (host)"]
 
-    style Envoy fill:#22c55e,color:#fff
 ```
 
 No stdio management, no process spawning per invocation, no transport
@@ -146,8 +143,6 @@ graph LR
     Router --> MCP2
     Router --> MCP3
 
-    style Envoy fill:#22c55e,color:#fff
-    style Router fill:#f59e0b,color:#000
 ```
 
 In this mode, openhort acts as a **policy-enforcing gateway** between
@@ -228,8 +223,6 @@ graph LR
     ExtAgent -->|MCP SSE| Hort
     Hort -->|"control channel"| Envoy
 
-    style Envoy fill:#22c55e,color:#fff
-    style Hort fill:#f59e0b,color:#000
 ```
 
 In this mode, tools registered inside the container are exposed to the
