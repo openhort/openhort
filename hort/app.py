@@ -764,7 +764,7 @@ def _register_routes(app: FastAPI) -> None:
 
             for name, inst in app.state.llming_registry._instances.items():
                 if isinstance(inst, ConnectorBase):
-                    status = inst.get_pulse() if hasattr(inst, "get_pulse") else {}
+                    status = inst.load("state") if hasattr(inst, "load") else {}
                     messaging[inst.connector_id] = {
                         "active": status.get("active", False),
                         "llming_id": name,

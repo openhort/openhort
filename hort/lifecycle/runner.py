@@ -32,7 +32,6 @@ from hort.lifecycle.ipc_protocol import (
     PROTOCOL_VERSION,
     msg_error,
     msg_log,
-    msg_pulse_update,
     msg_ready,
     msg_register_powers,
     msg_result,
@@ -119,10 +118,6 @@ class GroupRunner(Worker):
                 if hasattr(result, "model_dump"):
                     result = result.model_dump()
                 await self.send(msg_result(msg_id, result))
-
-            elif msg_type == "get_pulse":
-                pulse = inst.get_pulse() if inst else {}
-                await self.send(msg_result(msg_id, pulse))
 
             elif msg_type == "get_powers":
                 powers = inst.get_powers() if inst else []

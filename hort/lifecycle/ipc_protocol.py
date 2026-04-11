@@ -34,10 +34,6 @@ def msg_execute_power(name: str, args: dict[str, Any], llming: str = "") -> dict
     return {"type": "execute_power", "id": _id(), "name": name, "args": args, "llming": llming}
 
 
-def msg_get_pulse(llming: str = "") -> dict[str, Any]:
-    return {"type": "get_pulse", "id": _id(), "llming": llming}
-
-
 def msg_get_powers(llming: str = "") -> dict[str, Any]:
     return {"type": "get_powers", "id": _id(), "llming": llming}
 
@@ -68,10 +64,6 @@ def msg_error(request_id: str, error: str) -> dict[str, Any]:
 
 def msg_register_powers(powers: list[dict[str, Any]], llming: str = "") -> dict[str, Any]:
     return {"type": "register_powers", "powers": powers, "llming": llming}
-
-
-def msg_pulse_update(data: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "pulse_update", "data": data}
 
 
 def msg_pulse_emit(event: str, data: dict[str, Any]) -> dict[str, Any]:

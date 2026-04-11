@@ -412,9 +412,9 @@ def _register_llming_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
                 media_type="application/json", status_code=404,
             )
         status: dict[str, Any] = {}
-        if hasattr(inst, "get_pulse"):
+        if hasattr(inst, "load"):
             try:
-                status = inst.get_pulse()
+                status = inst.load("state")
             except Exception:
                 pass
         return Response(

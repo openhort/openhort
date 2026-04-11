@@ -1,4 +1,4 @@
-"""WS commands for llming management — list, pulse, store, debug."""
+"""WS commands for llming management — list, store, debug, execute."""
 
 from __future__ import annotations
 
@@ -30,22 +30,6 @@ async def llmings_list(controller: Any) -> dict[str, Any]:
     return {"data": llmings}
 
 
-@router.handler("pulse")
-async def llming_pulse(controller: Any, name: str) -> dict[str, Any]:
-    """Get live pulse data for a single llming."""
-    registry = get_llming_registry()
-    if not registry:
-        return {"name": name, "data": {}}
-    inst = registry.get_instance(name)
-    data: dict[str, Any] = {}
-    if inst and hasattr(inst, "get_pulse"):
-        try:
-            data = inst.get_pulse()
-        except Exception:
-            pass
-    return {"name": name, "data": data}
-
-
 @router.handler("feature")
 async def llming_feature(
     controller: Any, name: str = "", feature: str = "", enabled: bool = True
@@ -71,7 +55,7 @@ async def llming_store(controller: Any, name: str) -> dict[str, Any]:
 
 @router.handler("debug")
 async def llming_debug(controller: Any, name: str = "") -> dict[str, Any]:
-    """Deep debug info for a llming — class, config, powers, pulse, scheduler, credentials."""
+    """Deep debug info for a llming."""
     from hort.llming.base import Llming
 
     registry = get_llming_registry()
@@ -79,14 +63,12 @@ async def llming_debug(controller: Any, name: str = "") -> dict[str, Any]:
         return {"error": "no registry"}
 
     if not name:
-        # Return summary of ALL llmings
         summary = []
         for inst_name in sorted(registry._instances.keys()):
             inst = registry.get_instance(inst_name)
             info: dict[str, Any] = {"name": inst_name, "type": type(inst).__name__}
             if isinstance(inst, Llming):
                 info["class_name"] = inst.class_name
-                info["has_pulse"] = bool(inst.get_pulse())
                 info["powers"] = [p.name for p in inst.get_powers()]
                 info["scheduler_jobs"] = inst._scheduler.running_jobs if inst._scheduler else []
             summary.append(info)
@@ -104,7 +86,6 @@ async def llming_debug(controller: Any, name: str = "") -> dict[str, Any]:
         info["class_name"] = inst.class_name
         info["instance_name"] = inst.instance_name
         info["config"] = inst.config
-        info["pulse"] = inst.get_pulse()
         info["powers"] = [{"name": p.name, "type": p.type.value} for p in inst.get_powers()]
         info["scheduler_jobs"] = inst._scheduler.running_jobs if inst._scheduler else []
         info["has_credentials"] = inst.credentials is not None

@@ -45,14 +45,10 @@ class LlmingProxy(Llming):
         self._class_name = name
         self._process = process
         self._cached_powers: list[Power] = []
-        self._cached_pulse: dict[str, Any] = {}
         self._ready = False
 
     def get_powers(self) -> list[Power]:
         return self._cached_powers
-
-    def get_pulse(self) -> dict[str, Any]:
-        return self._cached_pulse
 
     async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
         return await self._process.request(
@@ -76,7 +72,7 @@ class LlmingProxy(Llming):
         return self._instance_name
 
     def get_status(self) -> dict[str, Any]:
-        return self._cached_pulse
+        return self.load("state")
 
 
 class GroupProcess(ManagedProcess):
@@ -141,12 +137,6 @@ class GroupProcess(ManagedProcess):
                 powers = [dict_to_power(d) for d in msg.get("powers", [])]
                 proxy._cached_powers = powers
                 logger.info("[%s] %s: %d powers", self.name, llming_name, len(powers))
-
-        elif msg_type == "pulse_update":
-            llming_name = msg.get("llming", "")
-            proxy = self._proxies.get(llming_name)
-            if proxy:
-                proxy._cached_pulse = msg.get("data", {})
 
         elif msg_type == "pulse_emit":
             try:

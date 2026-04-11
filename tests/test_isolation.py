@@ -57,21 +57,6 @@ class TestSubprocessIsolation:
         result = await proxy.execute_power("count", {})
         assert result["content"][0]["text"] == "101"
 
-    async def test_get_pulse_via_ipc(self, llming_proc: GroupProcess) -> None:
-        from hort.lifecycle.ipc_protocol import msg_get_pulse
-        result = await llming_proc.request(msg_get_pulse(llming="test-llming"))
-        assert "counter" in result
-        assert result["status"] == "running"
-
-    async def test_pulse_cache_updated(self, llming_proc: GroupProcess) -> None:
-        proxy = llming_proc.proxies["test-llming"]
-        # Execute a power to change state
-        await proxy.execute_power("count", {})
-        # Wait for pulse push (runs every 5s, but let's request directly)
-        from hort.lifecycle.ipc_protocol import msg_get_pulse
-        result = await llming_proc.request(msg_get_pulse(llming="test-llming"))
-        assert result["counter"] == 1
-
     async def test_unknown_power_returns_error(self, llming_proc: GroupProcess) -> None:
         proxy = llming_proc.proxies["test-llming"]
         result = await proxy.execute_power("nonexistent", {})

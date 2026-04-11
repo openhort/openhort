@@ -21,7 +21,7 @@ async def connectors_list(controller: Any) -> dict[str, Any]:
     if registry:
         for name, inst in registry._instances.items():
             if isinstance(inst, ConnectorBase):
-                status = inst.get_pulse() if hasattr(inst, "get_pulse") else {}
+                status = inst.load("state") if hasattr(inst, "load") else {}
                 messaging[inst.connector_id] = {
                     "active": status.get("active", False),
                     "llming_id": name,

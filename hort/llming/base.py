@@ -164,15 +164,6 @@ class Llming:
             return await invoke_handler(handler, meta, args)
         return {"error": f"Power {name} not implemented"}
 
-    # ── Pulse (UI only) ──
-
-    def get_pulse(self) -> dict[str, Any]:
-        """Return live state for UI thumbnail rendering.
-
-        NOT for cross-llming data — use vaults for that.
-        """
-        return {}
-
     # ── Named channel events ──
 
     async def emit(self, channel: str, data: dict[str, Any] | BaseModel) -> None:
@@ -417,8 +408,8 @@ class Llming:
         return self._instance_name or self._class_name
 
     def get_status(self) -> dict[str, Any]:
-        """v1 compat: Return status for thumbnail rendering."""
-        return self.get_pulse()
+        """v1 compat: Read status from own vault."""
+        return self.load("state")
 
     def get_jobs(self) -> list[Any]:
         """v1 compat: Return scheduled job definitions.

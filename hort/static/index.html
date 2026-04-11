@@ -3156,28 +3156,17 @@
         return state.terminals.filter(t => t.target_id === targetId);
       }
 
-      // Plugin thumbnail rendering — fetches in-memory status from server, renders canvas
+      // Card thumbnail rendering — cards feed themselves via onConnect (pulse + vault)
       const pluginThumbs = reactive({});
-      async function renderPluginThumbs() {
+      function renderPluginThumbs() {
         if (typeof LlmingClient === 'undefined' || typeof HortPlugins === 'undefined') return;
-        // Fetch lightweight pulse data from each spirit (in-memory, no disk I/O)
-        for (const sp of spiritsList.value) {
-          const inst = LlmingClient.get(sp.name);
-          if (!inst) continue;
-          try {
-            const msg = await sendControlRequest({ type: 'llmings.pulse', name: sp.name });
-            if (msg && msg.data) {
-              if (inst._feedStore) inst._feedStore(msg.data);
-            }
-          } catch {}
-        }
         HortPlugins.renderAllThumbnails();
         for (const [id] of LlmingClient.getRegistry()) {
           const url = HortPlugins.getThumbnailUrl(id);
           if (url) pluginThumbs[id] = url;
         }
       }
-      setInterval(renderPluginThumbs, 5000);
+      setInterval(renderPluginThumbs, 2000);
       setTimeout(renderPluginThumbs, 3000);
 
       // Interaction tracking + favorites — stored on server, synced to all clients
