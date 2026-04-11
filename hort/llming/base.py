@@ -1,27 +1,36 @@
-"""Llming — the unified base class for all llmings. No mixins.
+"""Llming — the unified base class for all llmings.
 
-Replaces the v1 hierarchy of PluginBase + MCPMixin + ConnectorMixin +
-ScheduledMixin + DocumentMixin with a single class that has standardized
-interfaces for all five parts:
-
-- **Soul** — what the llming knows (auto-loaded from SOUL.md)
-- **Powers** — what the llming can do (MCP tools, commands, actions)
-- **Pulse** — what the llming radiates (live state + events)
+Five parts:
+- **Soul** — what the llming knows (SOUL.md)
+- **Powers** — what the llming can do (``@power`` decorator)
+- **Pulse** — named channel events (``self.emit()``, ``self.channels``)
 - **Cards** — how the llming looks (UI in cards.js)
-- **Envoy** — where the llming executes remotely (YAML config)
+- **Envoy** — where the llming executes remotely
 
-Built-in services (no mixins needed):
-- ``self.scheduler`` — interval job management
-- ``self.store`` — per-instance key-value data store
-- ``self.files`` — per-instance binary file storage
-- ``self.credentials`` — scoped credential access
-- ``self.log`` — instance-scoped logger
+Pythonic access to other llmings::
+
+    await self.llmings["system-monitor"].call("get_metrics")
+    await self.vaults["system-monitor"].read("latest_metrics")
+    self.channels["cpu_spike"].subscribe(self.on_spike)
+
+Storage one-liners::
+
+    self.save("key", {"cpu": 42})
+    data = self.load("key", default={"cpu": 0})
+
+Powers via decorators (no get_powers / execute_power needed)::
+
+    @power("get_metrics", description="Get system metrics")
+    async def get_metrics(self) -> MetricsResponse:
+        return MetricsResponse(cpu=42.0)
 """
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel
 
 from hort.llming.powers import Power, PowerType
 from hort.llming.pulse import PulseBus
@@ -30,44 +39,11 @@ if TYPE_CHECKING:
     from hort.ext.file_store import PluginFileStore
     from hort.ext.scheduler import PluginScheduler
     from hort.ext.store import PluginStore
+    from hort.llming.decorators import PowerMeta
+    from hort.llming.handles import ChannelHandleMap, LlmingHandleMap, VaultHandleMap
 
 
 class Llming:
-    """Base class for all llmings. No mixins.
-
-    Subclass this and override the methods you need. The framework
-    handles lifecycle, service injection, and inter-llming routing.
-
-    Example::
-
-        class SystemMonitor(Llming):
-            _latest: dict = {}
-
-            def get_powers(self) -> list[Power]:
-                return [
-                    Power(
-                        name="get_metrics",
-                        type=PowerType.ACTION,
-                        description="Get system metrics",
-                        input_schema=MetricsRequest,
-                        output_schema=MetricsResponse,
-                    ),
-                    Power(
-                        name="cpu",
-                        type=PowerType.COMMAND,
-                        description="Show CPU usage",
-                    ),
-                ]
-
-            async def execute_power(self, name: str, args: dict) -> Any:
-                if name == "get_metrics":
-                    return MetricsResponse(cpu=self._latest.get("cpu", 0))
-                if name == "cpu":
-                    return f"CPU: {self._latest.get('cpu', '?')}%"
-
-            def get_pulse(self) -> dict:
-                return self._latest
-    """
 
     # ── Identity (set by the framework before activate) ──
 
@@ -78,13 +54,23 @@ class Llming:
 
     _soul_text: str = ""
 
+    # ── Decorator-based power handlers (built by framework) ──
+
+    _power_handlers: dict[str, tuple[Any, "PowerMeta"]]
+
+    # ── Pythonic handles (injected by framework) ──
+
+    llmings: "LlmingHandleMap"    # self.llmings["name"].call("power")
+    vaults: "VaultHandleMap"      # self.vaults["name"].read("key")
+    channels: "ChannelHandleMap"  # self.channels["name"].subscribe(handler)
+
     # ── Injected services ──
 
-    _store: PluginStore | None = None        # legacy — use self.persist/self.runtime
+    _store: PluginStore | None = None        # legacy — use self.save/self.load
     _files: PluginFileStore | None = None    # legacy — use self.persist.crates
-    _storage: Any = None                     # Storage instance (runtime + persist)
+    _storage: Any = None
     _scheduler: PluginScheduler | None = None
-    _credentials: Any = None  # CredentialAccess
+    _credentials: Any = None
     _logger: logging.Logger | None = None
     _pulse_bus: PulseBus | None = None
     _config: dict[str, Any] = {}
@@ -140,77 +126,84 @@ class Llming:
 
     # ── Powers ──
 
-    def get_powers(self) -> list[Power]:
-        """Declare all powers this llming provides.
+    def _build_power_map(self) -> None:
+        """Collect @power-decorated methods. Called once by the framework."""
+        from hort.llming.decorators import collect_powers
+        self._power_handlers = collect_powers(self)
 
-        Return a list of Power objects. The framework routes MCP tool
-        calls, slash commands, and action invocations to execute_power().
+    def get_powers(self) -> list[Power]:
+        """Return all powers (decorators + manual override).
+
+        New-style: use @power decorators, don't override this.
+        Old-style: override this to return a manual list.
         """
-        return []
+        powers: list[Power] = []
+        for _handler, meta in getattr(self, "_power_handlers", {}).values():
+            ptype = PowerType.COMMAND if meta.command else (PowerType.MCP if meta.mcp else PowerType.ACTION)
+            powers.append(Power(
+                name=meta.name,
+                type=ptype,
+                description=meta.description,
+                input_schema=meta.input_model or {"type": "object", "properties": {}},
+                output_schema=meta.output_model,
+                admin_only=meta.admin_only,
+            ))
+        return powers
 
     async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
-        """Execute a power by name.
+        """Execute a power by name. Routes to @power handlers automatically.
 
-        Called by the framework when an MCP tool, slash command, or action
-        is invoked. The ``name`` matches ``Power.name``.
-
-        For ACTION powers with Pydantic output_schema, return an instance
-        of the output model. For COMMAND powers, return a string (text/HTML).
-        For MCP powers, return a dict or MCP content blocks.
+        New-style: don't override. Decorators handle routing.
+        Old-style: override for manual dispatch.
         """
+        handlers = getattr(self, "_power_handlers", {})
+        entry = handlers.get(name)
+        if entry is not None:
+            from hort.llming.decorators import invoke_handler
+            handler, meta = entry
+            return await invoke_handler(handler, meta, args)
         return {"error": f"Power {name} not implemented"}
 
-    # ── Pulse ──
+    # ── Pulse (UI only) ──
 
     def get_pulse(self) -> dict[str, Any]:
-        """Return current live state (static read).
+        """Return live state for UI thumbnail rendering.
 
-        Called by the framework for thumbnail rendering and by other
-        llmings via ``read_pulse()``. Keep this lightweight.
+        NOT for cross-llming data — use vaults for that.
         """
         return {}
 
-    def get_pulse_channels(self) -> list[str]:
-        """Declare subscribable event channels.
+    # ── Named channel events ──
 
-        Other llmings can subscribe to these via the message bus.
+    async def emit(self, channel: str, data: dict[str, Any] | BaseModel) -> None:
+        """Emit an event on a named channel.
+
+        ::
+            await self.emit("cpu_spike", CpuSpike(cpu=95, threshold=90))
+            await self.emit("status_change", {"status": "online"})
         """
-        return []
+        if self._pulse_bus is None:
+            return
+        payload = data.model_dump() if isinstance(data, BaseModel) else data
+        await self._pulse_bus.emit(self._instance_name, channel, payload)
+
+    # ── Legacy pulse compat ──
 
     async def emit_pulse(self, event: str, data: dict[str, Any]) -> None:
-        """Push an event to all subscribers of this instance."""
-        if self._pulse_bus is not None:
-            await self._pulse_bus.emit(self._instance_name, event, data)
+        """Legacy. Use ``self.emit()`` instead."""
+        await self.emit(event, data)
 
-    # ── Inter-llming communication (via message bus) ──
-
-    async def call(self, target: str, power: str, args: dict[str, Any] | None = None) -> Any:
-        """Call another llming's power. Goes through permission checks.
-
-        This is the ONLY way to invoke another llming's functionality.
-        Direct imports between llmings are forbidden.
-        """
-        from hort.llming.bus import MessageBus
-        return await MessageBus.get().call(
-            source=self._instance_name,
-            target=target,
-            power=power,
-            args=args or {},
-        )
-
-    async def read_pulse(self, target: str) -> dict[str, Any]:
-        """Read another llming's current pulse state."""
-        if self._pulse_bus is not None:
-            return self._pulse_bus.read_state(target)
-        return {}
+    def get_pulse_channels(self) -> list[str]:
+        """Legacy. Channels are now in manifest.json ``publishes``."""
+        return []
 
     def subscribe(self, target: str, event: str, handler: Any) -> None:
-        """Subscribe to another llming's pulse events."""
+        """Legacy. Use ``self.channels[name].subscribe()`` instead."""
         if self._pulse_bus is not None:
             self._pulse_bus.subscribe(target, event, handler)
 
     def unsubscribe(self, target: str, event: str) -> None:
-        """Unsubscribe from pulse events."""
+        """Legacy."""
         if self._pulse_bus is not None:
             self._pulse_bus.unsubscribe(target, event)
 
@@ -254,6 +247,57 @@ class Llming:
     def credentials(self) -> Any:
         """Scoped credential access for this instance."""
         return self._credentials
+
+    # ── Storage one-liners ──
+
+    def save(self, key: str, data: dict[str, Any] | BaseModel, *, ttl: int | None = None, ephemeral: bool = False) -> None:
+        """Save data by key. Persistent by default.
+
+        ::
+            self.save("latest_metrics", {"cpu": 42, "memory": 68})
+            self.save("cache", data, ttl=300, ephemeral=True)
+        """
+        payload = data.model_dump() if isinstance(data, BaseModel) else dict(data)
+        payload["_key"] = key
+        ns = self.runtime if ephemeral else self.persist
+        ns.scrolls.delete_one("_kv", {"_key": key})
+        ns.scrolls.insert("_kv", payload, ttl=ttl)
+
+    def load(self, key: str, default: dict[str, Any] | None = None, *, ephemeral: bool = False) -> dict[str, Any]:
+        """Load data by key. Returns default if not found.
+
+        ::
+            data = self.load("latest_metrics", default={"cpu": 0})
+        """
+        ns = self.runtime if ephemeral else self.persist
+        result = ns.scrolls.find_one("_kv", {"_key": key})
+        if result is None:
+            return default if default is not None else {}
+        result.pop("_id", None)
+        result.pop("_key", None)
+        result.pop("_access", None)
+        return result
+
+    def delete(self, key: str, *, ephemeral: bool = False) -> bool:
+        """Delete data by key."""
+        ns = self.runtime if ephemeral else self.persist
+        result = ns.scrolls.delete_one("_kv", {"_key": key})
+        return result.get("deleted", 0) > 0
+
+    # ── Discovery ──
+
+    async def discover(self, target: str | None = None) -> dict[str, list[dict[str, Any]]]:
+        """Discover available powers from other llmings.
+
+        ::
+            catalog = await self.discover("system-monitor")
+            all_powers = await self.discover()
+        """
+        from hort.llming.bus import MessageBus
+        catalog = MessageBus.get().power_catalog()
+        if target:
+            return {target: catalog.get(target, [])}
+        return catalog
 
     @property
     def log(self) -> logging.Logger:

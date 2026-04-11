@@ -84,3 +84,34 @@ class MessageBus:
 
         logger.info("Bus: %s → %s.%s", source, target, power)
         return await llming.execute_power(power, args)
+
+    def power_catalog(self) -> dict[str, list[dict[str, Any]]]:
+        """Return all powers from all registered instances.
+
+        Lets any llming discover what others offer::
+
+            catalog = await self.discover("system-monitor")
+        """
+        from pydantic import BaseModel
+
+        catalog: dict[str, list[dict[str, Any]]] = {}
+        for name, instance in self._instances.items():
+            catalog[name] = [
+                {
+                    "name": p.name,
+                    "type": p.type.value,
+                    "description": p.description,
+                    "input_schema": (
+                        p.input_schema.model_json_schema()
+                        if isinstance(p.input_schema, type) and issubclass(p.input_schema, BaseModel)
+                        else p.input_schema
+                    ),
+                    "output_schema": (
+                        p.output_schema.model_json_schema()
+                        if isinstance(p.output_schema, type) and issubclass(p.output_schema, BaseModel)
+                        else p.output_schema
+                    ),
+                }
+                for p in instance.get_powers()
+            ]
+        return catalog

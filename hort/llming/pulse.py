@@ -1,11 +1,19 @@
-"""Pulse system — live state and subscribable events.
+"""Pulse system — named channel pub/sub.
 
-Every llming can:
-- Expose live state via ``get_pulse()`` (static read)
-- Emit events via ``emit_pulse()`` (push to subscribers)
-- Declare subscribable channels via ``get_pulse_channels()``
+Pulses are fire-and-forget events on named channels. Multiple llmings
+can publish to the same channel. Subscribers listen by channel name,
+not by source llming.
 
-Other llmings subscribe via the message bus — no direct imports.
+Publishing::
+
+    await self.emit("cpu_spike", CpuSpike(cpu=95, threshold=90))
+
+Subscribing::
+
+    self.channels["cpu_spike"].subscribe(self.on_spike)
+
+``get_pulse()`` still exists for UI thumbnail rendering — it is NOT
+part of the cross-llming pulse channel system.
 """
 
 from __future__ import annotations
@@ -20,51 +28,62 @@ PulseHandler = Callable[[dict[str, Any]], Coroutine[Any, Any, None]]
 
 
 class PulseBus:
-    """Central event bus for llming pulse events.
+    """Central event bus for named pulse channels.
 
-    Routes events from emitters to subscribers. Enforces isolation —
-    llmings never reference each other directly, only by instance name.
+    Channels are global names (not scoped to a llming instance).
+    Any llming can publish to any channel. Subscribers receive
+    all events on channels they subscribe to.
     """
 
     _instance: PulseBus | None = None
 
     def __init__(self) -> None:
-        # {source_instance: {event_name: [handler, ...]}}
+        # Named channels: {channel_name: [handler, ...]}
+        self._channels: dict[str, list[PulseHandler]] = defaultdict(list)
+        # Legacy: instance-scoped subscriptions (backward compat)
         self._subscriptions: dict[str, dict[str, list[PulseHandler]]] = defaultdict(
             lambda: defaultdict(list)
         )
-        # {instance_name: latest_pulse_state}
+        # UI pulse state cache (for get_pulse / thumbnails only)
         self._pulse_state: dict[str, dict[str, Any]] = {}
 
     @classmethod
     def get(cls) -> PulseBus:
-        """Get or create the singleton PulseBus."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
     @classmethod
     def reset(cls) -> None:
-        """Reset singleton (for testing)."""
         cls._instance = None
 
-    def subscribe(
-        self,
-        source: str,
-        event: str,
-        handler: PulseHandler,
-    ) -> None:
-        """Subscribe to pulse events from a specific llming."""
+    # ── Named channels (new) ──
+
+    def subscribe_channel(self, channel: str, handler: PulseHandler) -> None:
+        """Subscribe to a named channel."""
+        if handler not in self._channels[channel]:
+            self._channels[channel].append(handler)
+
+    def unsubscribe_channel(self, channel: str, handler: PulseHandler) -> None:
+        """Unsubscribe from a named channel."""
+        handlers = self._channels.get(channel, [])
+        self._channels[channel] = [h for h in handlers if h is not handler]
+
+    async def emit_channel(self, channel: str, data: dict[str, Any]) -> None:
+        """Emit an event on a named channel."""
+        for handler in self._channels.get(channel, []):
+            try:
+                await handler(data)
+            except Exception:
+                logger.exception("Channel handler error: %s", channel)
+
+    # ── Legacy instance-scoped (backward compat) ──
+
+    def subscribe(self, source: str, event: str, handler: PulseHandler) -> None:
         self._subscriptions[source][event].append(handler)
 
     def unsubscribe(self, source: str, event: str, handler: PulseHandler | None = None) -> None:
-        """Unsubscribe from pulse events.
-
-        If handler is None, removes all handlers for this source+event.
-        """
-        if source not in self._subscriptions:
-            return
-        if event not in self._subscriptions[source]:
+        if source not in self._subscriptions or event not in self._subscriptions[source]:
             return
         if handler is None:
             del self._subscriptions[source][event]
@@ -73,31 +92,24 @@ class PulseBus:
             self._subscriptions[source][event] = [h for h in handlers if h is not handler]
 
     async def emit(self, source: str, event: str, data: dict[str, Any]) -> None:
-        """Emit a pulse event. Delivers to all subscribers asynchronously."""
-        handlers = self._subscriptions.get(source, {}).get(event, [])
-        for handler in handlers:
+        """Emit — delivers to both named channel AND legacy instance-scoped subscribers."""
+        # Named channel
+        await self.emit_channel(event, data)
+        # Legacy instance-scoped
+        for handler in self._subscriptions.get(source, {}).get(event, []):
             try:
                 await handler(data)
             except Exception:
-                logger.exception(
-                    "Pulse handler error: %s/%s", source, event
-                )
+                logger.exception("Pulse handler error: %s/%s", source, event)
+
+    # ── UI pulse state (for thumbnails only) ──
 
     def update_state(self, instance: str, state: dict[str, Any]) -> None:
-        """Update the cached pulse state for an instance."""
         self._pulse_state[instance] = state
 
     def read_state(self, instance: str) -> dict[str, Any]:
-        """Read the cached pulse state for an instance."""
         return self._pulse_state.get(instance, {})
 
     def clear_instance(self, instance: str) -> None:
-        """Remove all subscriptions and state for an instance (on deactivate)."""
         self._subscriptions.pop(instance, None)
         self._pulse_state.pop(instance, None)
-        # Also remove any subscriptions TO this instance from others
-        for source_subs in self._subscriptions.values():
-            for event_handlers in source_subs.values():
-                # Can't easily identify which handlers belong to which instance
-                # without a reverse mapping — left for the instance's deactivate()
-                pass
