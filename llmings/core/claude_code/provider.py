@@ -86,11 +86,9 @@ class ClaudeCodeExecutor(LlmExecutor):
     # ── LlmExecutor interface ──
 
     async def _send(self, session_key: str, text: str, system_prompt: str) -> SendResult:
-        """Send a message via Claude Code CLI and return the result."""
         self._ensure_started()
         if not self._chat_mgr:
             return SendResult(text="Claude backend not available.")
-
         try:
             session = self._chat_mgr.get_session(session_key)
             response = await session.send(text)
@@ -102,7 +100,7 @@ class ClaudeCodeExecutor(LlmExecutor):
             logger.exception("Claude send error for session %s", session_key)
             return SendResult(text="Something went wrong. Try again.")
 
-    async def _reset_session(self, session_key: str) -> None:
+    async def _on_end_session(self, session_key: str) -> None:
         if self._chat_mgr:
             self._chat_mgr.reset_session(session_key)
 
@@ -115,28 +113,23 @@ class ClaudeCodeExecutor(LlmExecutor):
         base["model"] = self._config.get("model", "default")
         return base
 
-    # ── Convenience method for connectors ──
+    # ── Convenience for connectors (delegates to standard Powers) ──
 
     async def chat(self, session_key: str, text: str, on_progress: Any = None) -> str:
         """Send a message and return response text.
 
-        Convenience wrapper for connectors. Calls the standard
-        send_message power internally.
+        Creates a session if needed, sends the message via standard
+        Powers. Connectors can call this instead of execute_power directly.
         """
-        result = await self._handle_send(session_key, text, "")
+        if session_key not in self._sessions:
+            await self.execute_power("create_session", {"session_key": session_key})
+        result = await self.execute_power("send_message", {"session_key": session_key, "text": text})
         return result.get("text", "Something went wrong. Try again.")
 
-    def reset(self, session_key: str) -> None:
-        """Reset a session (for /new command). Convenience wrapper."""
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(self._handle_reset(session_key))
-            else:
-                loop.run_until_complete(self._handle_reset(session_key))
-        except Exception:
-            pass
+    async def new_session(self, session_key: str) -> None:
+        """End current session and start fresh (for /new command)."""
+        if session_key in self._sessions:
+            await self.execute_power("end_session", {"session_key": session_key})
 
     # ── Cleanup ──
 

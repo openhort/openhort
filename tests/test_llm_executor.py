@@ -1,4 +1,7 @@
-"""Tests for LlmExecutor base class and the executor ecosystem."""
+"""Tests for LlmExecutor base class and the executor ecosystem.
+
+Session lifecycle: create → send → end. No auto-create, no reset.
+"""
 
 from __future__ import annotations
 
@@ -6,13 +9,18 @@ from typing import Any
 
 import pytest
 
-from hort.llming import LlmExecutor, SendResult, Power
+from hort.llming import LlmExecutor, SendResult, SessionConfig
 
 
 class EchoExecutor(LlmExecutor):
     """Minimal executor that echoes back messages. For testing."""
 
     provider_name = "echo"
+    _created: list[str]  # track create calls for testing
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._created = []
 
     async def _send(self, session_key: str, text: str, system_prompt: str) -> SendResult:
         return SendResult(
@@ -23,131 +31,177 @@ class EchoExecutor(LlmExecutor):
             provider_session_id=f"echo-{session_key}",
         )
 
+    async def _on_create_session(self, session_key: str, config: SessionConfig) -> None:
+        self._created.append(session_key)
 
-class FailingExecutor(LlmExecutor):
-    """Executor that always raises. For error handling tests."""
-
-    provider_name = "failing"
-
-    async def _send(self, session_key: str, text: str, system_prompt: str) -> SendResult:
-        raise RuntimeError("LLM unavailable")
+    async def _on_end_session(self, session_key: str) -> None:
+        pass
 
 
 class TestLlmExecutorPowers:
-    """Test that LlmExecutor provides the standard Powers interface."""
 
     def test_has_standard_powers(self) -> None:
         e = EchoExecutor()
-        powers = e.get_powers()
-        names = {p.name for p in powers}
-        assert "send_message" in names
-        assert "get_session_status" in names
-        assert "reset_session" in names
-        assert "list_sessions" in names
-        assert "get_usage" in names
+        names = {p.name for p in e.get_powers()}
+        assert names == {"create_session", "send_message", "end_session", "get_session_status", "list_sessions", "get_usage"}
 
     def test_is_llming(self) -> None:
         from hort.llming.base import Llming
-        e = EchoExecutor()
-        assert isinstance(e, Llming)
+        assert isinstance(EchoExecutor(), Llming)
 
     def test_provider_name(self) -> None:
         assert EchoExecutor().provider_name == "echo"
 
 
-class TestLlmExecutorSendMessage:
-    """Test the send_message power."""
+class TestSessionLifecycle:
+    """create → send → end"""
 
-    async def test_send_message(self) -> None:
+    async def test_create_then_send(self) -> None:
         e = EchoExecutor()
-        result = await e.execute_power("send_message", {
-            "session_key": "user1",
-            "text": "hello",
-        })
+        create = await e.execute_power("create_session", {"session_key": "s1"})
+        assert create["ok"] is True
+
+        result = await e.execute_power("send_message", {"session_key": "s1", "text": "hello"})
         assert result["text"] == "echo: hello"
-        assert result["cost"] == 0.001
         assert result["turn_count"] == 1
 
-    async def test_send_tracks_session(self) -> None:
+    async def test_send_without_create_fails(self) -> None:
         e = EchoExecutor()
-        await e.execute_power("send_message", {"session_key": "u1", "text": "a"})
-        await e.execute_power("send_message", {"session_key": "u1", "text": "b"})
+        result = await e.execute_power("send_message", {"session_key": "ghost", "text": "hi"})
+        assert "error" in result
+        assert "does not exist" in result["error"]
 
-        status = await e.execute_power("get_session_status", {"session_key": "u1"})
-        assert status["active"] is True
-        assert status["turn_count"] == 2
-        assert status["total_cost"] == pytest.approx(0.002)
-
-    async def test_send_multiple_users(self) -> None:
+    async def test_create_duplicate_fails(self) -> None:
         e = EchoExecutor()
-        await e.execute_power("send_message", {"session_key": "alice", "text": "hi"})
-        await e.execute_power("send_message", {"session_key": "bob", "text": "hey"})
+        await e.execute_power("create_session", {"session_key": "s1"})
+        result = await e.execute_power("create_session", {"session_key": "s1"})
+        assert "error" in result
+        assert "already exists" in result["error"]
+
+    async def test_end_session(self) -> None:
+        e = EchoExecutor()
+        await e.execute_power("create_session", {"session_key": "s1"})
+        await e.execute_power("send_message", {"session_key": "s1", "text": "a"})
+
+        end = await e.execute_power("end_session", {"session_key": "s1"})
+        assert end["ok"] is True
+        assert end["turns"] == 1
+
+        # Session is gone
+        status = await e.execute_power("get_session_status", {"session_key": "s1"})
+        assert status["active"] is False
+
+    async def test_end_nonexistent_fails(self) -> None:
+        e = EchoExecutor()
+        result = await e.execute_power("end_session", {"session_key": "ghost"})
+        assert "error" in result
+
+    async def test_send_after_end_fails(self) -> None:
+        e = EchoExecutor()
+        await e.execute_power("create_session", {"session_key": "s1"})
+        await e.execute_power("end_session", {"session_key": "s1"})
+
+        result = await e.execute_power("send_message", {"session_key": "s1", "text": "hi"})
+        assert "error" in result
+
+    async def test_create_calls_hook(self) -> None:
+        e = EchoExecutor()
+        await e.execute_power("create_session", {"session_key": "s1"})
+        assert "s1" in e._created
+
+
+class TestSessionConfig:
+    """Session creation with specific configuration."""
+
+    async def test_create_with_model(self) -> None:
+        e = EchoExecutor()
+        await e.execute_power("create_session", {"session_key": "s1", "model": "opus"})
+        status = await e.execute_power("get_session_status", {"session_key": "s1"})
+        assert status["model"] == "opus"
+
+    async def test_create_with_budget(self) -> None:
+        e = EchoExecutor()
+        await e.execute_power("create_session", {"session_key": "s1", "budget_usd": 5.0})
+        status = await e.execute_power("get_session_status", {"session_key": "s1"})
+        assert status["budget_usd"] == 5.0
+
+    async def test_create_with_system_prompt(self) -> None:
+        e = EchoExecutor()
+        await e.execute_power("create_session", {"session_key": "s1", "system_prompt": "Be brief."})
+        status = await e.execute_power("get_session_status", {"session_key": "s1"})
+        assert status["system_prompt"] is True  # bool indicating it's set
+
+    async def test_create_with_tools(self) -> None:
+        e = EchoExecutor()
+        await e.execute_power("create_session", {
+            "session_key": "s1",
+            "allowed_tools": ["Read", "Write"],
+        })
+        status = await e.execute_power("get_session_status", {"session_key": "s1"})
+        assert status["allowed_tools"] == ["Read", "Write"]
+
+
+class TestMultipleSessions:
+
+    async def test_multiple_sessions(self) -> None:
+        e = EchoExecutor()
+        await e.execute_power("create_session", {"session_key": "alice"})
+        await e.execute_power("create_session", {"session_key": "bob"})
+        await e.execute_power("send_message", {"session_key": "alice", "text": "a"})
+        await e.execute_power("send_message", {"session_key": "bob", "text": "b"})
 
         sessions = await e.execute_power("list_sessions", {})
         assert sessions["count"] == 2
 
-    async def test_send_with_system_prompt(self) -> None:
+    async def test_sessions_isolated(self) -> None:
         e = EchoExecutor()
-        result = await e.execute_power("send_message", {
-            "session_key": "u1",
-            "text": "test",
-            "system_prompt": "Be concise.",
-        })
-        assert result["text"] == "echo: test"
+        await e.execute_power("create_session", {"session_key": "a"})
+        await e.execute_power("create_session", {"session_key": "b"})
+        await e.execute_power("send_message", {"session_key": "a", "text": "1"})
+        await e.execute_power("send_message", {"session_key": "a", "text": "2"})
+        await e.execute_power("send_message", {"session_key": "b", "text": "x"})
 
+        sa = await e.execute_power("get_session_status", {"session_key": "a"})
+        sb = await e.execute_power("get_session_status", {"session_key": "b"})
+        assert sa["turn_count"] == 2
+        assert sb["turn_count"] == 1
 
-class TestLlmExecutorSessionManagement:
-    """Test session lifecycle operations."""
-
-    async def test_get_status_nonexistent(self) -> None:
+    async def test_new_session_after_end(self) -> None:
+        """End a session and create a fresh one with same key."""
         e = EchoExecutor()
-        status = await e.execute_power("get_session_status", {"session_key": "nobody"})
-        assert status["active"] is False
+        await e.execute_power("create_session", {"session_key": "s1"})
+        await e.execute_power("send_message", {"session_key": "s1", "text": "old"})
+        await e.execute_power("end_session", {"session_key": "s1"})
 
-    async def test_reset_session(self) -> None:
-        e = EchoExecutor()
-        await e.execute_power("send_message", {"session_key": "u1", "text": "a"})
-        await e.execute_power("reset_session", {"session_key": "u1"})
-
-        status = await e.execute_power("get_session_status", {"session_key": "u1"})
-        assert status["active"] is False
-
-    async def test_reset_nonexistent_ok(self) -> None:
-        e = EchoExecutor()
-        result = await e.execute_power("reset_session", {"session_key": "ghost"})
-        assert result["ok"] is True
-
-    async def test_list_sessions_empty(self) -> None:
-        e = EchoExecutor()
-        sessions = await e.execute_power("list_sessions", {})
-        assert sessions["count"] == 0
-
-    async def test_get_usage(self) -> None:
-        e = EchoExecutor()
-        await e.execute_power("send_message", {"session_key": "u1", "text": "hi"})
-        usage = await e.execute_power("get_usage", {})
-        assert usage["total_turns"] == 1
-        assert usage["total_cost"] > 0
-        assert usage["provider"] == "echo"
+        # Create new session with same key
+        await e.execute_power("create_session", {"session_key": "s1", "model": "new-model"})
+        status = await e.execute_power("get_session_status", {"session_key": "s1"})
+        assert status["turn_count"] == 0  # fresh
+        assert status["model"] == "new-model"
 
 
-class TestLlmExecutorBudget:
-    """Test budget enforcement."""
+class TestBudget:
 
     async def test_budget_exceeded(self) -> None:
         e = EchoExecutor()
-        # Send a message to create the session
-        await e.execute_power("send_message", {"session_key": "u1", "text": "a"})
-        # Set a tiny budget
-        e._sessions["u1"].budget_usd = 0.0001
+        await e.execute_power("create_session", {"session_key": "s1", "budget_usd": 0.0005})
+        await e.execute_power("send_message", {"session_key": "s1", "text": "a"})  # costs 0.001
 
-        result = await e.execute_power("send_message", {"session_key": "u1", "text": "b"})
+        result = await e.execute_power("send_message", {"session_key": "s1", "text": "b"})
         assert "error" in result
         assert "Budget exceeded" in result["error"]
 
 
-class TestLlmExecutorPulse:
-    """Test pulse reporting."""
+class TestUsageAndPulse:
+
+    async def test_get_usage(self) -> None:
+        e = EchoExecutor()
+        await e.execute_power("create_session", {"session_key": "s1"})
+        await e.execute_power("send_message", {"session_key": "s1", "text": "hi"})
+        usage = await e.execute_power("get_usage", {})
+        assert usage["total_turns"] == 1
+        assert usage["total_cost"] > 0
+        assert usage["provider"] == "echo"
 
     def test_pulse_empty(self) -> None:
         e = EchoExecutor()
@@ -157,50 +211,34 @@ class TestLlmExecutorPulse:
 
     async def test_pulse_after_messages(self) -> None:
         e = EchoExecutor()
-        await e.execute_power("send_message", {"session_key": "u1", "text": "hi"})
+        await e.execute_power("create_session", {"session_key": "s1"})
+        await e.execute_power("send_message", {"session_key": "s1", "text": "hi"})
         pulse = e.get_pulse()
         assert pulse["active_sessions"] == 1
         assert pulse["total_turns"] == 1
 
 
-class TestLlmExecutorErrorHandling:
-    """Test that errors are handled gracefully."""
-
-    async def test_unknown_power(self) -> None:
-        e = EchoExecutor()
-        result = await e.execute_power("nonexistent", {})
-        assert "error" in result
-
-
 class TestClaudeCodeExecutor:
-    """Test the Claude Code executor imports and has correct interface."""
 
-    def test_import(self) -> None:
+    def test_import_and_interface(self) -> None:
         from llmings.core.claude_code.provider import ClaudeCodeExecutor
         e = ClaudeCodeExecutor()
         assert e.provider_name == "claude-code"
         assert isinstance(e, LlmExecutor)
-
-    def test_has_standard_powers(self) -> None:
-        from llmings.core.claude_code.provider import ClaudeCodeExecutor
-        e = ClaudeCodeExecutor()
         names = {p.name for p in e.get_powers()}
+        assert "create_session" in names
         assert "send_message" in names
-        assert "reset_session" in names
+        assert "end_session" in names
 
 
 class TestLlmingModelsExecutor:
-    """Test the llming-models executor imports and has correct interface."""
 
-    def test_import(self) -> None:
+    def test_import_and_interface(self) -> None:
         from llmings.llms.llming_models_ext.provider import LlmingModelsExecutor
         e = LlmingModelsExecutor()
         assert e.provider_name == "llming-models"
         assert isinstance(e, LlmExecutor)
-
-    def test_has_standard_powers(self) -> None:
-        from llmings.llms.llming_models_ext.provider import LlmingModelsExecutor
-        e = LlmingModelsExecutor()
         names = {p.name for p in e.get_powers()}
+        assert "create_session" in names
         assert "send_message" in names
-        assert "reset_session" in names
+        assert "end_session" in names
