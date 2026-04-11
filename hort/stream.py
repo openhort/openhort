@@ -293,6 +293,7 @@ async def run_stream(
     prev_quality: int = 0
     _prev_source_id: str = ""
     frame_count = 0
+    capture_ms = 0.0
     video_encoder: _VideoEncoder | None = None
     stream_state: StreamState | None = None
 
