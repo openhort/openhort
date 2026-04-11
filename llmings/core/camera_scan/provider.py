@@ -211,13 +211,10 @@ class CameraScan(Llming):
 
         if name == "list_recent_scans":
             limit = args.get("limit", 10)
-            keys = await self.store.list_keys("scan:")
-            keys.sort(reverse=True)
+            scans = self.vault.query("scans", {}, limit=limit)
             entries = []
-            for k in keys[:limit]:
-                e = await self.store.get(k)
-                if e:
-                    entries.append(f"{e.get('width', '?')}x{e.get('height', '?')} {e.get('format', '?')} ({e.get('size_bytes', 0)} bytes)")
+            for e in scans:
+                entries.append(f"{e.get('width', '?')}x{e.get('height', '?')} {e.get('format', '?')} ({e.get('size_bytes', 0)} bytes)")
             return {"content": [{"type": "text", "text": "\n".join(entries) or "No scans yet"}]}
 
         return {"error": f"Unknown power: {name}"}

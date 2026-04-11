@@ -75,11 +75,11 @@ class ScreenshotCapture(Llming):
             ))
 
             # Update latest reference
-            _run_coro(self.store.put("latest_screenshot", {
+            self.vault.set("latest_screenshot", {
                 "filename": filename,
                 "timestamp": ts,
                 "size": len(data),
-            }))
+            })
 
             self.log.info("Screenshot captured: %s (%d bytes)", filename, len(data))
 
@@ -151,7 +151,7 @@ class ScreenshotCapture(Llming):
         if name == "capture_screenshot":
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, self.capture_screenshot)
-            latest = await self.store.get("latest_screenshot")
+            latest = self.vault.get("latest_screenshot")
             if latest:
                 return {"content": [{"type": "text", "text": f"Screenshot captured: {latest['filename']} ({latest['size']} bytes)"}]}
             return {"content": [{"type": "text", "text": "Screenshot capture failed"}], "is_error": True}

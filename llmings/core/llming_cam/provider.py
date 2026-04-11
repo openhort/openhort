@@ -67,8 +67,8 @@ class LlmingCam(Llming):
         import asyncio
 
         async def _restore() -> None:
-            wanted = await self.store.get("wanted_cameras")
-            if wanted and isinstance(wanted, dict):
+            wanted = self.vault.get("wanted_cameras")
+            if wanted:
                 # Restore policies first
                 policies = wanted.get("policies", {})
                 for sid, policy in policies.items():
@@ -115,19 +115,19 @@ class LlmingCam(Llming):
             img.close()
             thumb_b64 = b64mod.b64encode(buf.getvalue()).decode()
             buf.close()
-            await self.store.put(f"thumb:{source_id}", {"b64": thumb_b64})
+            self.vault.set(f"thumb:{source_id}", {"b64": thumb_b64})
         except Exception:
-            pass  # non-critical — just won't have a stored thumb
+            pass
 
     async def _get_thumb(self, source_id: str) -> str:
         """Get stored thumbnail for a camera."""
-        data = await self.store.get(f"thumb:{source_id}")
+        data = self.vault.get(f"thumb:{source_id}")
         return data.get("b64", "") if data else ""
 
     async def _persist_wanted(self) -> None:
-        """Save wanted cameras and policies to persistent store."""
+        """Save wanted cameras and policies to vault."""
         if self._cam:
-            await self.store.put("wanted_cameras", {
+            self.vault.set("wanted_cameras", {
                 "ids": list(self._cam._wanted),
                 "policies": dict(self._cam._policies),
             })

@@ -76,16 +76,8 @@ class ClipboardHistory(Llming):
             loop.close()
 
     async def _store_clip(self, entry: dict[str, Any]) -> None:
-        """Store a clipboard entry and enforce the max 100 entry limit."""
-        ts = entry["timestamp"]
-        await self.store.put(f"clip:{ts}", entry, ttl_seconds=86400)
-
-        # Enforce max 100 entries — remove oldest if over limit
-        keys = await self.store.list_keys("clip:")
-        if len(keys) > 100:
-            keys.sort()
-            for old_key in keys[: len(keys) - 100]:
-                await self.store.delete(old_key)
+        """Store a clipboard entry in vault."""
+        self.vault.insert("clips", entry, ttl=86400)
 
     # ===== Powers =====
 

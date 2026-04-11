@@ -47,49 +47,39 @@ class HueBridge(Llming):
         self._groups: dict[str, Any] = {}
         self._sensors: dict[str, Any] = {}
         self._bridge_name: str | None = None
-        self._auth_state: str = "not_configured"  # not_configured | pairing | ok | error
+        self._auth_state: str = "not_configured"
         self._auth_message: str = ""
-        # Try to load stored key (sync wrapper — store may not be async-ready here)
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self._restore_on_activate())
-            else:
-                loop.run_until_complete(self._restore_on_activate())
-        except Exception:
-            pass
+
+        # Load credentials from vault and poll
+        creds = self.vault.get("credentials")
+        if creds and creds.get("api_key") and creds.get("bridge_ip"):
+            self._api_key = creds["api_key"]
+            self._bridge_ip = creds["bridge_ip"]
+            self._auth_state = "ok"
+            self.log.info("Loaded stored Hue API key for bridge at %s", self._bridge_ip)
+            self.poll_lights()
+
         self.log.info("Hue Bridge plugin activated")
 
-    async def _restore_on_activate(self) -> None:
-        """Load stored credentials and poll if available."""
-        if await self._load_stored_key():
-            self.poll_lights()
 
     def deactivate(self) -> None:
         self.log.info("Hue Bridge plugin deactivated")
 
     # ── Lifecycle ───────────────────────────────────────────────────
 
-    async def _load_stored_key(self) -> bool:
-        """Try to load API key from store."""
-        if not self.store:
-            return False
-        key = await self.store.get("hue_api_key")
-        ip = await self.store.get("hue_bridge_ip")
-        if key and ip:
-            self._api_key = key
-            self._bridge_ip = ip
+    def _load_stored_key(self) -> bool:
+        """Load API key from vault."""
+        creds = self.vault.get("credentials")
+        if creds and creds.get("api_key") and creds.get("bridge_ip"):
+            self._api_key = creds["api_key"]
+            self._bridge_ip = creds["bridge_ip"]
             self._auth_state = "ok"
-            self.log.info("Loaded stored Hue API key for bridge at %s", ip)
             return True
         return False
 
     async def _save_key(self, ip: str, key: str) -> None:
-        """Persist API key."""
-        if self.store:
-            await self.store.put("hue_api_key", key)
-            await self.store.put("hue_bridge_ip", ip)
+        """Persist API key to vault."""
+        self.vault.set("credentials", {"api_key": key, "bridge_ip": ip})
 
     # ── Discovery ───────────────────────────────────────────────────
 
