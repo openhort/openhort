@@ -53,6 +53,5 @@
         "description": "Desktop thumbnail refresh interval (seconds)"
       }
     }
-  },
-  "group": "core.media"
+  }
 }

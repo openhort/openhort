@@ -16,6 +16,5 @@
   "icon": "ph ph-tree-structure",
   "author": "openhort",
   "llming_type": "admin",
-  "mcp": true,
-  "group": "core.tools"
+  "mcp": true
 }

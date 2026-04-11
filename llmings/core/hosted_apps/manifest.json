@@ -26,6 +26,5 @@
       "interval_seconds": 30,
       "run_on_activate": false
     }
-  ],
-  "group": "core.apps"
+  ]
 }

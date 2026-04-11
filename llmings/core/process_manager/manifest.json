@@ -34,6 +34,5 @@
   "ui_widgets": [
     "process-manager-panel"
   ],
-  "ui_script": "static/cards.js",
-  "group": "core.systeminfo"
+  "ui_script": "static/cards.js"
 }

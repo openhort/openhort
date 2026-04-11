@@ -48,6 +48,5 @@
       "description": "Terminate sessions"
     }
   },
-  "risk_level": "standard",
-  "group": "core.tools"
+  "risk_level": "standard"
 }

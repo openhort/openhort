@@ -33,6 +33,5 @@
   "ui_widgets": [
     "hue-bridge-panel"
   ],
-  "ui_script": "static/cards.js",
-  "group": "core.smart"
+  "ui_script": "static/cards.js"
 }

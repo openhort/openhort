@@ -31,6 +31,5 @@
   "ui_widgets": [
     "clipboard-history-panel"
   ],
-  "ui_script": "static/cards.js",
-  "group": "core.tools"
+  "ui_script": "static/cards.js"
 }
