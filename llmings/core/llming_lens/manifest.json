@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "Remote desktop viewer \u2014 stream screens, browse windows, control input",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "viewer"
   ],

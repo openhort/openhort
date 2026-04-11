@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "Webcam and camera management \u2014 enumerate, capture, stream",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "mcp",
     "ui"

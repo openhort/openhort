@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "Capture screenshots on demand and browse them remotely. Demonstrates server\u2192client image transfer via plugin file store.",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "tool",
     "mcp"

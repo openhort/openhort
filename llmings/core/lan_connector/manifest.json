@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "LAN connector \u2014 shows QR code and local network URLs",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "connector"
   ],

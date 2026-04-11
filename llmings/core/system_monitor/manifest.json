@@ -3,11 +3,6 @@
   "version": "0.2.0",
   "description": "Monitors CPU, memory, and disk usage with live dashboard",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "monitor",
     "mcp"

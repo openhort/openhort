@@ -1,10 +1,11 @@
 {
   "name": "office365",
   "version": "0.1.0",
-  "description": "Microsoft 365 — Mail, Calendar, Teams, Files via MS Graph",
+  "description": "Microsoft 365 \u2014 Mail, Calendar, Teams, Files via MS Graph",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["mcp"],
+  "capabilities": [
+    "mcp"
+  ],
   "entry_point": "provider:Office365Plugin",
   "icon": "ph ph-microsoft-outlook-logo",
   "author": "openhort",
@@ -15,7 +16,13 @@
       "type": "oauth2",
       "label": "Microsoft Account",
       "provider": "microsoft",
-      "scopes": ["User.Read", "Mail.Read", "Mail.Send", "Calendar.ReadWrite", "Files.Read"],
+      "scopes": [
+        "User.Read",
+        "Mail.Read",
+        "Mail.Send",
+        "Calendar.ReadWrite",
+        "Files.Read"
+      ],
       "expires": true,
       "refresh_supported": true,
       "remote_update": false,

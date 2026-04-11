@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "Use phone camera to scan QR codes, barcodes, or capture photos for server-side processing. Demonstrates client\u2192server image transfer.",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "tool"
   ],

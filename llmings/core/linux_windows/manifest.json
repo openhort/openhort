@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "Linux window management via X11 tools (xdotool, wmctrl, ImageMagick) inside Docker containers",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
   "capabilities": [
     "window.list",
     "window.capture",

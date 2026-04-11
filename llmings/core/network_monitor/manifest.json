@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "Monitors network interfaces, bandwidth usage, and connection status",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "monitor",
     "mcp"

@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "Philips Hue smart light control",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "mcp"
   ],

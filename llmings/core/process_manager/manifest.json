@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "View running processes, sort by CPU/memory, kill processes",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "tool",
     "mcp"

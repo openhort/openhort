@@ -1,17 +1,24 @@
 {
   "name": "claude-code",
   "version": "0.1.0",
-  "description": "Claude Code — AI coding assistant with sandboxed container execution",
+  "description": "Claude Code \u2014 AI coding assistant with sandboxed container execution",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["mcp"],
+  "capabilities": [
+    "mcp"
+  ],
   "entry_point": "provider:ClaudeCodeExecutor",
   "icon": "ph ph-robot",
   "author": "openhort",
   "llming_type": "llm",
   "features": {
-    "chat": { "description": "Chat with Claude via connectors", "default": true },
-    "container": { "description": "Run Claude in sandboxed Docker container", "default": true }
+    "chat": {
+      "description": "Chat with Claude via connectors",
+      "default": true
+    },
+    "container": {
+      "description": "Run Claude in sandboxed Docker container",
+      "default": true
+    }
   },
   "mcp": true
 }

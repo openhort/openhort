@@ -3,10 +3,6 @@
   "version": "0.1.0",
   "description": "Monitor and interact with tmux-based code sessions",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux"
-  ],
   "capabilities": [
     "mcp",
     "monitor"

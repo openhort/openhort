@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "Telegram bot connector \u2014 control openhort via Telegram commands",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "connector",
     "messaging"

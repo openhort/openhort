@@ -3,11 +3,6 @@
   "version": "0.1.0",
   "description": "Built-in chat UI \u2014 talk to your hort",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "ui"
   ],

@@ -3,11 +3,6 @@
   "version": "0.2.0",
   "description": "Monitors disk partitions and usage across all mountpoints",
   "provider": "core",
-  "platforms": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
   "capabilities": [
     "monitor",
     "mcp"

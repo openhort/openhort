@@ -10,10 +10,6 @@
   "entry_point": "provider:HostedAppsPlugin",
   "icon": "ph ph-package",
   "llming_type": "tool",
-  "platforms": [
-    "darwin",
-    "linux"
-  ],
   "config_schema": {
     "network_name": "openhort-apps",
     "default_memory": "512m",
