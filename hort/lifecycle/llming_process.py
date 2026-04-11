@@ -1,11 +1,14 @@
-"""Host-side llming subprocess management.
+"""Host-side llming group process management.
 
-LlmingProcess — ManagedProcess that spawns a llming runner subprocess.
-LlmingProxy — Llming subclass that routes all calls over IPC.
+GroupProcess — ManagedProcess that spawns a runner subprocess for a group.
+LlmingProxy — Llming subclass that routes calls over IPC.
 
-The registry stores LlmingProxy instances. All existing code (WS commands,
-MCP bridge, connector framework) works unchanged because LlmingProxy has
-the same interface as Llming.
+A group contains one or more llmings sharing a subprocess. Each llming
+gets its own LlmingProxy. The registry stores proxies as if they were
+regular Llming instances — all existing code works unchanged.
+
+Single-llming groups (ungrouped llmings) work identically — they're
+just groups of one.
 """
 
 from __future__ import annotations
@@ -13,17 +16,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from pathlib import Path
 from typing import Any
 
 from hort.lifecycle.ipc_protocol import (
     PROTOCOL_VERSION,
     dict_to_power,
     msg_activate,
-    msg_deactivate,
     msg_execute_power,
-    msg_get_powers,
-    msg_get_pulse,
     msg_viewer_connect,
     msg_viewer_disconnect,
 )
@@ -37,15 +36,11 @@ logger = logging.getLogger(__name__)
 class LlmingProxy(Llming):
     """Drop-in Llming replacement that routes calls over IPC.
 
-    The main process stores this in the registry. All existing code
-    calls the same methods (get_pulse, execute_power, get_powers, etc.)
-    but they go through IPC to the subprocess instead of running locally.
-
-    Pulse data is cached and refreshed by the subprocess pushing updates.
-    Powers are cached at registration time (they don't change).
+    The registry stores these. All existing code (WS commands, MCP bridge)
+    calls the same methods but they go through IPC to the subprocess.
     """
 
-    def __init__(self, name: str, process: LlmingProcess) -> None:
+    def __init__(self, name: str, process: GroupProcess) -> None:
         self._instance_name = name
         self._class_name = name
         self._process = process
@@ -60,10 +55,9 @@ class LlmingProxy(Llming):
         return self._cached_pulse
 
     async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
-        result = await self._process.request(msg_execute_power(name, args))
-        if isinstance(result, dict) and "error" in result:
-            return result
-        return result
+        return await self._process.request(
+            msg_execute_power(name, args, llming=self._instance_name),
+        )
 
     async def on_viewer_connect(self, session_id: str, controller: Any) -> None:
         await self._process.send_fire_and_forget(msg_viewer_connect(session_id))
@@ -72,14 +66,10 @@ class LlmingProxy(Llming):
         await self._process.send_fire_and_forget(msg_viewer_disconnect(session_id))
 
     def activate(self, config: dict[str, Any]) -> None:
-        # Activation is handled asynchronously after subprocess connects
         self._config = config
 
     def deactivate(self) -> None:
-        # Handled by LlmingProcess.stop()
         pass
-
-    # ── v1 compat ──
 
     @property
     def plugin_id(self) -> str:
@@ -89,54 +79,53 @@ class LlmingProxy(Llming):
         return self._cached_pulse
 
 
-class LlmingProcess(ManagedProcess):
-    """Manages a llming subprocess and provides the proxy interface.
+class GroupProcess(ManagedProcess):
+    """Manages a subprocess hosting one or more llmings (a group).
 
     Usage::
 
-        proc = LlmingProcess("system-monitor", "/path/to/manifest.json")
-        await proc.start()         # spawns subprocess, waits for ready
-        proxy = proc.proxy         # drop-in Llming replacement
-        pulse = proxy.get_pulse()  # returns cached data from subprocess
-        result = await proxy.execute_power("get_metrics", {})  # IPC call
-        await proc.stop()          # clean shutdown
+        proc = GroupProcess("core.systeminfo", {
+            "system-monitor": "/path/to/manifest.json",
+            "disk-usage": "/path/to/manifest.json",
+        })
+        await proc.start()
+        proxy = proc.proxies["system-monitor"]
     """
 
     protocol_version = PROTOCOL_VERSION
 
-    def __init__(self, llming_name: str, manifest_path: str) -> None:
+    def __init__(self, group_name: str, manifest_paths: dict[str, str]) -> None:
         super().__init__()
-        self.name = f"llming-{llming_name}"
-        self._llming_name = llming_name
-        self._manifest_path = manifest_path
-        self._proxy = LlmingProxy(llming_name, self)
+        self.name = f"group-{group_name}" if group_name else f"llming-{next(iter(manifest_paths))}"
+        self._group_name = group_name
+        self._manifest_paths = manifest_paths
+        self._proxies: dict[str, LlmingProxy] = {
+            name: LlmingProxy(name, self) for name in manifest_paths
+        }
         self._pending: dict[str, asyncio.Future[Any]] = {}
         self._ready_event = asyncio.Event()
 
     @property
-    def proxy(self) -> LlmingProxy:
-        return self._proxy
+    def proxies(self) -> dict[str, LlmingProxy]:
+        return self._proxies
 
     def build_command(self) -> list[str]:
-        return [
-            sys.executable, "-m", "hort.lifecycle.runner",
-            "--manifest", self._manifest_path,
-        ]
+        paths = ",".join(self._manifest_paths.values())
+        return [sys.executable, "-m", "hort.lifecycle.runner", "--manifests", paths]
 
     async def on_connected(self) -> None:
-        logger.info("[%s] Subprocess connected", self.name)
+        logger.info("[%s] Connected (%d llmings)", self.name, len(self._manifest_paths))
 
     async def on_disconnected(self) -> None:
-        logger.info("[%s] Subprocess disconnected", self.name)
-        # Fail all pending requests
+        logger.info("[%s] Disconnected", self.name)
         for fut in self._pending.values():
             if not fut.done():
                 fut.set_exception(ConnectionError("Subprocess disconnected"))
         self._pending.clear()
-        self._proxy._ready = False
+        for proxy in self._proxies.values():
+            proxy._ready = False
 
     async def on_message(self, msg: dict[str, Any]) -> None:
-        """Handle messages from the subprocess."""
         msg_type = msg.get("type", "")
 
         if msg_type == "result":
@@ -146,53 +135,55 @@ class LlmingProcess(ManagedProcess):
             self._reject_pending(msg["id"], msg.get("error", "Unknown error"))
 
         elif msg_type == "register_powers":
-            powers = [dict_to_power(d) for d in msg.get("powers", [])]
-            self._proxy._cached_powers = powers
-            logger.info("[%s] Registered %d powers", self.name, len(powers))
+            llming_name = msg.get("llming", "")
+            proxy = self._proxies.get(llming_name)
+            if proxy:
+                powers = [dict_to_power(d) for d in msg.get("powers", [])]
+                proxy._cached_powers = powers
+                logger.info("[%s] %s: %d powers", self.name, llming_name, len(powers))
 
         elif msg_type == "pulse_update":
-            self._proxy._cached_pulse = msg.get("data", {})
+            llming_name = msg.get("llming", "")
+            proxy = self._proxies.get(llming_name)
+            if proxy:
+                proxy._cached_pulse = msg.get("data", {})
 
         elif msg_type == "pulse_emit":
-            # Forward to the PulseBus
             try:
                 from hort.llming.pulse import PulseBus
-                bus = PulseBus.get()
-                await bus.emit(self._llming_name, msg["event"], msg.get("data", {}))
+                await PulseBus.get().emit(msg.get("llming", ""), msg["event"], msg.get("data", {}))
             except Exception:
                 pass
 
         elif msg_type == "log":
             level = msg.get("level", "info")
-            message = msg.get("message", "")
-            getattr(logger, level, logger.info)("[%s] %s", self.name, message)
+            getattr(logger, level, logger.info)("[%s] %s", self.name, msg.get("message", ""))
 
         elif msg_type == "ready":
-            self._proxy._ready = True
+            for proxy in self._proxies.values():
+                proxy._ready = True
             self._ready_event.set()
             logger.info("[%s] Ready", self.name)
 
-    async def activate(self, config: dict[str, Any]) -> None:
-        """Send activate to the subprocess and wait for result."""
-        self._proxy._config = config
-        await self.request(msg_activate(config))
+    async def activate_llming(self, name: str, config: dict[str, Any]) -> None:
+        proxy = self._proxies.get(name)
+        if proxy:
+            proxy._config = config
+        await self.request(msg_activate(config, llming=name))
 
     async def wait_ready(self, timeout: float = 15.0) -> bool:
-        """Wait for the subprocess to signal ready."""
         try:
             await asyncio.wait_for(self._ready_event.wait(), timeout)
             return True
         except asyncio.TimeoutError:
-            logger.warning("[%s] Subprocess not ready after %.1fs", self.name, timeout)
+            logger.warning("[%s] Not ready after %.1fs", self.name, timeout)
             return False
 
     async def request(self, msg: dict[str, Any]) -> Any:
-        """Send a request and wait for the response."""
         msg_id = msg["id"]
         loop = asyncio.get_event_loop()
         fut: asyncio.Future[Any] = loop.create_future()
         self._pending[msg_id] = fut
-
         try:
             await self.send(msg)
             return await asyncio.wait_for(fut, timeout=30.0)
@@ -203,7 +194,6 @@ class LlmingProcess(ManagedProcess):
             self._pending.pop(msg_id, None)
 
     async def send_fire_and_forget(self, msg: dict[str, Any]) -> None:
-        """Send a message without waiting for response."""
         try:
             await self.send(msg)
         except ConnectionError:
@@ -218,3 +208,7 @@ class LlmingProcess(ManagedProcess):
         fut = self._pending.get(msg_id)
         if fut and not fut.done():
             fut.set_exception(RuntimeError(error))
+
+
+# Backward compat alias
+LlmingProcess = GroupProcess

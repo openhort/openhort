@@ -1,18 +1,20 @@
-"""Llming subprocess runner — loads and hosts a single llming.
+"""Llming subprocess runner — loads a group of llmings in one process.
 
 Usage::
 
-    python -m hort.lifecycle.runner --manifest /path/to/manifest.json
+    python -m hort.lifecycle.runner --manifests /path/a/manifest.json,/path/b/manifest.json
+    python -m hort.lifecycle.runner --manifest /path/to/manifest.json  # single llming
 
 The runner:
 1. Connects to the main process via IPC (Unix socket)
-2. Loads the llming class from its manifest
+2. Loads all llmings from their manifests
 3. Injects services (store, scheduler, logger, etc.)
-4. Handles IPC messages (activate, execute_power, get_pulse, ...)
-5. Pushes events back (pulse_update, register_powers, log, ...)
+4. Handles IPC messages routed by llming name
+5. Pushes events back (register_powers, pulse_update, log, ...)
 
-The llming runs entirely in this subprocess. The main process
-never imports llming code — it only communicates via IPC.
+All llmings in a group share this process — they can call each
+other directly (same memory space). Cross-group communication
+goes through IPC to the main process.
 """
 
 from __future__ import annotations
@@ -41,120 +43,138 @@ from hort.lifecycle.worker import Worker
 logger = logging.getLogger(__name__)
 
 
-class LlmingRunner(Worker):
-    """Subprocess that hosts a single llming instance."""
+class GroupRunner(Worker):
+    """Subprocess that hosts one or more llmings (a group)."""
 
-    name = "llming"
+    name = "llming-group"
     protocol_version = PROTOCOL_VERSION
 
-    def __init__(self, manifest_path: str) -> None:
+    def __init__(self, manifest_paths: list[str]) -> None:
         super().__init__()
-        self._manifest_path = manifest_path
-        self._manifest: dict[str, Any] = {}
-        self._instance: Any = None  # Llming instance
-        self._pulse_task: asyncio.Task[None] | None = None
+        self._manifest_paths = manifest_paths
+        self._instances: dict[str, Any] = {}  # {llming_name: Llming instance}
+        self._manifests: dict[str, dict[str, Any]] = {}  # {name: manifest dict}
 
     async def on_connected(self) -> None:
-        """IPC connected — load the llming and register powers."""
-        try:
-            self._manifest = json.loads(Path(self._manifest_path).read_text())
-            self._instance = self._load_llming()
-            if self._instance is None:
-                await self.send(msg_log("error", f"Failed to load llming from {self._manifest_path}"))
-                return
+        """IPC connected — load all llmings and register powers."""
+        for path in self._manifest_paths:
+            try:
+                manifest = json.loads(Path(path).read_text())
+                name = manifest.get("name", Path(path).parent.name)
+                self._manifests[name] = manifest
 
-            # Register powers
-            powers = self._instance.get_powers()
-            await self.send(msg_register_powers([power_to_dict(p) for p in powers]))
+                instance = self._load_llming(manifest, path)
+                if instance is None:
+                    await self.send(msg_log("error", f"Failed to load {name}"))
+                    continue
 
-            # Signal ready
-            await self.send(msg_ready())
-            logger.info("Llming %s ready", self._manifest.get("name", "?"))
+                self._instances[name] = instance
 
-            # Start pulse push loop
-            self._pulse_task = asyncio.create_task(self._pulse_loop())
+                # Build @power handler map
+                instance._build_power_map()
 
-        except Exception as exc:
-            await self.send(msg_log("error", f"Startup failed: {exc}"))
+                # Register powers for this llming
+                powers = instance.get_powers()
+                await self.send(msg_register_powers(
+                    [power_to_dict(p) for p in powers],
+                    llming=name,
+                ))
+
+                logger.info("Loaded %s", name)
+
+            except Exception as exc:
+                await self.send(msg_log("error", f"Failed to load from {path}: {exc}"))
+
+        await self.send(msg_ready())
+        logger.info("Group ready: %s", list(self._instances.keys()))
 
     async def on_message(self, msg: dict[str, Any]) -> None:
-        """Handle messages from the main process."""
+        """Handle messages from main. Routes by `llming` field."""
         msg_type = msg.get("type", "")
         msg_id = msg.get("id", "")
+        llming_name = msg.get("llming", "")
+
+        # Find target instance
+        inst = self._instances.get(llming_name)
 
         try:
             if msg_type == "activate":
-                self._handle_activate(msg.get("config", {}))
+                if inst:
+                    inst._config = msg.get("config", {})
+                    inst.activate(msg.get("config", {}))
                 await self.send(msg_result(msg_id, {"ok": True}))
 
             elif msg_type == "deactivate":
-                self._handle_deactivate()
+                if inst:
+                    if inst._scheduler is not None:
+                        inst._scheduler.stop_all()
+                    inst.deactivate()
                 await self.send(msg_result(msg_id, {"ok": True}))
 
             elif msg_type == "execute_power":
-                result = await self._handle_execute_power(
-                    msg.get("name", ""), msg.get("args", {}),
-                )
+                if not inst:
+                    await self.send(msg_error(msg_id, f"Llming '{llming_name}' not found"))
+                    return
+                result = await inst.execute_power(msg.get("name", ""), msg.get("args", {}))
+                if hasattr(result, "model_dump"):
+                    result = result.model_dump()
                 await self.send(msg_result(msg_id, result))
 
             elif msg_type == "get_pulse":
-                pulse = self._instance.get_pulse() if self._instance else {}
+                pulse = inst.get_pulse() if inst else {}
                 await self.send(msg_result(msg_id, pulse))
 
             elif msg_type == "get_powers":
-                powers = self._instance.get_powers() if self._instance else []
+                powers = inst.get_powers() if inst else []
                 await self.send(msg_result(msg_id, [power_to_dict(p) for p in powers]))
 
             elif msg_type == "viewer_connect":
-                if self._instance:
-                    await self._instance.on_viewer_connect(msg.get("session_id", ""), None)
+                for instance in self._instances.values():
+                    await instance.on_viewer_connect(msg.get("session_id", ""), None)
                 await self.send(msg_result(msg_id, {"ok": True}))
 
             elif msg_type == "viewer_disconnect":
-                if self._instance:
-                    await self._instance.on_viewer_disconnect(msg.get("session_id", ""))
+                for instance in self._instances.values():
+                    await instance.on_viewer_disconnect(msg.get("session_id", ""))
                 await self.send(msg_result(msg_id, {"ok": True}))
 
             elif msg_type == "set_credential":
-                if self._instance:
-                    if not hasattr(self._instance, "_credentials_mem"):
-                        self._instance._credentials_mem = {}
-                    self._instance._credentials_mem[msg["key"]] = msg["value"]
+                if inst:
+                    if not hasattr(inst, "_credentials_mem"):
+                        inst._credentials_mem = {}
+                    inst._credentials_mem[msg["key"]] = msg["value"]
                 await self.send(msg_result(msg_id, {"ok": True}))
 
         except Exception as exc:
-            logger.exception("Error handling %s", msg_type)
+            logger.exception("Error handling %s for %s", msg_type, llming_name)
             if msg_id:
                 await self.send(msg_error(msg_id, str(exc)))
 
     async def on_disconnected(self) -> None:
-        if self._pulse_task:
-            self._pulse_task.cancel()
-            self._pulse_task = None
+        pass
 
     # ── Internal ──
 
-    def _load_llming(self) -> Any:
-        """Load the llming class from the manifest and instantiate it."""
-        entry_point = self._manifest.get("entry_point", "")
+    def _load_llming(self, manifest: dict[str, Any], manifest_path: str) -> Any:
+        """Load a llming class from its manifest and instantiate it."""
+        entry_point = manifest.get("entry_point", "")
         if not entry_point or ":" not in entry_point:
             return None
 
         module_name, class_name = entry_point.split(":", 1)
-        ext_dir = Path(self._manifest_path).parent
+        ext_dir = Path(manifest_path).parent
         module_file = ext_dir / f"{module_name}.py"
 
         if not module_file.exists():
             logger.error("Module file not found: %s", module_file)
             return None
 
-        # Load the module from file path (no package import needed)
-        unique_name = f"_llming_{self._manifest.get('name', 'unknown')}_{module_name}"
+        name = manifest.get("name", "unknown")
+        unique_name = f"_llming_{name}_{module_name}"
         spec = importlib.util.spec_from_file_location(unique_name, module_file)
         if spec is None or spec.loader is None:
             return None
 
-        # Add the extension directory to sys.path so relative imports work
         ext_dir_str = str(ext_dir)
         if ext_dir_str not in sys.path:
             sys.path.insert(0, ext_dir_str)
@@ -169,35 +189,29 @@ class LlmingRunner(Worker):
             return None
 
         instance = ext_class()
-
-        # Inject services
-        self._inject_services(instance)
-
+        self._inject_services(instance, manifest, ext_dir)
         return instance
 
-    def _inject_services(self, instance: Any) -> None:
-        """Inject per-instance services into the llming."""
+    def _inject_services(self, instance: Any, manifest: dict[str, Any], ext_dir: Path) -> None:
+        """Inject per-instance services into a llming."""
         from hort.llming.base import Llming
 
         if not isinstance(instance, Llming):
             return
 
-        name = self._manifest.get("name", "unknown")
-        ext_dir = Path(self._manifest_path).parent
+        name = manifest.get("name", "unknown")
 
         instance._instance_name = name
         instance._class_name = name
         instance._config = {}
         instance._logger = logging.getLogger(f"hort.llming.{name}")
 
-        # Storage — direct filesystem access to own data
         try:
             from hort.storage.store import StorageManager
             instance._storage = StorageManager.get().get_storage(name)
         except Exception:
             pass
 
-        # Legacy stores
         try:
             from hort.hort_config import hort_data_dir
             from hort.ext.file_store import LocalFileStore
@@ -209,61 +223,42 @@ class LlmingRunner(Worker):
         except Exception:
             pass
 
-        # Scheduler
         try:
             from hort.ext.scheduler import PluginScheduler
             instance._scheduler = PluginScheduler(name)
         except Exception:
             pass
 
-        # Load Soul from SOUL.md
         soul_path = ext_dir / "SOUL.md"
         if soul_path.exists():
             instance._soul_text = soul_path.read_text()
 
-    def _handle_activate(self, config: dict[str, Any]) -> None:
-        if self._instance:
-            self._instance._config = config
-            self._instance.activate(config)
-
-    def _handle_deactivate(self) -> None:
-        if self._instance:
-            if self._instance._scheduler is not None:
-                self._instance._scheduler.stop_all()
-            self._instance.deactivate()
-
-    async def _handle_execute_power(self, name: str, args: dict[str, Any]) -> Any:
-        if not self._instance:
-            return {"error": "No llming instance"}
-
-        result = await self._instance.execute_power(name, args)
-
-        # Ensure JSON-serializable
-        if hasattr(result, "model_dump"):
-            return result.model_dump()
-        return result
-
-    async def _pulse_loop(self) -> None:
-        """Periodically push pulse state to the main process."""
-        while True:
-            await asyncio.sleep(5)
-            if not self._instance or not self._connected:
-                continue
-            try:
-                pulse = self._instance.get_pulse()
-                if pulse:
-                    await self.send(msg_pulse_update(pulse))
-            except Exception:
-                pass
-
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Llming subprocess runner")
-    parser.add_argument("--manifest", required=True, help="Path to manifest.json")
+    parser = argparse.ArgumentParser(description="Llming group subprocess runner")
+    parser.add_argument("--manifests", help="Comma-separated manifest paths")
+    parser.add_argument("--manifest", help="Single manifest path (backward compat)")
     args = parser.parse_args()
 
-    runner = LlmingRunner(args.manifest)
-    runner.name = f"llming-{Path(args.manifest).parent.name}"
+    if args.manifests:
+        paths = [p.strip() for p in args.manifests.split(",") if p.strip()]
+    elif args.manifest:
+        paths = [args.manifest]
+    else:
+        parser.error("Either --manifests or --manifest required")
+        return
+
+    runner = GroupRunner(paths)
+    # Name from group or single llming
+    if len(paths) == 1:
+        runner.name = f"llming-{Path(paths[0]).parent.name}"
+    else:
+        # Use group name from first manifest
+        try:
+            m = json.loads(Path(paths[0]).read_text())
+            runner.name = f"group-{m.get('group', 'unnamed')}"
+        except Exception:
+            runner.name = "group-unnamed"
     runner.run()
 
 

@@ -22,24 +22,24 @@ PROTOCOL_VERSION = 1
 
 # ── Message types: Main → Subprocess ──
 
-def msg_activate(config: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "activate", "id": _id(), "config": config}
+def msg_activate(config: dict[str, Any], llming: str = "") -> dict[str, Any]:
+    return {"type": "activate", "id": _id(), "config": config, "llming": llming}
 
 
-def msg_deactivate() -> dict[str, Any]:
-    return {"type": "deactivate", "id": _id()}
+def msg_deactivate(llming: str = "") -> dict[str, Any]:
+    return {"type": "deactivate", "id": _id(), "llming": llming}
 
 
-def msg_execute_power(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "execute_power", "id": _id(), "name": name, "args": args}
+def msg_execute_power(name: str, args: dict[str, Any], llming: str = "") -> dict[str, Any]:
+    return {"type": "execute_power", "id": _id(), "name": name, "args": args, "llming": llming}
 
 
-def msg_get_pulse() -> dict[str, Any]:
-    return {"type": "get_pulse", "id": _id()}
+def msg_get_pulse(llming: str = "") -> dict[str, Any]:
+    return {"type": "get_pulse", "id": _id(), "llming": llming}
 
 
-def msg_get_powers() -> dict[str, Any]:
-    return {"type": "get_powers", "id": _id()}
+def msg_get_powers(llming: str = "") -> dict[str, Any]:
+    return {"type": "get_powers", "id": _id(), "llming": llming}
 
 
 def msg_viewer_connect(session_id: str) -> dict[str, Any]:
@@ -66,8 +66,8 @@ def msg_error(request_id: str, error: str) -> dict[str, Any]:
 
 # ── Message types: Subprocess → Main (events) ──
 
-def msg_register_powers(powers: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"type": "register_powers", "powers": powers}
+def msg_register_powers(powers: list[dict[str, Any]], llming: str = "") -> dict[str, Any]:
+    return {"type": "register_powers", "powers": powers, "llming": llming}
 
 
 def msg_pulse_update(data: dict[str, Any]) -> dict[str, Any]:
