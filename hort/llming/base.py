@@ -36,9 +36,7 @@ from hort.llming.powers import Power, PowerType
 from hort.llming.pulse import PulseBus
 
 if TYPE_CHECKING:
-    from hort.ext.file_store import PluginFileStore
     from hort.ext.scheduler import PluginScheduler
-    from hort.ext.store import PluginStore
     from hort.llming.decorators import PowerMeta
     from hort.llming.handles import ChannelHandleMap, LlmingHandleMap, Vault, VaultHandleMap
 
@@ -67,8 +65,8 @@ class Llming:
 
     # ── Injected services ──
 
-    _store: PluginStore | None = None        # legacy — use self.vault
-    _files: PluginFileStore | None = None    # legacy — use self.persist.crates
+    _store: Any = None        # legacy (used by some old llmings)
+    _files: Any = None        # legacy
     _storage: Any = None
     _scheduler: PluginScheduler | None = None
     _credentials: Any = None
@@ -185,61 +183,13 @@ class Llming:
         payload["_channel"] = channel
         await self._pulse_bus.emit(self._instance_name, channel, payload)
 
-    # ── Legacy pulse compat ──
-
-    async def emit_pulse(self, event: str, data: dict[str, Any]) -> None:
-        """Legacy. Use ``self.emit()`` instead."""
-        await self.emit(event, data)
-
-    def get_pulse_channels(self) -> list[str]:
-        """Legacy. Channels are now in manifest.json ``publishes``."""
-        return []
-
-    def subscribe(self, target: str, event: str, handler: Any) -> None:
-        """Legacy. Use ``self.channels[name].subscribe()`` instead."""
-        if self._pulse_bus is not None:
-            self._pulse_bus.subscribe(target, event, handler)
-
-    def unsubscribe(self, target: str, event: str) -> None:
-        """Legacy."""
-        if self._pulse_bus is not None:
-            self._pulse_bus.unsubscribe(target, event)
-
-    # ── Built-in services (no mixins needed) ──
+    # ── Built-in services ──
 
     @property
     def scheduler(self) -> PluginScheduler:
         """Built-in job scheduler."""
         assert self._scheduler is not None, "Scheduler not injected"
         return self._scheduler
-
-    @property
-    def store(self) -> PluginStore:
-        """Legacy key-value store. Prefer self.persist.scrolls / self.runtime.scrolls."""
-        assert self._store is not None, "Store not injected"
-        return self._store
-
-    @property
-    def files(self) -> PluginFileStore:
-        """Legacy file store. Prefer self.persist.crates / self.runtime.crates."""
-        assert self._files is not None, "FileStore not injected"
-        return self._files
-
-    @property
-    def persist(self) -> Any:
-        """Persistent storage (survives restarts). Has .scrolls and .crates."""
-        if self._storage is None:
-            from hort.storage.store import StorageManager
-            self._storage = StorageManager.get().get_storage(self._instance_name or self._class_name)
-        return self._storage.persist
-
-    @property
-    def runtime(self) -> Any:
-        """Runtime storage (ephemeral, dies with process). Has .scrolls and .crates."""
-        if self._storage is None:
-            from hort.storage.store import StorageManager
-            self._storage = StorageManager.get().get_storage(self._instance_name or self._class_name)
-        return self._storage.runtime
 
     @property
     def credentials(self) -> Any:
@@ -275,12 +225,10 @@ class Llming:
         """Instance configuration from YAML."""
         return self._config
 
-    # ── Compatibility bridge ──
-    # These methods let Llming work with the existing v1 infrastructure
-    # (ext/registry.py, MCP server, connector framework) during migration.
+    # ── MCP + Connector bridge ──
 
     def get_mcp_tools(self) -> list[Any]:
-        """v1 compat: Return MCPToolDef objects for the MCP bridge."""
+        """Return MCPToolDef objects for the MCP bridge."""
         from hort.ext.mcp import MCPToolDef
 
         result = []

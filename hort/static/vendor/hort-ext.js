@@ -193,13 +193,13 @@
     }
 
     /**
-     * Own vault — cached, synced.
-     * this.vault.get("state")
-     * this.vault.set("state", {...})
-     * For other llming's vault: this.vaults("other").get("key")
+     * Own vault — key-value + files, cached.
+     *
+     *   await this.vault.get("state")
+     *   await this.vault.set("state", {...}, ttl)
+     *   await this.vault.delete("state")
      */
     get vault() {
-      const self = this;
       const id = this.constructor.id;
       return {
         async get(key, dflt) {
@@ -207,16 +207,21 @@
           const msg = await window.hortWS.request({ type: 'card.vault.read', owner: id, key });
           return msg && msg.data ? msg.data : (dflt || {});
         },
-        async set(key, data) {
+        async set(key, data, ttl) {
           if (!window.hortWS) return;
-          await window.hortWS.request({ type: 'card.vault.write', owner: id, key, data });
+          await window.hortWS.request({ type: 'card.vault.write', owner: id, key, data, ttl: ttl || null });
+        },
+        async delete(key) {
+          if (!window.hortWS) return;
+          await window.hortWS.request({ type: 'card.vault.delete', owner: id, key });
         },
       };
     }
 
     /**
      * Other llming's vault (read-only).
-     * this.vaults("system-monitor").get("state")
+     *
+     *   await this.vaults("system-monitor").get("state")
      */
     vaults(owner) {
       return {
@@ -227,10 +232,6 @@
         },
       };
     }
-
-    // Legacy aliases
-    async vaultRead(key, owner) { return this.vault.get(key); }
-    async vaultWrite(key, data) { return this.vault.set(key, data); }
 
     /**
      * Execute a power on own llming or another llming.

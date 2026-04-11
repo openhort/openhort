@@ -1,16 +1,20 @@
-"""Dict-like accessors for cross-llming communication.
+"""Vault, llming, and channel handles.
 
-    self.vault.set("state", {"connected": True})       # own vault
-    self.vault.get("state", default={})                 # own vault
-    self.vaults["system-monitor"].get("state")          # other's vault (read-only)
-    self.llmings["hue-bridge"].call("set_light", {...}) # cross-llming power
-    self.channels["cpu_spike"].subscribe(handler)        # pulse channel
+    self.vault.set("state", {"connected": True})
+    self.vault.get("state")
+    self.vault.put_file("exports", "report.pdf", pdf_bytes)
+    data, info = self.vault.get_file("exports", "report.pdf")
+
+    self.vaults["system-monitor"].get("state")
+
+    await self.llmings["hue-bridge"].call("set_light", {...})
+
+    self.channels["cpu_spike"].subscribe(handler)
 """
 
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from pydantic import BaseModel
@@ -22,37 +26,42 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ── Vault (own — read/write, cached) ──
+# ── Vault (own — full access, cached) ──
 
 
 class Vault:
-    """Own vault — read/write with local cache.
+    """Own vault — key-value data + binary files, locally cached.
 
-    Backed by ScrollStore. Cached in-memory for fast reads.
-    On set(), writes to storage and invalidates cache.
-
-    Usage::
-
-        self.vault.set("state", {"connected": True})
-        self.vault.set("cache", data, ttl=300)
+    Data (scrolls):
+        self.vault.set("state", {"connected": True}, ttl=3600)
         data = self.vault.get("state", default={})
         self.vault.delete("state")
+        results = self.vault.query("history", {"cpu": {"$gt": 90}}, limit=20)
+        self.vault.insert("history", {"cpu": 42, "ts": time.time()})
+
+    Files (crates):
+        self.vault.put_file("exports", "report.pdf", pdf_bytes)
+        data, info = self.vault.get_file("exports", "report.pdf")
+        self.vault.delete_file("exports", "report.pdf")
+        files = self.vault.list_files("exports")
     """
 
     def __init__(self, owner: str) -> None:
         self._owner = owner
         self._cache: dict[str, dict[str, Any]] = {}
 
-    def _scrolls(self) -> Any:
+    def _storage(self) -> Any:
         from hort.storage.store import StorageManager
-        return StorageManager.get().get_storage(self._owner).persist.scrolls
+        return StorageManager.get().get_storage(self._owner).persist
+
+    # ── Key-value (scrolls) ──
 
     def get(self, key: str, default: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Read a key. Returns cached value or fetches from storage."""
+        """Read a key. Cached locally for fast repeated reads."""
         if key in self._cache:
             return self._cache[key]
         try:
-            result = self._scrolls().find_one("_kv", {"_key": key})
+            result = self._storage().scrolls.find_one("_kv", {"_key": key})
             if result is None:
                 return default if default is not None else {}
             result.pop("_id", None)
@@ -64,33 +73,68 @@ class Vault:
             return default if default is not None else {}
 
     def set(self, key: str, data: dict[str, Any] | BaseModel, *, ttl: int | None = None) -> None:
-        """Write a key. Updates cache and storage."""
+        """Write a key. TTL in seconds (None = permanent)."""
         payload = data.model_dump() if isinstance(data, BaseModel) else dict(data)
         payload["_key"] = key
         try:
-            scrolls = self._scrolls()
+            scrolls = self._storage().scrolls
             scrolls.delete_one("_kv", {"_key": key})
             scrolls.insert("_kv", payload, ttl=ttl)
         except Exception:
             logger.debug("Vault set failed: %s/%s", self._owner, key)
-        # Update cache (strip internal fields)
         cached = dict(payload)
         cached.pop("_key", None)
         self._cache[key] = cached
 
     def delete(self, key: str) -> bool:
-        """Delete a key from vault and cache."""
+        """Delete a key."""
         self._cache.pop(key, None)
         try:
-            result = self._scrolls().delete_one("_kv", {"_key": key})
-            return result.get("deleted", 0) > 0
+            return self._storage().scrolls.delete_one("_kv", {"_key": key}).get("deleted", 0) > 0
         except Exception:
             return False
 
     def query(self, collection: str, filter: dict[str, Any] | None = None, *, limit: int = 50) -> list[dict[str, Any]]:
-        """Query a scrolls collection in own vault."""
+        """Query a scrolls collection."""
         try:
-            return self._scrolls().find(collection, filter or {}, limit=limit)
+            return self._storage().scrolls.find(collection, filter or {}, limit=limit)
+        except Exception:
+            return []
+
+    def insert(self, collection: str, doc: dict[str, Any], *, ttl: int | None = None) -> str:
+        """Insert a document into a scrolls collection. Returns doc ID."""
+        try:
+            return self._storage().scrolls.insert(collection, doc, ttl=ttl)
+        except Exception:
+            return ""
+
+    # ── Files (crates) ──
+
+    def put_file(self, container: str, name: str, data: bytes, *, content_type: str = "", ttl: int | None = None) -> None:
+        """Store a binary file."""
+        try:
+            self._storage().crates.put(container, name, data, content_type=content_type, ttl=ttl)
+        except Exception:
+            logger.debug("Vault put_file failed: %s/%s/%s", self._owner, container, name)
+
+    def get_file(self, container: str, name: str) -> tuple[bytes, Any] | None:
+        """Read a binary file. Returns (data, info) or None."""
+        try:
+            return self._storage().crates.get(container, name)
+        except Exception:
+            return None
+
+    def delete_file(self, container: str, name: str) -> bool:
+        """Delete a binary file."""
+        try:
+            return self._storage().crates.delete(container, name)
+        except Exception:
+            return False
+
+    def list_files(self, container: str, prefix: str = "") -> list[Any]:
+        """List files in a container."""
+        try:
+            return self._storage().crates.list(container, prefix)
         except Exception:
             return []
 
@@ -101,21 +145,21 @@ class Vault:
 class VaultHandle:
     """Read-only access to another llming's vault.
 
-    Usage::
-
         data = self.vaults["system-monitor"].get("state")
-        entries = self.vaults["system-monitor"].query("history", {"cpu": {"$gt": 90}})
+        results = self.vaults["system-monitor"].query("history", limit=10)
+        data, info = self.vaults["system-monitor"].get_file("exports", "report.pdf")
     """
 
     def __init__(self, owner: str) -> None:
         self._owner = owner
 
-    def get(self, key: str, default: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Read a key from the other llming's vault."""
+    def _storage(self) -> Any:
         from hort.storage.store import StorageManager
+        return StorageManager.get().get_storage(self._owner).persist
+
+    def get(self, key: str, default: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
-            storage = StorageManager.get().get_storage(self._owner)
-            result = storage.persist.scrolls.find_one("_kv", {"_key": key})
+            result = self._storage().scrolls.find_one("_kv", {"_key": key})
             if result is None:
                 return default if default is not None else {}
             result.pop("_id", None)
@@ -126,20 +170,27 @@ class VaultHandle:
             return default if default is not None else {}
 
     def query(self, collection: str, filter: dict[str, Any] | None = None, *, limit: int = 50) -> list[dict[str, Any]]:
-        """Query a scrolls collection in the other llming's vault."""
-        from hort.storage.store import StorageManager
         try:
-            storage = StorageManager.get().get_storage(self._owner)
-            return storage.persist.scrolls.find(collection, filter or {}, limit=limit)
+            return self._storage().scrolls.find(collection, filter or {}, limit=limit)
+        except Exception:
+            return []
+
+    def get_file(self, container: str, name: str) -> tuple[bytes, Any] | None:
+        try:
+            return self._storage().crates.get(container, name)
+        except Exception:
+            return None
+
+    def list_files(self, container: str, prefix: str = "") -> list[Any]:
+        try:
+            return self._storage().crates.list(container, prefix)
         except Exception:
             return []
 
 
 class VaultHandleMap:
-    """Dict-like access to other llmings' vaults: ``self.vaults["name"]``."""
-
-    def __init__(self, reader: str) -> None:
-        self._reader = reader
+    def __init__(self) -> None:
+        pass
 
     def __getitem__(self, owner: str) -> VaultHandle:
         return VaultHandle(owner)
@@ -149,9 +200,7 @@ class VaultHandleMap:
 
 
 class LlmingHandle:
-    """Proxy for calling another llming's powers.
-
-    Usage::
+    """Call another llming's powers.
 
         result = await self.llmings["system-monitor"].call("get_metrics")
     """
@@ -163,16 +212,12 @@ class LlmingHandle:
 
     async def call(self, power: str, args: dict[str, Any] | None = None) -> Any:
         return await self._bus.call(
-            source=self._source,
-            target=self._target,
-            power=power,
-            args=args or {},
+            source=self._source, target=self._target,
+            power=power, args=args or {},
         )
 
 
 class LlmingHandleMap:
-    """Dict-like access to other llmings: ``self.llmings["name"]``."""
-
     def __init__(self, source: str, bus: MessageBus) -> None:
         self._source = source
         self._bus = bus
@@ -183,14 +228,11 @@ class LlmingHandleMap:
 
 # ── Channel Handle ──
 
-
 PulseHandler = Callable[[dict[str, Any]], Coroutine[Any, Any, None]]
 
 
 class ChannelHandle:
-    """Handle for a named pulse channel.
-
-    Usage::
+    """Subscribe to a named pulse channel.
 
         self.channels["cpu_spike"].subscribe(self.on_spike)
     """
@@ -207,8 +249,6 @@ class ChannelHandle:
 
 
 class ChannelHandleMap:
-    """Dict-like access to pulse channels: ``self.channels["name"]``."""
-
     def __init__(self, bus: PulseBus) -> None:
         self._bus = bus
 
