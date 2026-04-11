@@ -124,11 +124,15 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
                     MessageBus.get().register(name, proxy)
                     ready_set.add(name)
 
+                # Rebuild command registry with new llmings
+                if _global_cmd_registry[0] is not None:
+                    _rebuild_commands(registry, _global_cmd_registry[0])
+
                 logger.info("Group %s: %s", gname, list(manifest_paths.keys()))
             except Exception:
                 logger.exception("Failed to start group %s", gname)
 
-        # Spawn all groups as background tasks (don't block startup)
+        # Spawn all groups as background tasks — they register when ready
         for gname, manifests in grouped.items():
             asyncio.create_task(_spawn_group(gname, manifests))
 
@@ -167,16 +171,12 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
         ready_set.add(name)
         await bus.emit_channel("llming:started", {"name": name})
 
-    # Wire command registry for ConnectorBase instances (legacy)
+    # Command registry — rebuilt continuously as llmings come online
     from hort.ext.connectors import CommandRegistry, ConnectorBase, SYSTEM_COMMANDS
     cmd_registry = CommandRegistry()
     _global_cmd_registry[0] = cmd_registry
     cmd_registry.register_system(SYSTEM_COMMANDS)
-    for name, inst in registry._instances.items():
-        if isinstance(inst, Llming) and not isinstance(inst, ConnectorBase):
-            commands = inst.get_connector_commands()
-            if commands:
-                cmd_registry.register_llming(name, inst, commands)
+    _rebuild_commands(registry, cmd_registry)
 
     # Start ConnectorBase instances in background
     for name, inst in registry._instances.items():
@@ -216,6 +216,22 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
 
     # Start built-in tick channels in background
     asyncio.create_task(_tick_loop(bus))
+
+
+def _rebuild_commands(registry: ExtensionRegistry, cmd_registry: Any) -> None:
+    """Rebuild command registry from all currently loaded llmings.
+
+    Called on startup and whenever new llmings come online (subprocess groups).
+    Safe to call multiple times — re-registers all commands.
+    """
+    from hort.ext.connectors import ConnectorBase
+    from hort.llming.base import Llming
+
+    for name, inst in registry._instances.items():
+        if isinstance(inst, Llming) and not isinstance(inst, ConnectorBase):
+            commands = inst.get_connector_commands()
+            if commands:
+                cmd_registry.register_llming(name, inst, commands)
 
 
 async def _tick_loop(bus: Any) -> None:

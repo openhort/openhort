@@ -1,14 +1,22 @@
 {
   "name": "llming-wire",
   "version": "0.1.0",
-  "description": "Built-in chat UI — talk to your hort",
+  "description": "Built-in chat UI \u2014 talk to your hort",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["ui"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "capabilities": [
+    "ui"
+  ],
   "entry_point": "provider:LlmingWire",
   "icon": "ph ph-chat-dots",
   "llming_type": "connector",
-  "ui_widgets": ["llming-wire-chat"],
+  "ui_widgets": [
+    "llming-wire-chat"
+  ],
   "ui_script": "static/cards.js",
   "features": {},
   "risk_level": "safe",

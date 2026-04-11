@@ -3,8 +3,14 @@
   "version": "0.1.0",
   "description": "Monitor and interact with tmux-based code sessions",
   "provider": "core",
-  "platforms": ["darwin", "linux"],
-  "capabilities": ["mcp", "monitor"],
+  "platforms": [
+    "darwin",
+    "linux"
+  ],
+  "capabilities": [
+    "mcp",
+    "monitor"
+  ],
   "entry_point": "provider:CodeWatch",
   "icon": "ph ph-terminal-window",
   "llming_type": "tool",
@@ -18,20 +24,30 @@
   },
   "groups": {
     "read-only": {
-      "tools": ["list_sessions", "read_output", "is_busy"],
+      "tools": [
+        "list_sessions",
+        "read_output",
+        "is_busy"
+      ],
       "color": "green",
       "description": "View session status and output"
     },
     "interactive": {
-      "tools": ["send_text", "create_session"],
+      "tools": [
+        "send_text",
+        "create_session"
+      ],
       "color": "orange",
       "description": "Send input and create new sessions"
     },
     "admin": {
-      "tools": ["kill_session"],
+      "tools": [
+        "kill_session"
+      ],
       "color": "red",
       "description": "Terminate sessions"
     }
   },
-  "risk_level": "standard"
+  "risk_level": "standard",
+  "group": "core.tools"
 }

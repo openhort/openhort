@@ -3,14 +3,21 @@
   "version": "0.1.0",
   "description": "Tracks clipboard changes and provides searchable history",
   "provider": "core",
-  "platforms": ["darwin"],
-  "capabilities": ["tool"],
+  "platforms": [
+    "darwin"
+  ],
+  "capabilities": [
+    "tool"
+  ],
   "entry_point": "provider:ClipboardHistory",
   "icon": "ph ph-clipboard-text",
   "author": "openhort",
   "llming_type": "tool",
   "features": {
-    "auto_capture": { "description": "Automatically capture clipboard changes", "default": true }
+    "auto_capture": {
+      "description": "Automatically capture clipboard changes",
+      "default": true
+    }
   },
   "jobs": [
     {
@@ -21,6 +28,9 @@
     }
   ],
   "mcp": true,
-  "ui_widgets": ["clipboard-history-panel"],
-  "ui_script": "static/cards.js"
+  "ui_widgets": [
+    "clipboard-history-panel"
+  ],
+  "ui_script": "static/cards.js",
+  "group": "core.tools"
 }

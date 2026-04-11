@@ -1,10 +1,16 @@
 {
   "name": "llming-lens",
   "version": "0.1.0",
-  "description": "Remote desktop viewer — stream screens, browse windows, control input",
+  "description": "Remote desktop viewer \u2014 stream screens, browse windows, control input",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["viewer"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "capabilities": [
+    "viewer"
+  ],
   "entry_point": "provider:LlmingLens",
   "icon": "ph ph-monitor",
   "author": "openhort",
@@ -12,9 +18,18 @@
   "mcp": true,
   "soul": "SOUL.md",
   "features": {
-    "desktop_preview": { "description": "Auto-fetch desktop thumbnail for grid card", "default": true },
-    "screen_observation": { "description": "AI can observe windows and take screenshots", "default": true },
-    "input_control": { "description": "AI can click, type, and press keys on the desktop", "default": true }
+    "desktop_preview": {
+      "description": "Auto-fetch desktop thumbnail for grid card",
+      "default": true
+    },
+    "screen_observation": {
+      "description": "AI can observe windows and take screenshots",
+      "default": true
+    },
+    "input_control": {
+      "description": "AI can click, type, and press keys on the desktop",
+      "default": true
+    }
   },
   "jobs": [
     {
@@ -25,7 +40,9 @@
       "enabled_feature": "desktop_preview"
     }
   ],
-  "ui_widgets": ["llming-lens-panel"],
+  "ui_widgets": [
+    "llming-lens-panel"
+  ],
   "ui_script": "static/cards.js",
   "config_schema": {
     "type": "object",
@@ -36,5 +53,6 @@
         "description": "Desktop thumbnail refresh interval (seconds)"
       }
     }
-  }
+  },
+  "group": "core.media"
 }

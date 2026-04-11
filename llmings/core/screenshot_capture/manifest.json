@@ -1,16 +1,26 @@
 {
   "name": "screenshot-capture",
   "version": "0.1.0",
-  "description": "Capture screenshots on demand and browse them remotely. Demonstrates server→client image transfer via plugin file store.",
+  "description": "Capture screenshots on demand and browse them remotely. Demonstrates server\u2192client image transfer via plugin file store.",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["tool", "mcp"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "capabilities": [
+    "tool",
+    "mcp"
+  ],
   "entry_point": "provider:ScreenshotCapture",
   "icon": "ph ph-camera",
   "author": "openhort",
   "llming_type": "tool",
   "features": {
-    "auto_capture": { "description": "Automatically capture every 60s", "default": false }
+    "auto_capture": {
+      "description": "Automatically capture every 60s",
+      "default": false
+    }
   },
   "jobs": [
     {
@@ -21,6 +31,8 @@
     }
   ],
   "mcp": true,
-  "ui_widgets": ["screenshot-capture-panel"],
+  "ui_widgets": [
+    "screenshot-capture-panel"
+  ],
   "ui_script": "static/cards.js"
 }

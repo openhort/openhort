@@ -3,8 +3,14 @@
   "version": "0.1.0",
   "description": "Philips Hue smart light control",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["mcp"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "capabilities": [
+    "mcp"
+  ],
   "entry_point": "provider:HueBridge",
   "icon": "ph ph-lamp",
   "author": "openhort",
@@ -24,6 +30,9 @@
     }
   ],
   "mcp": true,
-  "ui_widgets": ["hue-bridge-panel"],
-  "ui_script": "static/cards.js"
+  "ui_widgets": [
+    "hue-bridge-panel"
+  ],
+  "ui_script": "static/cards.js",
+  "group": "core.smart"
 }

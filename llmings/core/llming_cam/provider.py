@@ -25,7 +25,7 @@ class LlmingCam(Llming):
 
     def activate(self, config: dict[str, Any]) -> None:
         import asyncio
-        from hort.media_camera import CameraProvider
+        from llmings.core.llming_cam.camera import CameraProvider
         self._cam = CameraProvider()
         # Register with SourceRegistry so sources.list and stream UI can find cameras
         try:

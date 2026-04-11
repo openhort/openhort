@@ -3,15 +3,28 @@
   "version": "0.1.0",
   "description": "Monitors network interfaces, bandwidth usage, and connection status",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["monitor", "mcp"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "capabilities": [
+    "monitor",
+    "mcp"
+  ],
   "entry_point": "provider:NetworkMonitor",
   "icon": "ph ph-wifi-high",
   "author": "openhort",
   "llming_type": "monitor",
   "features": {
-    "interfaces": { "description": "Monitor network interfaces and IP addresses", "default": true },
-    "bandwidth": { "description": "Monitor bandwidth usage per interface", "default": true }
+    "interfaces": {
+      "description": "Monitor network interfaces and IP addresses",
+      "default": true
+    },
+    "bandwidth": {
+      "description": "Monitor bandwidth usage per interface",
+      "default": true
+    }
   },
   "jobs": [
     {
@@ -22,6 +35,9 @@
     }
   ],
   "mcp": true,
-  "ui_widgets": ["network-monitor-panel"],
-  "ui_script": "static/cards.js"
+  "ui_widgets": [
+    "network-monitor-panel"
+  ],
+  "ui_script": "static/cards.js",
+  "group": "core.systeminfo"
 }

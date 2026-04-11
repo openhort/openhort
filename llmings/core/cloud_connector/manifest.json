@@ -1,10 +1,16 @@
 {
   "name": "cloud-connector",
   "version": "0.1.0",
-  "description": "Cloud proxy connector — tunnel to access server with token-based QR auth",
+  "description": "Cloud proxy connector \u2014 tunnel to access server with token-based QR auth",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["connector"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "capabilities": [
+    "connector"
+  ],
   "entry_point": null,
   "ui_script": "static/cards.js"
 }

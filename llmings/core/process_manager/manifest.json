@@ -3,14 +3,24 @@
   "version": "0.1.0",
   "description": "View running processes, sort by CPU/memory, kill processes",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["tool", "mcp"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "capabilities": [
+    "tool",
+    "mcp"
+  ],
   "entry_point": "provider:ProcessManager",
   "icon": "ph ph-list-checks",
   "author": "openhort",
   "llming_type": "tool",
   "features": {
-    "kill": { "description": "Allow killing processes", "default": false }
+    "kill": {
+      "description": "Allow killing processes",
+      "default": false
+    }
   },
   "jobs": [
     {
@@ -21,6 +31,9 @@
     }
   ],
   "mcp": true,
-  "ui_widgets": ["process-manager-panel"],
-  "ui_script": "static/cards.js"
+  "ui_widgets": [
+    "process-manager-panel"
+  ],
+  "ui_script": "static/cards.js",
+  "group": "core.systeminfo"
 }
