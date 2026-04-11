@@ -70,12 +70,41 @@ class PulseBus:
         self._channels[channel] = [h for h in handlers if h is not handler]
 
     async def emit_channel(self, channel: str, data: dict[str, Any]) -> None:
-        """Emit an event on a named channel."""
+        """Emit an event on a named channel + push to subscribed viewers."""
+        # Python handlers
         for handler in self._channels.get(channel, []):
             try:
                 await handler(data)
             except Exception:
                 logger.exception("Channel handler error: %s", channel)
+
+        # Push to viewers (JS cards) subscribed via card.subscribe
+        await self._push_to_viewers(channel, data)
+
+    async def _push_to_viewers(self, channel: str, data: dict[str, Any]) -> None:
+        """Push pulse event to all viewer WebSockets subscribed to this channel."""
+        try:
+            from hort.commands.card_api import get_viewer_subscriptions
+            from hort.session import HortRegistry
+
+            subs = get_viewer_subscriptions()
+            if not subs:
+                return
+
+            registry = HortRegistry.get()
+            msg = {"type": "pulse", "channel": channel, "data": data}
+
+            for sid, channels in subs.items():
+                if channel not in channels:
+                    continue
+                try:
+                    entry = registry.get_session(sid)
+                    if entry and hasattr(entry, "controller") and entry.controller:
+                        await entry.controller.send(msg)
+                except Exception:
+                    pass
+        except Exception:
+            pass  # Registry not ready during startup
 
     # ── Legacy instance-scoped (backward compat) ──
 

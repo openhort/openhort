@@ -151,6 +151,13 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
     except Exception:
         pass
 
+    # Fire initial ticks so @on("tick:slow") etc. get data immediately
+    import time
+    now = time.time()
+    await bus.emit_channel("tick:10hz", {"ts": now})
+    await bus.emit_channel("tick:1hz", {"ts": now})
+    await bus.emit_channel("tick:slow", {"ts": now})
+
     # Start built-in tick channels in background
     asyncio.create_task(_tick_loop(bus))
 

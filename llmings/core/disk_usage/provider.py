@@ -1,143 +1,116 @@
-"""Disk Usage plugin — tracks partition usage across all mountpoints."""
+"""Disk Usage — monitors partition usage across all mountpoints."""
 
 from __future__ import annotations
 
+import asyncio
 import time
-from typing import Any
 
-from hort.llming import Llming, Power, PowerType
+from hort.llming import Llming, power, on, PowerInput, PowerOutput, PulseEvent
+
+
+# ── Data models ──
+
+
+class PartitionInfo(PowerOutput):
+    version: int = 1
+    device: str = ""
+    mountpoint: str = ""
+    fstype: str = ""
+    total_gb: float = 0
+    used_gb: float = 0
+    free_gb: float = 0
+    percent: float = 0
+
+
+class DiskUsageResponse(PowerOutput):
+    version: int = 1
+    partitions: list[dict] = []
+    timestamp: float = 0
+
+
+class PartitionRequest(PowerInput):
+    version: int = 1
+    mountpoint: str = "/"
+
+
+class DiskUpdate(PulseEvent):
+    """Emitted on every poll with current partition data."""
+    version: int = 1
+    partitions: list[dict] = []
+    timestamp: float = 0
+
+
+# ── Llming ──
 
 
 class DiskUsage(Llming):
-    """Polls disk partition usage and stores it for the dashboard and AI."""
+    """Monitors disk partitions and stores usage data."""
 
-    def activate(self, config: dict[str, Any]) -> None:
-        self._latest: dict[str, Any] = {}
+    _latest: dict = {}
+
+    def activate(self, config: dict) -> None:
+        self._latest = {}
         self.log.info("Disk usage monitor activated")
 
-    def deactivate(self) -> None:
-        self.log.info("Disk usage monitor deactivated")
+    @on("tick:slow")
+    async def poll_disks(self, _data: dict) -> None:
+        """Poll disk partitions every 5s via tick:slow channel."""
+        partitions = await asyncio.to_thread(self._read_partitions)
+        now = time.time()
 
-    def get_pulse(self) -> dict[str, Any]:
-        """Return in-memory disk data."""
+        self._latest = {"timestamp": now, "partitions": partitions}
+        self.save("latest", self._latest)
+        await self.emit("disk_usage", DiskUpdate(partitions=partitions, timestamp=now))
+
+    @power("get_disk_usage", description="Get disk usage for all partitions")
+    async def get_disk_usage(self) -> DiskUsageResponse:
+        if not self._latest:
+            return DiskUsageResponse(code=404, message="No disk data available yet")
+        return DiskUsageResponse(
+            partitions=self._latest.get("partitions", []),
+            timestamp=self._latest.get("timestamp", 0),
+        )
+
+    @power("get_partition_details", description="Get detailed disk usage for a specific mountpoint")
+    async def get_partition_details(self, req: PartitionRequest) -> PartitionInfo:
+        if not self._latest:
+            return PartitionInfo(code=404, message="No disk data available yet")
+        for p in self._latest.get("partitions", []):
+            if p["mountpoint"] == req.mountpoint:
+                return PartitionInfo(**p)
+        available = ", ".join(p["mountpoint"] for p in self._latest.get("partitions", []))
+        return PartitionInfo(code=404, message=f"'{req.mountpoint}' not found. Available: {available}")
+
+    @power("disk", description="Disk partition usage", command="/disk")
+    async def disk_command(self) -> str:
+        if not self._latest:
+            return "No disk data available yet."
+        lines = []
+        for p in self._latest.get("partitions", []):
+            lines.append(f"{p['mountpoint']}: {p['used_gb']}/{p['total_gb']} GB ({p['percent']}%)")
+        return "\n".join(lines) if lines else "No partitions found."
+
+    def get_pulse(self) -> dict:
+        """UI thumbnail data."""
         return {"latest": self._latest}
 
-    # ===== Scheduler =====
-
-    def poll_disks(self) -> None:
-        """Polls disk partitions and usage. Runs in executor thread."""
+    @staticmethod
+    def _read_partitions() -> list[dict]:
         import psutil
 
-        now = time.time()
-        partitions: list[dict[str, Any]] = []
-
-        if self.config.get("partitions", True):
-            for part in psutil.disk_partitions(all=False):
-                try:
-                    usage = psutil.disk_usage(part.mountpoint)
-                except (PermissionError, OSError):
-                    continue
-                partitions.append({
-                    "device": part.device,
-                    "mountpoint": part.mountpoint,
-                    "fstype": part.fstype,
-                    "total_gb": round(usage.total / (1024**3), 2),
-                    "used_gb": round(usage.used / (1024**3), 2),
-                    "free_gb": round(usage.free / (1024**3), 2),
-                    "percent": usage.percent,
-                })
-
-        self._latest = {
-            "timestamp": now,
-            "partitions": partitions,
-        }
-
-    # ===== Powers =====
-
-    def get_powers(self) -> list[Power]:
-        return [
-            # MCP tools
-            Power(
-                name="get_disk_usage",
-                type=PowerType.MCP,
-                description="Get disk usage for all partitions",
-                input_schema={"type": "object", "properties": {}},
-            ),
-            Power(
-                name="get_partition_details",
-                type=PowerType.MCP,
-                description="Get detailed disk usage for a specific mountpoint",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "mountpoint": {
-                            "type": "string",
-                            "description": "Mountpoint path (e.g. '/' or '/home')",
-                        },
-                    },
-                    "required": ["mountpoint"],
-                },
-            ),
-            # Connector commands
-            Power(
-                name="disk",
-                type=PowerType.COMMAND,
-                description="Disk partition usage",
-            ),
-        ]
-
-    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
-        # MCP: get_disk_usage
-        if name == "get_disk_usage":
-            data = self._latest
-            if not data:
-                return {"content": [{"type": "text", "text": "No disk data available yet"}]}
-            lines = []
-            for p in data.get("partitions", []):
-                lines.append(
-                    f"{p['device']} on {p['mountpoint']} ({p['fstype']}): "
-                    f"{p['used_gb']}/{p['total_gb']} GB ({p['percent']}%)"
-                )
-            if not lines:
-                lines.append("No partitions found")
-            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
-
-        # MCP: get_partition_details
-        if name == "get_partition_details":
-            mountpoint = args.get("mountpoint", "/")
-            data = self._latest
-            if not data:
-                return {"content": [{"type": "text", "text": "No disk data available yet"}]}
-            for p in data.get("partitions", []):
-                if p["mountpoint"] == mountpoint:
-                    lines = [
-                        f"Device: {p['device']}",
-                        f"Mountpoint: {p['mountpoint']}",
-                        f"Filesystem: {p['fstype']}",
-                        f"Total: {p['total_gb']} GB",
-                        f"Used: {p['used_gb']} GB ({p['percent']}%)",
-                        f"Free: {p['free_gb']} GB",
-                    ]
-                    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
-            return {
-                "content": [{
-                    "type": "text",
-                    "text": f"Mountpoint '{mountpoint}' not found. "
-                    f"Available: {', '.join(p['mountpoint'] for p in data.get('partitions', []))}",
-                }],
-                "is_error": True,
-            }
-
-        # Command: disk
-        if name == "disk":
-            data = self._latest
-            if not data:
-                return "No disk data available yet."
-            lines = []
-            for p in data.get("partitions", []):
-                lines.append(f"{p['mountpoint']}: {p['used_gb']}/{p['total_gb']} GB ({p['percent']}%)")
-            if not lines:
-                lines.append("No partitions found.")
-            return "\n".join(lines)
-
-        return {"error": f"Unknown power: {name}"}
+        partitions = []
+        for part in psutil.disk_partitions(all=False):
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+            except (PermissionError, OSError):
+                continue
+            partitions.append({
+                "device": part.device,
+                "mountpoint": part.mountpoint,
+                "fstype": part.fstype,
+                "total_gb": round(usage.total / (1024**3), 2),
+                "used_gb": round(usage.used / (1024**3), 2),
+                "free_gb": round(usage.free / (1024**3), 2),
+                "percent": usage.percent,
+            })
+        return partitions

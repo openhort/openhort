@@ -178,13 +178,19 @@ class Llming:
     async def emit(self, channel: str, data: dict[str, Any] | BaseModel) -> None:
         """Emit an event on a named channel.
 
+        The framework automatically injects ``_source`` (instance name)
+        and ``_channel`` (channel name) into the payload so subscribers
+        always know where an event came from.
+
         ::
             await self.emit("cpu_spike", CpuSpike(cpu=95, threshold=90))
-            await self.emit("status_change", {"status": "online"})
+            # Subscriber receives: {"cpu": 95, "threshold": 90, "_source": "system-monitor", "_channel": "cpu_spike"}
         """
         if self._pulse_bus is None:
             return
-        payload = data.model_dump() if isinstance(data, BaseModel) else data
+        payload = data.model_dump() if isinstance(data, BaseModel) else dict(data)
+        payload["_source"] = self._instance_name
+        payload["_channel"] = channel
         await self._pulse_bus.emit(self._instance_name, channel, payload)
 
     # ── Legacy pulse compat ──

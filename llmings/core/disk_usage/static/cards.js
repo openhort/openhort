@@ -15,7 +15,22 @@
     // Cached disk data for thumbnail
     _lastDisks = null;
 
+    // Legacy polling (kept for backward compat with renderPluginThumbs)
     _feedStore(store) { if (store.latest) this._lastDisks = store.latest.partitions || []; }
+
+    // New: subscribe to push-based pulse + load initial data from vault
+    onConnect() {
+      // Subscribe to disk_usage pulse channel
+      this.subscribe('disk_usage', (data) => {
+        this._lastDisks = data.partitions || [];
+      });
+      // Load initial data from vault
+      this.vaultRead('latest').then(data => {
+        if (data && data.partitions) {
+          this._lastDisks = data.partitions;
+        }
+      });
+    }
 
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff';

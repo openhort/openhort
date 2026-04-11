@@ -174,6 +174,104 @@
       return new WebSocket(`${proto}://${location.host}${_basePath}/ws/ext/${this.constructor.id}/${path}`);
     }
 
+    // ---- Card API (pulse, vaults, powers) ----
+
+    /**
+     * Subscribe to a named pulse channel. Server pushes events.
+     *
+     * @param {string} channel - Channel name (e.g. "disk_usage", "tick:1hz")
+     * @param {function(object): void} handler - Called with event data
+     */
+    subscribe(channel, handler) {
+      if (!this._pulseHandlers) this._pulseHandlers = {};
+      if (!this._pulseHandlers[channel]) this._pulseHandlers[channel] = [];
+      this._pulseHandlers[channel].push(handler);
+      // Tell server to push events for this channel
+      if (window.hortWS) {
+        window.hortWS.request({ type: 'card.subscribe', channel });
+      }
+    }
+
+    /**
+     * Read from a vault (own or another llming's).
+     *
+     * @param {string} key - Key to read
+     * @param {string} [owner] - Vault owner (default: own llming)
+     * @returns {Promise<object>}
+     */
+    async vaultRead(key, owner) {
+      if (!window.hortWS) return {};
+      const msg = await window.hortWS.request({
+        type: 'card.vault.read',
+        owner: owner || this.constructor.id,
+        key,
+      });
+      return msg && msg.data ? msg.data : {};
+    }
+
+    /**
+     * Write to own vault.
+     *
+     * @param {string} key - Key to write
+     * @param {object} data - Data to store
+     */
+    async vaultWrite(key, data) {
+      if (!window.hortWS) return;
+      await window.hortWS.request({
+        type: 'card.vault.write',
+        owner: this.constructor.id,
+        key,
+        data,
+      });
+    }
+
+    /**
+     * Execute a power on own llming or another llming.
+     *
+     * @param {string} power - Power name
+     * @param {object} [args={}] - Arguments
+     * @param {string} [llming] - Target llming (default: own)
+     * @returns {Promise<object>}
+     */
+    async call(power, args, llming) {
+      if (!window.hortWS) return { error: 'not connected' };
+      const msg = await window.hortWS.request({
+        type: 'card.power',
+        llming: llming || this.constructor.id,
+        power,
+        args: args || {},
+      });
+      return msg && msg.result ? msg.result : msg;
+    }
+
+    /**
+     * Query a scrolls collection.
+     *
+     * @param {string} collection - Collection name
+     * @param {object} [filter={}] - MongoDB-style filter
+     * @param {object} [opts={}] - { owner, limit }
+     * @returns {Promise<object[]>}
+     */
+    async scrollsQuery(collection, filter, opts) {
+      if (!window.hortWS) return [];
+      const msg = await window.hortWS.request({
+        type: 'card.scrolls.query',
+        owner: (opts && opts.owner) || this.constructor.id,
+        collection,
+        filter: filter || {},
+        limit: (opts && opts.limit) || 50,
+      });
+      return msg && msg.data ? msg.data : [];
+    }
+
+    /** @internal Handle incoming pulse push from server. */
+    _handlePulse(channel, data) {
+      const handlers = (this._pulseHandlers || {})[channel] || [];
+      for (const h of handlers) {
+        try { h(data); } catch (e) { console.error('[pulse]', channel, e); }
+      }
+    }
+
     // ---- Quasar helpers ----
 
     /**
@@ -216,6 +314,10 @@
         instance.config = cfgs[id] || {};
         instance.setup(app, Quasar);
         _instances.set(id, instance);
+        // If WS already connected, fire onConnect immediately
+        if (window.hortWS) {
+          try { instance.onConnect(); } catch (e) { console.error('[ext:connect]', id, e); }
+        }
       }
     }
 

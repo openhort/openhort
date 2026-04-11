@@ -1489,6 +1489,9 @@ def _register_routes(app: FastAPI) -> None:
 
         async def on_disconnect(sid: str, entry: object) -> None:
             assert isinstance(entry, HortSessionEntry)
+            # Clean up card API subscriptions
+            from hort.commands.card_api import remove_viewer
+            remove_viewer(sid)
             # Notify all llmings that a viewer disconnected
             await _notify_llmings_viewer("disconnect", sid)
             if entry.controller:

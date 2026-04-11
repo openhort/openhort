@@ -511,6 +511,17 @@
         // Notify extensions
         if (typeof LlmingClient !== 'undefined') LlmingClient.notifyConnect();
         break;
+      case 'pulse':
+        // Server-pushed pulse event → route to subscribed card instances
+        if (typeof LlmingClient !== 'undefined' && msg.channel && msg.data) {
+          for (const [, inst] of LlmingClient.getRegistry()) {
+            const active = LlmingClient.get(inst.id || '');
+            if (active && active._handlePulse) {
+              active._handlePulse(msg.channel, msg.data);
+            }
+          }
+        }
+        break;
       case 'windows_list':
         handleWindowsList(msg);
         break;
@@ -3026,7 +3037,7 @@
           const all = msg ? msg.data : [];
           if (all.length || !allPlugins.value.length) {
             allPlugins.value = all;
-            spiritsList.value = all.filter(p => p.loaded && p.running_jobs && p.running_jobs.length);
+            spiritsList.value = all.filter(p => p.loaded && p.ui_script);
           }
         } catch {}
       }
