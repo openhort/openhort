@@ -14,12 +14,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 logger = logging.getLogger(__name__)
 
 
-class ClaudeCodePlugin(LlmingBase):
+class ClaudeCodePlugin(Llming):
     """Claude Code llming — chat with Claude via any connector.
 
     Config (from hort-config.yaml llmings.claude.config):

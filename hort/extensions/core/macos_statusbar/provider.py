@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from hort.llming import LlmingBase
+from hort.llming import Llming
 
 # Project layout
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
@@ -78,7 +78,7 @@ def get_or_rotate_key() -> str:
     return key
 
 
-class MacOSStatusBarPlugin(LlmingBase):
+class MacOSStatusBarPlugin(Llming):
     """Plugin that auto-launches the macOS status bar companion."""
 
     def __init__(self) -> None:

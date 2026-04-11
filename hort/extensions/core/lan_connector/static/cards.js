@@ -1,10 +1,10 @@
 /* LAN Connector — panel UI extension */
-/* global HortExtension */
+/* global LlmingClient */
 
 (function () {
   'use strict';
 
-  class LanConnector extends HortExtension {
+  class LanConnector extends LlmingClient {
     static id = 'lan-connector';
     static name = 'LAN';
     static connectorIcon = 'ph ph-wifi-high';
@@ -40,5 +40,5 @@
     }
   }
 
-  HortExtension.register(LanConnector);
+  LlmingClient.register(LanConnector);
 })();

@@ -17,10 +17,10 @@
  *   <hort-stat-card label="CPU" value="42" unit="°C" icon="ph ph-thermometer" />
  *
  * Loaded after hort-ext.js. Registers components via
- * HortExtension._registerWidgetComponents(app).
+ * LlmingClient._registerWidgetComponents(app).
  */
 
-/* global Vue, HortExtension */
+/* global Vue, LlmingClient */
 
 (function (root) {
   'use strict';
@@ -356,7 +356,7 @@
 
   // ---- Registration ----
 
-  HortExtension._registerWidgetComponents = function (app) {
+  LlmingClient._registerWidgetComponents = function (app) {
     app.component('hort-stat-card', StatCard);
     app.component('hort-chart', Chart);
     app.component('hort-status-badge', StatusBadge);
@@ -374,11 +374,11 @@
   };
 
   // Patch activateAll to also register widget components
-  const _origActivateAll = HortExtension.activateAll;
-  HortExtension.activateAll = function (app, Quasar, configs) {
+  const _origActivateAll = LlmingClient.activateAll;
+  LlmingClient.activateAll = function (app, Quasar, configs) {
     // Shared components (hort-qr) registered by hort-ext.js
     // Widget components registered here
-    HortExtension._registerWidgetComponents(app);
+    LlmingClient._registerWidgetComponents(app);
     _origActivateAll.call(this, app, Quasar, configs);
   };
 

@@ -19,14 +19,14 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from hort.llming import LlmingBase
+from hort.llming import Llming
 
 logger = logging.getLogger("hort.plugin.llming-wire")
 
 router = APIRouter()
 
 
-class LlmingWire(LlmingBase):
+class LlmingWire(Llming):
     """Chat UI llming — built-in messenger for your hort."""
 
     _conversations: dict[str, list[dict[str, Any]]] = {}
@@ -178,6 +178,21 @@ class LlmingWire(LlmingBase):
 
             return JSONResponse({"text": "No handler for this callback.", "ts": time.time()})
 
+        @r.post("/debug")
+        async def debug_chat(request: Request) -> JSONResponse:
+            """Send a message through the full chat pipeline and return debug trace.
+
+            Same container, same MCP bridge, same everything as normal messages.
+            Returns tool calls, events, timing, exit code.
+            """
+            body = await request.json()
+            text = body.get("text", "")
+            cid = body.get("cid", "debug")
+            if not text:
+                return JSONResponse({"error": "no text"}, status_code=400)
+            result = await plugin.debug_send(text, cid)
+            return JSONResponse(result)
+
         self._router = r
         return r
 
@@ -252,26 +267,18 @@ class LlmingWire(LlmingBase):
 
         return None  # Unknown — pass to AI
 
+    def _ensure_chat_mgr(self) -> Any:
+        """Get the shared chat backend manager singleton."""
+        from hort.ext.chat_backend import get_chat_manager
+        self._chat_mgr = get_chat_manager()
+        return self._chat_mgr
+
     async def _get_ai_response(self, cid: str, text: str, client_session_id: str | None = None) -> str:
         """Route message to the chat backend and return the response."""
         try:
-            from hort.ext.chat_backend import ChatBackendManager
-
-            # Find or create a chat backend manager — reads agent config from YAML
-            if not hasattr(self, "_chat_mgr") or self._chat_mgr is None:
-                from hort.agent import get_agent_config
-                cfg = get_agent_config()
-                self._chat_mgr = ChatBackendManager(agent_cfg=cfg)
-                self._chat_mgr.start()
-
-            # Wire uses conversation ID as session key by default
-            # TODO: resolve user identity from auth once wire has login
+            mgr = self._ensure_chat_mgr()
             session_key = f"llming-wire:{cid}"
-
-            session = self._chat_mgr.get_session(session_key)
-            # Resume from client's session_id if server lost it (restart)
-            if client_session_id and not session._session_id:
-                session._session_id = client_session_id
+            session = mgr.get_session(session_key)
             response = await session.send(text)
             return response
         except ImportError:
@@ -279,6 +286,20 @@ class LlmingWire(LlmingBase):
         except Exception:
             logger.exception("Chat backend error")
             return "Something went wrong. Try again."
+
+    async def debug_send(self, text: str, cid: str = "debug") -> dict[str, Any]:
+        """Send a message through the SAME chat backend (container + MCP bridge)
+        and return full debug trace — tools, events, timing, exit code.
+
+        Uses the exact same path as normal messages.
+        """
+        try:
+            mgr = self._ensure_chat_mgr()
+            session_key = f"llming-wire:{cid}"
+            session = mgr.get_session(session_key)
+            return await session.send_debug(text)
+        except Exception as exc:
+            return {"error": str(exc)}
 
 
 def _is_internal_error(text: str) -> bool:

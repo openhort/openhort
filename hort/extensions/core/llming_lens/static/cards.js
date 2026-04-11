@@ -14,7 +14,7 @@
  * Uses the shared control WebSocket via window.__hort for
  * all commands (list_windows, stream_config, input, etc.)
  */
-class LlmingLensExt extends HortExtension {
+class LlmingLensExt extends LlmingClient {
   static id = 'llming-lens';
   static name = 'LlmingLens';
   static llmingTitle = 'LlmingLens';
@@ -72,7 +72,7 @@ class LlmingLensExt extends HortExtension {
       setup() {
         // Get desktop preview thumbnail from the extension's status data
         const previewThumb = Vue.computed(() => {
-          const inst = typeof HortExtension !== 'undefined' ? HortExtension.get('llming-lens') : null;
+          const inst = typeof LlmingClient !== 'undefined' ? LlmingClient.get('llming-lens') : null;
           return inst?._statusData?.preview || '';
         });
 
@@ -81,7 +81,7 @@ class LlmingLensExt extends HortExtension {
         const _thumbImages = {};
 
         function updateWindowsThumb() {
-          const inst = typeof HortExtension !== 'undefined' ? HortExtension.get('llming-lens') : null;
+          const inst = typeof LlmingClient !== 'undefined' ? LlmingClient.get('llming-lens') : null;
           const thumbs = inst?._statusData?.window_thumbs || [];
 
           const c = document.createElement('canvas');
@@ -156,7 +156,7 @@ class LlmingLensExt extends HortExtension {
 
         // Update when status data changes
         Vue.watchEffect(() => {
-          const inst = typeof HortExtension !== 'undefined' ? HortExtension.get('llming-lens') : null;
+          const inst = typeof LlmingClient !== 'undefined' ? LlmingClient.get('llming-lens') : null;
           if (inst?._statusData?.window_thumbs) updateWindowsThumb();
         });
         // Initial render with fake content
@@ -200,4 +200,4 @@ class LlmingLensExt extends HortExtension {
   }
 }
 
-HortExtension.register(LlmingLensExt);
+LlmingClient.register(LlmingLensExt);

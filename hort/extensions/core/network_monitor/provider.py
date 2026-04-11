@@ -5,10 +5,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 
-class NetworkMonitor(LlmingBase):
+class NetworkMonitor(Llming):
     """Polls network interface counters and stores bandwidth metrics."""
 
     def activate(self, config: dict[str, Any]) -> None:

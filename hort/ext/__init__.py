@@ -3,7 +3,7 @@
 Provides abstract provider interfaces, a manifest model, a registry
 for discovering and loading extensions, and per-instance storage.
 
-All llmings inherit from ``LlmingBase`` (hort.llming). The ext package
+All llmings inherit from ``Llming`` (hort.llming). The ext package
 provides the infrastructure they run on: registry, manifest, storage,
 scheduler, MCP data types, connector framework.
 """

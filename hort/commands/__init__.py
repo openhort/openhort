@@ -18,6 +18,8 @@ def build_ws_router() -> WSRouter:
     from hort.commands.settings import router as settings_router
     from hort.commands.sources import router as sources_router
     from hort.commands.debug import router as debug_router
+    from hort.commands.cam import router as cam_router
+    from hort.commands.wire import router as wire_router
 
     root = WSRouter()
     root.include(llmings_router)
@@ -27,4 +29,6 @@ def build_ws_router() -> WSRouter:
     root.include(settings_router)
     root.include(sources_router)
     root.include(debug_router)
+    root.include(cam_router)
+    root.include(wire_router)
     return root

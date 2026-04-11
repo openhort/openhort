@@ -1,10 +1,10 @@
 /* Cloud Connector — panel UI extension with token-based QR access */
-/* global HortExtension, Vue */
+/* global LlmingClient, Vue */
 
 (function () {
   'use strict';
 
-  class CloudConnector extends HortExtension {
+  class CloudConnector extends LlmingClient {
     static id = 'cloud-connector';
     static name = 'Cloud';
     static connectorIcon = 'ph ph-cloud';
@@ -15,7 +15,7 @@
         emits: ['close', 'save'],
         setup(props, { emit }) {
           const { ref, reactive, computed, onMounted } = Vue;
-          const bp = HortExtension.basePath;
+          const bp = LlmingClient.basePath;
 
           const config = reactive({ server: '', key: '' });
           const loading = ref(false);
@@ -196,5 +196,5 @@
     }
   }
 
-  HortExtension.register(CloudConnector);
+  LlmingClient.register(CloudConnector);
 })();

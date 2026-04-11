@@ -1,10 +1,10 @@
 /* Disk Usage — partition usage panel */
-/* global HortExtension, Vue */
+/* global LlmingClient, Vue */
 
 (function () {
   'use strict';
 
-  class DiskUsagePanel extends HortExtension {
+  class DiskUsagePanel extends LlmingClient {
     static id = 'disk-usage';
     static name = 'Disk Usage';
     static llmingTitle = 'Disk Usage';
@@ -86,7 +86,7 @@
     setup(app) {
       app.component('disk-usage-panel', {
         setup() {
-          const bp = HortExtension.basePath;
+          const bp = LlmingClient.basePath;
           const partitions = Vue.ref([]);
           const timestamp = Vue.ref(null);
 
@@ -98,7 +98,7 @@
                 partitions.value = data.partitions || [];
                 timestamp.value = data.timestamp ? new Date(data.timestamp * 1000).toLocaleTimeString() : null;
                 // Cache for thumbnail rendering
-                const inst = HortExtension.get('disk-usage');
+                const inst = LlmingClient.get('disk-usage');
                 if (inst) inst._lastDisks = data.partitions || [];
               }
             } catch {}
@@ -167,5 +167,5 @@
     }
   }
 
-  HortExtension.register(DiskUsagePanel);
+  LlmingClient.register(DiskUsagePanel);
 })();

@@ -583,8 +583,8 @@ const app = createApp({{
 }});
 
 app.use(Quasar, {{ config: {{ dark: true }} }});
-if (typeof HortExtension !== 'undefined') {{
-  HortExtension.activateAll(app, Quasar, {{}});
+if (typeof LlmingClient !== 'undefined') {{
+  LlmingClient.activateAll(app, Quasar, {{}});
 }}
 app.mount('#app');
 </script>

@@ -86,4 +86,4 @@ class LlmingScheduler:
 PluginScheduler = LlmingScheduler
 
 # ScheduledMixin removed — jobs are declared in manifest and started by the framework.
-# LlmingBase instances get a scheduler injected automatically.
+# Llming instances get a scheduler injected automatically.

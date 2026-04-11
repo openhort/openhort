@@ -1,10 +1,10 @@
 /* Network Monitor — dashboard UI */
-/* global HortExtension, Vue, Plotly */
+/* global LlmingClient, Vue, Plotly */
 
 (function () {
   'use strict';
 
-  class NetworkMonitorPanel extends HortExtension {
+  class NetworkMonitorPanel extends LlmingClient {
     static id = 'network-monitor';
     static name = 'Network Monitor';
     static llmingTitle = 'Network Monitor';
@@ -68,7 +68,7 @@
     setup(app) {
       app.component('network-monitor-panel', {
         setup() {
-          const bp = HortExtension.basePath;
+          const bp = LlmingClient.basePath;
           const latest = Vue.ref(null);
           const history = Vue.ref([]);
           const chartRef = Vue.ref(null);
@@ -93,7 +93,7 @@
               if (store && store.latest) {
                 latest.value = store.latest;
                 // Cache for thumbnail rendering
-                const inst = HortExtension.get('network-monitor');
+                const inst = LlmingClient.get('network-monitor');
                 if (inst) inst._lastNetwork = store.latest;
               }
 
@@ -195,5 +195,5 @@
     }
   }
 
-  HortExtension.register(NetworkMonitorPanel);
+  LlmingClient.register(NetworkMonitorPanel);
 })();

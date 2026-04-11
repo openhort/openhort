@@ -15,7 +15,7 @@ import logging
 import subprocess
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 # Lazy import to avoid relative import issues with plugin loader
 def _load_catalog():  # type: ignore[no-untyped-def]
@@ -74,7 +74,7 @@ def _docker_output(*args: str) -> str:
     return result.stdout.strip()
 
 
-class HostedAppsPlugin(LlmingBase):
+class HostedAppsPlugin(Llming):
     """Manages Docker containers for hosted web apps."""
 
     _instances: dict[str, dict[str, Any]]

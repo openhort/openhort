@@ -7,12 +7,12 @@
  * 3. JS fetches the image via the plugin's custom router endpoint
  * 4. Displays in an image gallery with thumbnails
  */
-/* global HortExtension, Vue */
+/* global LlmingClient, Vue */
 
 (function () {
   'use strict';
 
-  class ScreenshotCapturePanel extends HortExtension {
+  class ScreenshotCapturePanel extends LlmingClient {
     static id = 'screenshot-capture';
     static name = 'Screenshot Capture';
     static llmingTitle = 'Screenshots';
@@ -23,7 +23,7 @@
     setup(app) {
       app.component('screenshot-capture-panel', {
         setup() {
-          const bp = HortExtension.basePath;
+          const bp = LlmingClient.basePath;
           const screenshots = Vue.ref([]);
           const capturing = Vue.ref(false);
           const selected = Vue.ref(null);
@@ -119,5 +119,5 @@
     }
   }
 
-  HortExtension.register(ScreenshotCapturePanel);
+  LlmingClient.register(ScreenshotCapturePanel);
 })();

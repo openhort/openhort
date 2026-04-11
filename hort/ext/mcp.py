@@ -1,7 +1,7 @@
 """MCP data types — tool definitions and results.
 
-These types are used by the MCP bridge and the LlmingBase compat layer.
-The MCPMixin class has been removed — all llmings use LlmingBase.get_powers().
+These types are used by the MCP bridge and the Llming compat layer.
+The MCPMixin class has been removed — all llmings use Llming.get_powers().
 """
 
 from __future__ import annotations

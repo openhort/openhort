@@ -1,7 +1,7 @@
 """Connector framework — unified messaging interface for Telegram, Discord, etc.
 
 Connectors provide a command-based interface to openhort. Llmings register
-commands via ``LlmingBase.get_powers()``, and connectors route messages to them.
+commands via ``Llming.get_powers()``, and connectors route messages to them.
 
 Architecture:
   User → Connector (Telegram/Discord/...) → CommandRegistry → Llming → ConnectorResponse → Connector → User
@@ -151,7 +151,7 @@ class CommandRegistry:
 
     def __init__(self) -> None:
         self._commands: dict[str, tuple[str, ConnectorCommand]] = {}  # name → (llming_id, cmd)
-        self._llmings: dict[str, Any] = {}  # llming_id → LlmingBase instance
+        self._llmings: dict[str, Any] = {}  # llming_id → Llming instance
         self._plugins = self._llmings  # backward-compatible alias
 
     def register_system(self, commands: list[ConnectorCommand]) -> None:
@@ -162,7 +162,7 @@ class CommandRegistry:
     def register_llming(self, llming_id: str, llming: Any, commands: list[ConnectorCommand]) -> None:
         """Register llming commands. System commands take priority.
 
-        Accepts any LlmingBase instance with handle_connector_command().
+        Accepts any Llming instance with handle_connector_command().
         """
         self._llmings[llming_id] = llming
         for cmd in commands:

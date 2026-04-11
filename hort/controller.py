@@ -584,16 +584,21 @@ class HortController(BaseController):
         from hort.media_browser_cam import BrowserCameraSession
 
         device_name = msg.get("device_name", "Browser Camera")
+        device_id = msg.get("device_id", "")
         width = msg.get("width", 1280)
         height = msg.get("height", 720)
         session_id = self.session_id
 
-        source_id = f"cam:browser_{session_id[:8]}"
+        # Stable source_id based on device_id (or session fallback)
+        source_id = f"cam:browser_{device_id[:12]}" if device_id else f"cam:browser_{session_id[:8]}"
 
         # Register as a camera session in the CameraProvider
         cam_provider = SourceRegistry.get().get_provider("camera")
         if cam_provider is None:
-            await self.send({"type": "camera_offer_ack", "ok": False, "error": "no camera provider"})
+            resp = {"type": "camera_offer_ack", "ok": False, "error": "no camera provider"}
+            if "_req_id" in msg:
+                resp["_req_id"] = msg["_req_id"]
+            await self.send(resp)
             return
 
         browser_session = BrowserCameraSession(session_id, device_name, width, height)
@@ -601,21 +606,28 @@ class HortController(BaseController):
         cam_provider._sessions[source_id] = browser_session
         cam_provider._device_map[source_id] = -1  # no physical device
 
-        # Store ref on the controller so stream WS can find it
+        # Track active browser cameras on this controller
+        if not hasattr(self, "_browser_cameras"):
+            self._browser_cameras = {}
+        self._browser_cameras[source_id] = device_id
+        # Legacy compat
         self._browser_camera_source_id = source_id
 
-        await self.send({
+        resp = {
             "type": "camera_offer_ack",
             "ok": True,
             "source_id": source_id,
-        })
+        }
+        if "_req_id" in msg:
+            resp["_req_id"] = msg["_req_id"]
+        await self.send(resp)
         logger.info("Browser camera registered: %s (%s, %dx%d)", source_id, device_name, width, height)
 
     async def _handle_camera_stop(self, msg: dict[str, Any]) -> None:
         """Browser stops sharing its camera."""
         from hort.media import SourceRegistry
 
-        source_id = getattr(self, "_browser_camera_source_id", "")
+        source_id = msg.get("source_id", "") or getattr(self, "_browser_camera_source_id", "")
         if not source_id:
             return
 
@@ -625,7 +637,10 @@ class HortController(BaseController):
             if session:
                 session.stop()
 
-        self._browser_camera_source_id = ""
+        if hasattr(self, "_browser_cameras"):
+            self._browser_cameras.pop(source_id, None)
+        if getattr(self, "_browser_camera_source_id", "") == source_id:
+            self._browser_camera_source_id = ""
         await self.send({"type": "camera_stopped", "source_id": source_id})
         logger.info("Browser camera stopped: %s", source_id)
 

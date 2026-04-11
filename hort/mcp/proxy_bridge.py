@@ -53,37 +53,52 @@ class _ProxyProvider:
             if resp.status_code == 200:
                 self._tools_cache = resp.json()
                 self._cache_time = now
-        except Exception:
-            pass  # use stale cache
+                logger.debug("Fetched %d tools from %s", len(self._tools_cache), self._server_url)
+            else:
+                logger.warning("Tool fetch failed: HTTP %d from %s", resp.status_code, self._server_url)
+        except Exception as exc:
+            logger.warning("Tool fetch error: %s (using %d cached tools)", exc, len(self._tools_cache))
         return self._tools_cache
 
     def get_mcp_tools(self) -> list[Any]:
         from hort.ext.mcp import MCPToolDef
         tools = self._refresh_tools()
-        return [
-            MCPToolDef(
-                name=f"{t['_llming']}__{t['_power']}",
-                description=f"[{t['_llming']}] {t['description']}",
+
+        # Build tool list with simple names. If a power name is unique, use it directly.
+        # If two llmings have the same power name, prefix with llming name.
+        power_counts: dict[str, int] = {}
+        for t in tools:
+            power_counts[t["_power"]] = power_counts.get(t["_power"], 0) + 1
+
+        self._routing: dict[str, tuple[str, str]] = {}  # tool_name → (llming, power)
+        result = []
+        for t in tools:
+            power = t["_power"]
+            llming = t["_llming"]
+            if power_counts[power] > 1:
+                name = f"{llming}_{power}".replace("-", "_")
+            else:
+                name = power
+            self._routing[name] = (llming, power)
+            result.append(MCPToolDef(
+                name=name,
+                description=t["description"],
                 input_schema=t.get("inputSchema", {}),
-            )
-            for t in tools
-        ]
+            ))
+        return result
 
     async def execute_mcp_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         import httpx
         from hort.ext.mcp import MCPToolResult
 
-        # Parse llming__power from the namespaced tool name
-        if "__" in tool_name:
-            llming_name, power_name = tool_name.split("__", 1)
-        else:
-            route = self._routing.get(tool_name)
-            if not route:
-                return MCPToolResult(
-                    content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}],
-                    is_error=True,
-                )
-            llming_name, power_name = route
+        # Look up routing from tool name
+        route = self._routing.get(tool_name)
+        if not route:
+            return MCPToolResult(
+                content=[{"type": "text", "text": f"Unknown tool: {tool_name}"}],
+                is_error=True,
+            )
+        llming_name, power_name = route
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -92,6 +107,7 @@ class _ProxyProvider:
                     json={"llming": llming_name, "power": power_name, "args": arguments},
                 )
                 data = resp.json()
+                logger.info("Tool %s → %s/%s: status=%d, keys=%s", tool_name, llming_name, power_name, resp.status_code, list(data.keys()) if isinstance(data, dict) else type(data).__name__)
 
                 if "error" in data:
                     return MCPToolResult(

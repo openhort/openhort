@@ -17,7 +17,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from hort.llming.base import LlmingBase
+    from hort.llming.base import Llming
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +31,8 @@ class MessageBus:
     _instance: MessageBus | None = None
 
     def __init__(self) -> None:
-        # {instance_name: LlmingBase}
-        self._instances: dict[str, LlmingBase] = {}
+        # {instance_name: Llming}
+        self._instances: dict[str, Llming] = {}
 
     @classmethod
     def get(cls) -> MessageBus:
@@ -46,7 +46,7 @@ class MessageBus:
         """Reset singleton (for testing)."""
         cls._instance = None
 
-    def register(self, instance_name: str, llming: LlmingBase) -> None:
+    def register(self, instance_name: str, llming: Llming) -> None:
         """Register a llming instance on the bus."""
         self._instances[instance_name] = llming
 
@@ -54,7 +54,7 @@ class MessageBus:
         """Remove a llming instance from the bus."""
         self._instances.pop(instance_name, None)
 
-    def get_instance(self, name: str) -> LlmingBase | None:
+    def get_instance(self, name: str) -> Llming | None:
         """Look up a llming instance by name."""
         return self._instances.get(name)
 

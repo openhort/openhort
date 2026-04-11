@@ -37,7 +37,7 @@ async def debug_run_js(controller: Any, code: str = "") -> dict[str, Any]:
 @router.handler("call")
 async def debug_call(controller: Any, llming: str = "", power: str = "", args: dict | None = None) -> dict[str, Any]:
     """Route a power call to a specific llming. Returns the result."""
-    from hort.llming.base import LlmingBase
+    from hort.llming.base import Llming
 
     registry = get_llming_registry()
     if not registry:
@@ -46,8 +46,8 @@ async def debug_call(controller: Any, llming: str = "", power: str = "", args: d
     inst = registry.get_instance(llming)
     if inst is None:
         return {"error": f"llming '{llming}' not found"}
-    if not isinstance(inst, LlmingBase):
-        return {"error": f"'{llming}' is not a LlmingBase instance"}
+    if not isinstance(inst, Llming):
+        return {"error": f"'{llming}' is not a Llming instance"}
 
     result = await inst.execute_power(power, args or {})
 

@@ -1,7 +1,7 @@
 /**
  * Holepunch extension panel — P2P status + Azure VM management.
  */
-class HolepunchPanel extends HortExtension {
+class HolepunchPanel extends LlmingClient {
   static get pluginId() { return 'peer2peer'; }
 
   renderThumbnail(canvas, data) {
@@ -93,6 +93,6 @@ class HolepunchPanel extends HortExtension {
   }
 }
 
-if (window.HortExtensionRegistry) {
-  window.HortExtensionRegistry.register(HolepunchPanel);
+if (window.LlmingClientRegistry) {
+  window.LlmingClientRegistry.register(HolepunchPanel);
 }

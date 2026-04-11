@@ -1,13 +1,13 @@
 /**
  * hort-ext.js — Client-side extension base for openhort.
  *
- * Extensions that provide UI panels inherit from HortExtension and
+ * Extensions that provide UI panels inherit from LlmingClient and
  * register Quasar/Vue components.  The host app loads extensions
  * dynamically and mounts their panels into the viewer.
  *
  * Usage (inside an extension's cards.js):
  *
- *   class MyPanel extends HortExtension {
+ *   class MyPanel extends LlmingClient {
  *     static id   = 'my-panel';
  *     static name = 'My Panel';
  *
@@ -19,7 +19,7 @@
  *       });
  *     }
  *   }
- *   HortExtension.register(MyPanel);
+ *   LlmingClient.register(MyPanel);
  */
 
 /* global Vue, Quasar */
@@ -27,10 +27,10 @@
 (function (root) {
   'use strict';
 
-  /** @type {Map<string, typeof HortExtension>} */
+  /** @type {Map<string, typeof LlmingClient>} */
   const _registry = new Map();
 
-  /** @type {Map<string, HortExtension>} */
+  /** @type {Map<string, LlmingClient>} */
   const _instances = new Map();
 
   // Detect proxy base path from <base> tag (injected by access server)
@@ -44,7 +44,7 @@
    * They SHOULD override `setup()` to register Vue/Quasar components
    * and `destroy()` to clean up.
    */
-  class HortExtension {
+  class LlmingClient {
     /** Llming title shown in the launcher (set to enable llming mode). */
     static llmingTitle = '';
 
@@ -193,7 +193,7 @@
     /**
      * Register an extension class.  Called by each extension's script.
      *
-     * @param {typeof HortExtension} ExtClass
+     * @param {typeof LlmingClient} ExtClass
      */
     static register(ExtClass) {
       if (!ExtClass.id) throw new Error('Extension must define static id');
@@ -230,10 +230,35 @@
     }
 
     /**
+     * Notify all active extensions that the WS connected.
+     * Extensions override onConnect() for init that needs a live connection.
+     */
+    static notifyConnect() {
+      for (const [, instance] of _instances) {
+        try { instance.onConnect(); } catch (e) { console.error('[ext:connect]', e); }
+      }
+    }
+
+    /**
+     * Notify all active extensions that the WS disconnected.
+     */
+    static notifyDisconnect() {
+      for (const [, instance] of _instances) {
+        try { instance.onDisconnect(); } catch (e) { console.error('[ext:disconnect]', e); }
+      }
+    }
+
+    /** Override in subclass: called on every WS connect/reconnect. */
+    onConnect() {}
+
+    /** Override in subclass: called on WS disconnect. */
+    onDisconnect() {}
+
+    /**
      * Get a running extension instance by id.
      *
      * @param {string} id
-     * @returns {HortExtension|undefined}
+     * @returns {LlmingClient|undefined}
      */
     static get(id) {
       return _instances.get(id);
@@ -242,7 +267,7 @@
     /**
      * Get all registered extension classes.
      *
-     * @returns {Map<string, typeof HortExtension>}
+     * @returns {Map<string, typeof LlmingClient>}
      */
     static getRegistry() {
       return _registry;
@@ -273,7 +298,7 @@
      * The llming's ``deviceTypes`` is informational — it tells the system
      * what the UI was designed for, not how to display it.
      *
-     * @param {typeof HortExtension} ExtClass
+     * @param {typeof LlmingClient} ExtClass
      * @returns {'fullscreen'|'float'}
      */
     static resolveDisplayMode(ExtClass) {
@@ -295,9 +320,9 @@
   const _floatWindows = new Map(); // id → { widgetName, title, minimized }
 
   /** Reactive callback — the Vue app watches this to render floats. */
-  HortExtension._floatChangeCallback = null;
+  LlmingClient._floatChangeCallback = null;
 
-  HortExtension.openFloat = function (id, widgetName, opts) {
+  LlmingClient.openFloat = function (id, widgetName, opts) {
     const o = opts || {};
     if (_floatWindows.has(id)) return _floatWindows.get(id);
     const ExtClass = _registry.get(id);
@@ -328,20 +353,20 @@
       x: cx, y: cy,
     };
     _floatWindows.set(id, win);
-    if (HortExtension._floatChangeCallback) HortExtension._floatChangeCallback();
+    if (LlmingClient._floatChangeCallback) LlmingClient._floatChangeCallback();
     return win;
   };
 
-  HortExtension.closeFloat = function (id) {
+  LlmingClient.closeFloat = function (id) {
     _floatWindows.delete(id);
-    if (HortExtension._floatChangeCallback) HortExtension._floatChangeCallback();
+    if (LlmingClient._floatChangeCallback) LlmingClient._floatChangeCallback();
   };
 
-  HortExtension.isFloatOpen = function (id) {
+  LlmingClient.isFloatOpen = function (id) {
     return _floatWindows.has(id);
   };
 
-  HortExtension.getFloatWindows = function () {
+  LlmingClient.getFloatWindows = function () {
     return Array.from(_floatWindows.values());
   };
 
@@ -350,17 +375,17 @@
    * Closes the float and opens the llming in fullscreen view.
    * The llming calls this when it needs more space (e.g., viewer mode).
    */
-  HortExtension.promoteToFullscreen = function (id) {
-    HortExtension.closeFloat(id);
+  LlmingClient.promoteToFullscreen = function (id) {
+    LlmingClient.closeFloat(id);
     // The host app listens for this and opens fullscreen
-    if (HortExtension._promoteCallback) {
-      HortExtension._promoteCallback(id);
+    if (LlmingClient._promoteCallback) {
+      LlmingClient._promoteCallback(id);
     }
   };
 
-  HortExtension._promoteCallback = null;
+  LlmingClient._promoteCallback = null;
 
-  HortExtension.toggleMinimize = function (id) {
+  LlmingClient.toggleMinimize = function (id) {
     const win = _floatWindows.get(id);
     if (!win) return;
     if (!win.minimized) {
@@ -378,14 +403,14 @@
       win.y = win._savedY ?? win.y;
       win.minimized = false;
     }
-    if (HortExtension._floatChangeCallback) HortExtension._floatChangeCallback();
+    if (LlmingClient._floatChangeCallback) LlmingClient._floatChangeCallback();
   };
 
   // ---- Shared components ----
 
   /**
    * Register shared UI components available to all extensions.
-   * Called by HortExtension.activateAll() automatically.
+   * Called by LlmingClient.activateAll() automatically.
    *
    * **hort-qr** — QR code display with clickable URL.
    *
@@ -397,7 +422,7 @@
    * Example:
    *   <hort-qr :url="myLoginUrl" label="Scan with your phone" />
    */
-  HortExtension._registerSharedComponents = function (app) {
+  LlmingClient._registerSharedComponents = function (app) {
     app.component('hort-qr', {
       props: {
         url: { type: String, required: true },
@@ -449,7 +474,7 @@
    * Example:
    *   <hort-tile-grid :items="screens" @select="onSelect" />
    */
-  HortExtension._registerSharedComponents_extra = function (app) {
+  LlmingClient._registerSharedComponents_extra = function (app) {
     app.component('hort-tile-grid', {
       props: {
         items: { type: Array, required: true },
@@ -542,17 +567,17 @@
   }
 
   // Patch activateAll to also register shared components
-  const _origActivateAll = HortExtension.activateAll;
-  HortExtension.activateAll = function (app, Quasar, configs) {
-    HortExtension._registerSharedComponents(app);
-    HortExtension._registerSharedComponents_extra(app);
+  const _origActivateAll = LlmingClient.activateAll;
+  LlmingClient.activateAll = function (app, Quasar, configs) {
+    LlmingClient._registerSharedComponents(app);
+    LlmingClient._registerSharedComponents_extra(app);
     _origActivateAll.call(this, app, Quasar, configs);
   };
 
   /** Base path for API calls (empty string when local, proxy prefix when remote). */
-  HortExtension.basePath = _basePath;
+  LlmingClient.basePath = _basePath;
 
   // Expose globally
-  root.HortExtension = HortExtension;
+  root.LlmingClient = LlmingClient;
 
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -11,12 +11,12 @@
  *
  * Also supports file input as fallback (for desktop browsers or when camera unavailable).
  */
-/* global HortExtension, Vue */
+/* global LlmingClient, Vue */
 
 (function () {
   'use strict';
 
-  class CameraScanPanel extends HortExtension {
+  class CameraScanPanel extends LlmingClient {
     static id = 'camera-scan';
     static name = 'Camera Scan';
     static llmingTitle = 'Camera Scanner';
@@ -27,7 +27,7 @@
     setup(app) {
       app.component('camera-scan-panel', {
         setup() {
-          const bp = HortExtension.basePath;
+          const bp = LlmingClient.basePath;
           const videoRef = Vue.ref(null);
           const canvasRef = Vue.ref(null);
           const cameraActive = Vue.ref(false);
@@ -244,5 +244,5 @@
     }
   }
 
-  HortExtension.register(CameraScanPanel);
+  LlmingClient.register(CameraScanPanel);
 })();

@@ -10,12 +10,12 @@ import logging
 import subprocess
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 logger = logging.getLogger(__name__)
 
 
-class HortChief(LlmingBase):
+class HortChief(Llming):
     """Hort topology and admin overview."""
 
     def activate(self, config: dict[str, Any]) -> None:

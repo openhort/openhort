@@ -137,9 +137,32 @@ class MCPBridgeProcess:
     def url(self) -> str:
         return f"http://localhost:{self._actual_port}/sse"
 
+    _host_ipv4: str = ""
+
     def container_url(self) -> str:
-        """URL reachable from inside a Docker container."""
-        return f"http://host.docker.internal:{self._actual_port}/sse"
+        """URL reachable from inside a Docker container.
+
+        Resolves host.docker.internal to IPv4 once, then caches. Docker's
+        IPv6 bridge networking doesn't work and Claude Code's Node.js MCP
+        client tries IPv6 first without fallback — so we must use IPv4.
+        """
+        if not MCPBridgeProcess._host_ipv4:
+            try:
+                result = subprocess.run(
+                    ["docker", "run", "--rm", "--entrypoint", "sh",
+                     "openhort-sandbox-base:latest", "-c",
+                     "getent ahosts host.docker.internal | head -1 | cut -d' ' -f1"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                ip = result.stdout.strip()
+                if ip and ":" not in ip:  # must be IPv4
+                    MCPBridgeProcess._host_ipv4 = ip
+            except Exception:
+                pass
+            if not MCPBridgeProcess._host_ipv4:
+                MCPBridgeProcess._host_ipv4 = "host.docker.internal"  # fallback
+            logger.info("Docker host IPv4: %s", MCPBridgeProcess._host_ipv4)
+        return f"http://{MCPBridgeProcess._host_ipv4}:{self._actual_port}/sse"
 
     @property
     def mcp_config_path(self) -> str:
@@ -155,6 +178,13 @@ class MCPBridgeProcess:
             return []
         with open(self._skills_path) as f:
             return json.load(f)
+
+    def ensure_alive(self) -> None:
+        """Restart bridge if it died."""
+        if self._proc and self._proc.poll() is not None:
+            logger.warning("MCP bridge process died (exit=%d), restarting", self._proc.returncode)
+            self._proc = None
+            self.start()
 
     def start(self) -> None:
         """Start the MCP bridge SSE server."""
@@ -276,6 +306,9 @@ def _build_claude_cmd(
         cmd.extend(["--max-budget-usd", str(agent_cfg.max_budget_usd)])
 
     cmd.extend(["--append-system-prompt", _APPEND_PROMPT])
+    # Message MUST come after -- separator because --mcp-config accepts
+    # variadic args and would consume the message as a config file path
+    cmd.append("--")
     cmd.append(message)
     return cmd
 
@@ -309,9 +342,26 @@ class ChatSession:
         message: str,
         on_progress: ProgressCallback | None = None,
     ) -> str:
-        """Send a message and return the response text."""
+        """Send a message and return the response text.
+
+        On auth errors, silently refreshes credentials and retries once.
+        The user never sees credential errors.
+        """
         async with self._lock:
-            return await self._run(message, on_progress)
+            result = await self._run(message, on_progress)
+            if is_auth_error(result):
+                logger.warning("Auth error on first attempt — refreshing and retrying")
+                new_key = _get_claude_api_key(force=True)
+                if new_key and self._container_session:
+                    try:
+                        self._container_session.write_file("/workspace/.claude/api_key", new_key)
+                        logger.info("API key refreshed in container — retrying message")
+                    except Exception:
+                        pass
+                result = await self._run(message, on_progress)
+                if is_auth_error(result):
+                    return "Something went wrong. Try again."
+            return result
 
     async def _run(
         self,
@@ -406,23 +456,144 @@ class ChatSession:
         if len(text) > 8000:
             text = text[:8000]
 
-        # Detect auth errors — refresh key and reprovision container
-        if is_auth_error(text):
-            logger.warning("Auth error detected — refreshing API key")
-            new_key = _get_claude_api_key(force=True)
-            if new_key and self._container_session:
-                try:
-                    self._container_session.write_file("/workspace/.claude/api_key", new_key)
-                    logger.info("API key refreshed in container")
-                except Exception:
-                    pass
-            return "(AI temporarily unavailable — retrying with fresh credentials)"
-
         return text or "(no response)"
 
+    async def send_debug(self, message: str) -> dict[str, Any]:
+        """Send a message and return full debug trace — tools, events, timing, exit code.
+
+        Used by the wire.debug WS command and /api/debug/chat REST endpoint.
+        Does NOT sanitize errors — returns raw data for debugging.
+        """
+        async with self._lock:
+            return await self._run_debug(message)
+
+    async def _run_debug(self, message: str) -> dict[str, Any]:
+        """Run Claude with full event capture for debugging."""
+        cmd = _build_claude_cmd(
+            self._agent_cfg,
+            self._mcp_config,
+            self._system_prompt,
+            self._session_id,
+            message,
+        )
+
+        if self._container_session is not None:
+            proc = await self._container_session.exec_async(cmd)
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                limit=10 * 1024 * 1024,
+            )
+        assert proc.stdout is not None
+
+        events: list[dict[str, Any]] = []
+        tools: list[dict[str, Any]] = []
+        result_text = ""
+        start = time.monotonic()
+
+        while True:
+            try:
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=2.0)
+            except asyncio.TimeoutError:
+                continue
+            if not line:
+                break
+            try:
+                event = json.loads(line.decode("utf-8", errors="replace").strip())
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            etype = event.get("type")
+            ts = round(time.monotonic() - start, 2)
+
+            if etype == "system" and event.get("subtype") == "init":
+                self._session_id = event.get("session_id")
+                events.append({"ts": ts, "type": "init", "session_id": self._session_id})
+
+            elif etype == "assistant":
+                msg = event.get("message", {})
+                for block in msg.get("content", []):
+                    if block.get("type") == "tool_use":
+                        name = block.get("name", "")
+                        short = name.split("__")[-1] if "__" in name else name
+                        tool_input = block.get("input", {})
+                        tools.append({"name": short, "full_name": name, "input": tool_input, "ts": ts})
+                        events.append({"ts": ts, "type": "tool_call", "tool": short, "input": tool_input})
+                    elif block.get("type") == "text":
+                        text = block.get("text", "")
+                        if text:
+                            events.append({"ts": ts, "type": "text", "text": text[:500]})
+
+            elif etype == "result":
+                result_text = event.get("result", "")
+                cost = event.get("cost_usd", 0)
+                events.append({"ts": ts, "type": "result", "text_len": len(result_text), "cost_usd": cost})
+                if not self._session_id:
+                    self._session_id = event.get("session_id")
+
+        exit_code = await proc.wait()
+        elapsed = round(time.monotonic() - start, 2)
+
+        # Strip base64 blobs from result for readability
+        clean = re.sub(r'(?:/9j/|iVBOR|UklGR)[A-Za-z0-9+/=\n]{100,}', '[image_data]', result_text)
+        if len(clean) > 4000:
+            clean = clean[:4000] + "..."
+
+        return {
+            "result": clean.strip(),
+            "exit_code": exit_code,
+            "elapsed_s": elapsed,
+            "tools": tools,
+            "events": events,
+            "session_id": self._session_id,
+        }
+
     def reset(self) -> None:
-        """Reset the session — next message starts a new conversation."""
+        """Reset the session — next message starts a new conversation.
+
+        Also clears Claude's session data inside the container so
+        it doesn't auto-load stale project context.
+        """
         self._session_id = None
+        if self._container_session:
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self._clear_container_sessions())
+            except Exception:
+                pass
+
+    async def _clear_container_sessions(self) -> None:
+        """Remove Claude session files inside the container."""
+        if not self._container_session:
+            return
+        try:
+            await self._container_session.exec_async([
+                "sh", "-c", "rm -rf /workspace/.claude/projects/*/sessions/* 2>/dev/null; true"
+            ])
+        except Exception:
+            pass
+
+
+_shared_manager: "ChatBackendManager | None" = None
+
+
+def get_chat_manager() -> "ChatBackendManager":
+    """Get the shared ChatBackendManager singleton.
+
+    All connectors (Telegram, Wire, Claude Code) MUST use this instead
+    of creating their own. Multiple managers = multiple MCP bridges =
+    port conflicts in shared containers.
+    """
+    global _shared_manager
+    if _shared_manager is None:
+        from hort.agent import get_agent_config
+        _shared_manager = ChatBackendManager(agent_cfg=get_agent_config())
+        _shared_manager.start()
+    return _shared_manager
 
 
 class ChatBackendManager:
@@ -489,13 +660,13 @@ class ChatBackendManager:
 
         # Inject SOULs from all llmings (direct registry access, no HTTP)
         try:
-            from hort.llming.base import LlmingBase
+            from hort.llming.base import Llming
             from hort.commands._registry import get_llming_registry
             registry = get_llming_registry()
             if registry:
                 soul_count = 0
                 for name, inst in registry._instances.items():
-                    if isinstance(inst, LlmingBase) and inst.soul:
+                    if isinstance(inst, Llming) and inst.soul:
                         parts.append(f"\n--- {name} ---\n{inst.soul}")
                         soul_count += 1
                 logger.info("System prompt: %d llming SOULs injected", soul_count)
@@ -639,6 +810,16 @@ class ChatBackendManager:
 
     def get_session(self, user_id: str) -> ChatSession:
         """Get or create a chat session for a user."""
+        old_port = self._bridge.port
+        self._bridge.ensure_alive()
+        if self._bridge.port != old_port and old_port > 0:
+            # Bridge restarted on new port — re-provision all containers
+            logger.info("Bridge port changed %d → %d, re-provisioning containers", old_port, self._bridge.port)
+            for session in self._container_sessions.values():
+                try:
+                    self._provision_container(session)
+                except Exception:
+                    pass
         if user_id not in self._sessions:
             container_session = None
             mcp_config = self._bridge.mcp_config_path

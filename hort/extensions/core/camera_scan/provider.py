@@ -25,7 +25,7 @@ from fastapi import APIRouter
 from fastapi.requests import Request
 from fastapi.responses import Response
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 
 def _run_coro(coro):  # type: ignore[no-untyped-def]
@@ -37,7 +37,7 @@ def _run_coro(coro):  # type: ignore[no-untyped-def]
         new_loop.close()
 
 
-class CameraScan(LlmingBase):
+class CameraScan(Llming):
     """Receives images from the phone camera and processes them."""
 
     def activate(self, config: dict[str, Any]) -> None:

@@ -5,10 +5,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 
-class DiskUsage(LlmingBase):
+class DiskUsage(Llming):
     """Polls disk partition usage and stores it for the dashboard and AI."""
 
     def activate(self, config: dict[str, Any]) -> None:

@@ -74,7 +74,7 @@ nav:
     - Running Across Machines: guide/multi-node.md
     - Code Watch: guide/code-watch.md
     - Wire Chat: guide/wire-chat.md
-    - Extensions:
+    - Llmings:
       - Peer-to-Peer: guide/extensions/peer2peer.md
     - Cloud Providers:
       - Overview: guide/cloud/index.md
@@ -86,20 +86,17 @@ nav:
         - CLI & VM Setup: guide/cloud/azure/setup.md
         - App Service Containers: guide/cloud/azure/containers.md
   - Develop:
-    - Plugins: develop/plugins.md
-    - Extensions: develop/extensions.md
-    - Model Providers: develop/providers.md
-    - LLM Extensions: develop/llm-extensions.md
+    - Llming Development: develop/plugins.md
+    - Llming System: develop/extensions.md
+    - Llming UI: develop/llmings.md
     - MCP Servers: develop/mcp-servers.md
     - Sandbox Sessions: develop/sandbox-sessions.md
-    - Terminal Automation: develop/terminal-automation.md
     - Containers: develop/containers.md
     - Inter-Container Communication: develop/inter-container-communication.md
+    - Model Providers: develop/providers.md
+    - LLM Extensions: develop/llm-extensions.md
+    - Terminal Automation: develop/terminal-automation.md
     - Access Server: develop/access-server.md
-    - Peer-to-Peer: develop/peer2peer.md
-    - Peer-to-Peer Library: develop/peer2peer-lib.md
-    - Telegram: develop/telegram.md
-    - Llmings: develop/llmings.md
     - Linux Support: develop/linux-support.md
     - Windows Support: develop/windows-support.md
     - Cross-Platform Testing: develop/cross-platform-testing.md
@@ -108,13 +105,16 @@ nav:
     - UX Guidelines: develop/ux-guidelines.md
     - Screen Capture: develop/screen-capture.md
     - Memory Safety: develop/memory-safety.md
-    - Code Watch Extension: develop/code-watch-extension.md
-    - Wire Chat Extension: develop/wire-chat-extension.md
     - Docs Writing Guide: develop/docs-writing-guide.md
-    - Claude Code Integration: develop/claude-code-integration.md
+    - Core Llmings:
+      - Code Watch: develop/code-watch-extension.md
+      - Wire Chat: develop/wire-chat-extension.md
+      - Claude Code: develop/claude-code-integration.md
+      - Peer-to-Peer: develop/peer2peer.md
+      - Peer-to-Peer Library: develop/peer2peer-lib.md
+      - Telegram: develop/telegram.md
   - Internals:
     - Architecture: internals/architecture.md
-    - n8n Hosted App: internals/n8n-hosted-app.md
     - Llming Anatomy: internals/llming-anatomy.md
     - Hort Model: internals/hort-model.md
     - Tool System: internals/tool-system.md
@@ -123,6 +123,9 @@ nav:
     - Permissions: internals/permissions.md
     - Access Sources: internals/source-policies.md
     - Budget Limits: internals/budget.md
+    - Envoy Architecture: internals/envoy-architecture.md
+    - Chat Debug API: internals/chat-debug-api.md
+    - Testing: internals/testing.md
     - Protocols:
       - Llming Data Types: internals/protocols/llming-types.md
       - H2H (Hort-to-Hort): internals/protocols/h2h-protocol.md

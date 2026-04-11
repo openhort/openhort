@@ -1,4 +1,4 @@
-"""LlmingBase — the unified base class for all llmings. No mixins.
+"""Llming — the unified base class for all llmings. No mixins.
 
 Replaces the v1 hierarchy of PluginBase + MCPMixin + ConnectorMixin +
 ScheduledMixin + DocumentMixin with a single class that has standardized
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from hort.ext.store import PluginStore
 
 
-class LlmingBase:
+class Llming:
     """Base class for all llmings. No mixins.
 
     Subclass this and override the methods you need. The framework
@@ -40,7 +40,7 @@ class LlmingBase:
 
     Example::
 
-        class SystemMonitor(LlmingBase):
+        class SystemMonitor(Llming):
             _latest: dict = {}
 
             def get_powers(self) -> list[Power]:
@@ -114,6 +114,20 @@ class LlmingBase:
 
         Override to clean up resources. The framework automatically
         stops the scheduler and clears pulse subscriptions.
+        """
+
+    async def on_viewer_connect(self, session_id: str, controller: Any) -> None:
+        """Called when a viewer's WebSocket connects.
+
+        Override to prepare data, push initial state, or start
+        viewer-specific resources. Called for every llming on every
+        viewer connect.
+        """
+
+    async def on_viewer_disconnect(self, session_id: str) -> None:
+        """Called when a viewer's WebSocket disconnects.
+
+        Override to clean up viewer-specific resources.
         """
 
     # ── Soul ──
@@ -239,7 +253,7 @@ class LlmingBase:
         return self._config
 
     # ── Compatibility bridge ──
-    # These methods let LlmingBase work with the existing v1 infrastructure
+    # These methods let Llming work with the existing v1 infrastructure
     # (ext/registry.py, MCP server, connector framework) during migration.
 
     def get_mcp_tools(self) -> list[Any]:

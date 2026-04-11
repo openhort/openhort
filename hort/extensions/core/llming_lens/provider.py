@@ -32,7 +32,7 @@ from hort.ext.connectors import (
     ConnectorResponse,
     IncomingMessage,
 )
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 logger = logging.getLogger(__name__)
 
@@ -364,7 +364,7 @@ CONNECTOR_COMMANDS = [
 ]
 
 
-class LlmingLens(LlmingBase):
+class LlmingLens(Llming):
     """Remote desktop viewer extension with MCP tools and connector commands."""
 
     _preview: dict[str, Any] = {}

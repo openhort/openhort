@@ -29,7 +29,7 @@ class ExtensionRegistry:
     Enhanced llming support::
 
         registry.set_app(app)              # enable router mounting
-        registry.load_compatible(config)   # injects LlmingBase services
+        registry.load_compatible(config)   # injects Llming services
         registry.unload_extension("name")  # hot-unload
         registry.list_llmings()            # metadata for admin API
     """
@@ -94,7 +94,7 @@ class ExtensionRegistry:
     ) -> object | None:
         """Load and instantiate an extension from its manifest.
 
-        For ``LlmingBase`` instances, injects per-instance services
+        For ``Llming`` instances, injects per-instance services
         (store, files, config, scheduler, logger) before calling activate.
 
         Returns the instance or ``None`` on failure.
@@ -124,10 +124,10 @@ class ExtensionRegistry:
 
         instance: object = ext_class()
 
-        # Inject services for LlmingBase instances
-        from hort.llming.base import LlmingBase
+        # Inject services for Llming instances
+        from hort.llming.base import Llming
 
-        if isinstance(instance, LlmingBase):
+        if isinstance(instance, Llming):
             self._inject_llming_services(instance, manifest, config or {})
 
         if hasattr(instance, "activate"):
@@ -155,15 +155,15 @@ class ExtensionRegistry:
     def _inject_llming_services(
         self, instance: object, manifest: ExtensionManifest, config: dict[str, Any]
     ) -> None:
-        """Inject per-instance services into a LlmingBase instance."""
+        """Inject per-instance services into a Llming instance."""
         from hort.ext.file_store import LocalFileStore
         from hort.ext.scheduler import PluginScheduler
         from hort.ext.store import FilePluginStore
-        from hort.llming.base import LlmingBase
+        from hort.llming.base import Llming
         from hort.llming.bus import MessageBus
         from hort.llming.pulse import PulseBus
 
-        if not isinstance(instance, LlmingBase):
+        if not isinstance(instance, Llming):
             return
 
         name = manifest.name
@@ -206,7 +206,7 @@ class ExtensionRegistry:
     def unload_extension(self, name: str) -> bool:
         """Hot-unload a plugin. Calls deactivate, removes routes.
 
-        Scheduler cleanup for LlmingBase instances is handled by
+        Scheduler cleanup for Llming instances is handled by
         ``stop_plugins()`` in ``hort/plugins.py``.
 
         Returns True if the extension was loaded and is now unloaded.
@@ -272,7 +272,7 @@ class ExtensionRegistry:
         for m in self._manifests:
             loaded = m.name in self._instances
             inst = self._instances.get(m.name)
-            # Running jobs from the instance's scheduler (LlmingBase)
+            # Running jobs from the instance's scheduler (Llming)
             scheduler = getattr(inst, "_scheduler", None) if inst else None
             running_jobs = scheduler.running_jobs if scheduler else []
             results.append({

@@ -20,7 +20,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi.responses import Response
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 
 def _run_coro(coro):  # type: ignore[no-untyped-def]
@@ -32,7 +32,7 @@ def _run_coro(coro):  # type: ignore[no-untyped-def]
         new_loop.close()
 
 
-class ScreenshotCapture(LlmingBase):
+class ScreenshotCapture(Llming):
     """Captures screenshots and serves them to the browser."""
 
     def activate(self, config: dict[str, Any]) -> None:

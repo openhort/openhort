@@ -64,11 +64,11 @@ load_plugins_sync = load_llmings_sync
 async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cover
     """Start llming schedulers and connectors. Called once from startup event."""
     from hort.ext.scheduler import JobSpec
-    from hort.llming.base import LlmingBase
+    from hort.llming.base import Llming
 
-    # Start schedulers for all LlmingBase instances
+    # Start schedulers for all Llming instances
     for name, inst in registry._instances.items():
-        if not isinstance(inst, LlmingBase):
+        if not isinstance(inst, Llming):
             continue
         manifest = registry.get_manifest(name)
         if not manifest:
@@ -103,7 +103,7 @@ start_plugins = start_llmings
 async def stop_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cover
     """Stop connectors and schedulers cleanly. Called from shutdown event."""
     from hort.ext.connectors import ConnectorBase
-    from hort.llming.base import LlmingBase
+    from hort.llming.base import Llming
     from hort.llming.bus import MessageBus
     from hort.llming.pulse import PulseBus
 
@@ -115,9 +115,9 @@ async def stop_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cover
             except Exception as e:
                 logger.error("Error stopping connector %s: %s", name, e)
 
-    # Stop all LlmingBase instances
+    # Stop all Llming instances
     for name, inst in registry._instances.items():
-        if isinstance(inst, LlmingBase):
+        if isinstance(inst, Llming):
             if inst._scheduler is not None:
                 inst._scheduler.stop_all()
             inst.deactivate()
@@ -135,7 +135,7 @@ async def _start_connectors(registry: ExtensionRegistry) -> None:  # pragma: no 
     """Discover and start messaging connectors with command registry."""
     logger.info("Starting connector discovery...")
     from hort.ext.connectors import CommandRegistry, ConnectorBase
-    from hort.llming.base import LlmingBase
+    from hort.llming.base import Llming
 
     cmd_registry = CommandRegistry()
     _global_cmd_registry[0] = cmd_registry
@@ -144,9 +144,9 @@ async def _start_connectors(registry: ExtensionRegistry) -> None:  # pragma: no 
     from hort.extensions.core.telegram_connector.provider import SYSTEM_COMMANDS
     cmd_registry.register_system(SYSTEM_COMMANDS)
 
-    # Collect commands from all LlmingBase instances (skip connectors themselves)
+    # Collect commands from all Llming instances (skip connectors themselves)
     for name, inst in registry._instances.items():
-        if isinstance(inst, LlmingBase) and not isinstance(inst, ConnectorBase):
+        if isinstance(inst, Llming) and not isinstance(inst, ConnectorBase):
             commands = inst.get_connector_commands()
             if commands:
                 cmd_registry.register_llming(name, inst, commands)
@@ -239,7 +239,7 @@ def _register_llming_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
     async def toggle_feature(llming_id: str, feature: str, request: Request) -> Response:
         """Toggle a llming feature at runtime.
 
-        Feature toggles are not yet supported in LlmingBase — returns 404.
+        Feature toggles are not yet supported in Llming — returns 404.
         """
         return Response(
             content=json.dumps({"error": "Feature toggles not available"}),
@@ -285,11 +285,11 @@ def _register_llming_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
     @r.get("/{llming_id}/store")
     async def plugin_store(llming_id: str) -> Response:
         """Read a llming's store (for debugging / admin)."""
-        from hort.llming.base import LlmingBase
+        from hort.llming.base import Llming
 
         store = None
         inst = registry.get_instance(llming_id)
-        if isinstance(inst, LlmingBase) and inst._store is not None:
+        if isinstance(inst, Llming) and inst._store is not None:
             store = inst._store
         if store is None:
             return Response(

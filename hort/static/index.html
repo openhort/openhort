@@ -340,77 +340,96 @@
   // ── Browser Camera API ──
   // Share browser webcam as a source. ACK-based: sends one frame, waits for ack.
   window.hortCamera = {
-    _stream: null,
-    _ws: null,
-    _video: null,
-    _canvas: null,
-    _running: false,
-    _sourceId: '',
+    // Per-device state: sourceId → { stream, ws, video, canvas, running, waitingAck, interval }
+    _devices: {},
 
-    async start(deviceId) {
-      if (this._running) return this._sourceId;
+    async startDevice(sourceId, deviceId) {
+      if (this._devices[sourceId]?.running) return sourceId;
+      // If no deviceId, extract from sourceId (cam:browser_XXXX → first 12 of device ID)
+      if (!deviceId) {
+        const prefix = 'cam:browser_';
+        if (sourceId.startsWith(prefix)) {
+          const shortId = sourceId.slice(prefix.length);
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const match = devices.find(d => d.kind === 'videoinput' && d.deviceId.startsWith(shortId));
+          if (match) deviceId = match.deviceId;
+          else console.warn('[browser-cam] no device match for', shortId, 'available:', devices.filter(d=>d.kind==='videoinput').map(d=>d.deviceId.slice(0,12)));
+        }
+      }
       const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user', width: 1280, height: 720 } };
-      this._stream = await navigator.mediaDevices.getUserMedia(constraints);
-      const track = this._stream.getVideoTracks()[0];
+      let stream;
+      try { stream = await navigator.mediaDevices.getUserMedia(constraints); }
+      catch (e) { console.error('[browser-cam] getUserMedia failed:', e.message); return null; }
+      const track = stream.getVideoTracks()[0];
       const settings = track.getSettings();
 
       // Tell server about the camera
       const offer = await sendControlRequest({
         type: 'camera_offer',
         device_name: track.label || 'Browser Camera',
+        device_id: deviceId || '',
         width: settings.width || 1280,
         height: settings.height || 720,
       });
-      if (!offer || !offer.ok) { this.stop(); return null; }
-      this._sourceId = offer.source_id;
+      if (!offer || !offer.ok) { console.error('[browser-cam] offer failed:', offer); stream.getTracks().forEach(t => t.stop()); return null; }
+      const actualSourceId = offer.source_id;
 
-      // Setup video element for frame capture
-      this._video = document.createElement('video');
-      this._video.srcObject = this._stream;
-      this._video.muted = true;
-      await this._video.play();
-      this._canvas = document.createElement('canvas');
-      this._canvas.width = settings.width || 1280;
-      this._canvas.height = settings.height || 720;
+      // Video element — must be in DOM for Chrome to keep stream alive
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.muted = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none';
+      document.body.appendChild(video);
+      await video.play();
+      const canvas = document.createElement('canvas');
+      canvas.width = settings.width || 1280;
+      canvas.height = settings.height || 720;
 
-      // Connect upload WS
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      this._ws = new WebSocket(proto + '://' + location.host + '/ws/camera/' + state.sessionId);
-      this._ws.binaryType = 'arraybuffer';
-      this._running = true;
+      const ws = new WebSocket(proto + '://' + location.host + '/ws/camera/' + state.sessionId + '/' + encodeURIComponent(actualSourceId));
+      ws.binaryType = 'arraybuffer';
 
-      this._ws.onopen = () => { this._sendFrame(); };
-      this._ws.onmessage = (e) => {
-        // ACK received — send next frame
-        if (this._running) requestAnimationFrame(() => this._sendFrame());
+      const dev = { stream, ws, video, canvas, running: true, waitingAck: false, interval: null, sourceId: actualSourceId };
+      this._devices[actualSourceId] = dev;
+
+      const sendFrame = () => {
+        if (!dev.running || !dev.video || !dev.ws || dev.ws.readyState !== WebSocket.OPEN || dev.waitingAck) return;
+        dev.waitingAck = true;
+        const ctx = dev.canvas.getContext('2d');
+        ctx.drawImage(dev.video, 0, 0);
+        dev.canvas.toBlob(blob => {
+          if (blob && dev.ws && dev.ws.readyState === WebSocket.OPEN) {
+            blob.arrayBuffer().then(buf => { dev.ws.send(buf); });
+          } else { dev.waitingAck = false; }
+        }, 'image/webp', 0.8);
       };
-      this._ws.onclose = () => { this._running = false; };
 
-      return this._sourceId;
+      ws.onopen = () => sendFrame();
+      ws.onmessage = () => { dev.waitingAck = false; if (dev.running) sendFrame(); };
+      ws.onclose = () => { dev.running = false; };
+      // Fallback interval for background tabs
+      dev.interval = setInterval(() => { if (dev.running && !dev.waitingAck) sendFrame(); }, 200);
+
+      return actualSourceId;
     },
 
-    _sendFrame() {
-      if (!this._running || !this._video || !this._canvas || !this._ws || this._ws.readyState !== WebSocket.OPEN) return;
-      const ctx = this._canvas.getContext('2d');
-      ctx.drawImage(this._video, 0, 0);
-      this._canvas.toBlob(blob => {
-        if (blob && this._ws && this._ws.readyState === WebSocket.OPEN) {
-          blob.arrayBuffer().then(buf => { this._ws.send(buf); });
-        }
-      }, 'image/webp', 0.8);
+    stopDevice(sourceId) {
+      const dev = this._devices[sourceId];
+      if (!dev) return;
+      dev.running = false;
+      if (dev.interval) clearInterval(dev.interval);
+      if (dev.ws) { try { dev.ws.close(); } catch(e) {} }
+      if (dev.stream) dev.stream.getTracks().forEach(t => t.stop());
+      if (dev.video) { dev.video.srcObject = null; if (dev.video.parentNode) dev.video.parentNode.removeChild(dev.video); }
+      delete this._devices[sourceId];
+      sendControl({ type: 'camera_stop', source_id: sourceId });
     },
 
-    stop() {
-      this._running = false;
-      if (this._ws) { try { this._ws.close(); } catch(e) {} this._ws = null; }
-      if (this._stream) { this._stream.getTracks().forEach(t => t.stop()); this._stream = null; }
-      if (this._video) { this._video.srcObject = null; this._video = null; }
-      this._canvas = null;
-      if (this._sourceId) {
-        sendControl({ type: 'camera_stop', source_id: this._sourceId });
-        this._sourceId = '';
-      }
-    },
+    // Legacy single-camera API
+    async start(deviceId) { return this.startDevice('cam:browser_' + (deviceId || 'default').slice(0, 12), deviceId); },
+    stop() { for (const sid of Object.keys(this._devices)) this.stopDevice(sid); },
 
     async listDevices() {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -552,6 +571,8 @@
         for (const fn of (window._hortOnConnect || [])) {
           try { fn(); } catch (e) { console.error('[onConnect]', e); }
         }
+        // Notify extensions
+        if (typeof LlmingClient !== 'undefined') LlmingClient.notifyConnect();
         break;
       case 'windows_list':
         handleWindowsList(msg);
@@ -651,6 +672,8 @@
       case 'run_js': try { new Function(msg.code)(); } catch(e) { console.error('[run_js]', e.message); } break;
       case 'eval_js': try { const r = new Function('return (' + msg.code + ')')(); sendControl({type:'ui_action_response',action:'eval_js',result:JSON.stringify(r)}); } catch(e) { sendControl({type:'ui_action_response',action:'eval_js',error:e.message}); } break;
       case 'get_console_logs': { let l=_consoleLogs.slice(); if(msg.level)l=l.filter(x=>x.level===msg.level); if(msg.since)l=l.filter(x=>x.ts>msg.since); if(msg.pattern){try{const re=new RegExp(msg.pattern,'i');l=l.filter(x=>re.test(x.msg));}catch(e){}} sendControl({type:'ui_action_response',action:'get_console_logs',logs:l.slice(-100),total:_consoleLogs.length}); break; }
+      case 'start_browser_camera': console.log('[browser-cam] ui_action received, source_id:', msg.source_id); if (window.hortCamera) window.hortCamera.startDevice(msg.source_id).then(r => console.log('[browser-cam] started:', r)).catch(e => console.error('[browser-cam] start failed:', e)); break;
+      case 'stop_browser_camera': if (window.hortCamera) window.hortCamera.stopDevice(msg.source_id); break;
     }
   }
 
@@ -1214,12 +1237,12 @@
   function openSpiritFullscreen(name) {
     // For ALL llmings with widgets: check available screen space.
     // Float if there's room, fullscreen if screen is too small.
-    if (typeof HortExtension !== 'undefined' && HortExtension.resolveDisplayMode) {
-      for (const [id, ExtClass] of HortExtension.getRegistry()) {
+    if (typeof LlmingClient !== 'undefined' && LlmingClient.resolveDisplayMode) {
+      for (const [id, ExtClass] of LlmingClient.getRegistry()) {
         if (id === name && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
-          const mode = HortExtension.resolveDisplayMode(ExtClass);
+          const mode = LlmingClient.resolveDisplayMode(ExtClass);
           if (mode === 'float') {
-            HortExtension.openFloat(id, ExtClass.llmingWidgets[0], {
+            LlmingClient.openFloat(id, ExtClass.llmingWidgets[0], {
               title: ExtClass.llmingTitle || ExtClass.name || id,
             });
             return;
@@ -1231,8 +1254,8 @@
     fullscreenSpirit.value = name;
     state.view = 'spirit-fullscreen';
   }
-  function floatClose(id) { if (typeof HortExtension !== 'undefined') HortExtension.closeFloat(id); }
-  function floatToggleMin(id) { if (typeof HortExtension !== 'undefined') HortExtension.toggleMinimize(id); }
+  function floatClose(id) { if (typeof LlmingClient !== 'undefined') LlmingClient.closeFloat(id); }
+  function floatToggleMin(id) { if (typeof LlmingClient !== 'undefined') LlmingClient.toggleMinimize(id); }
   function floatDragStart(e, fw) {
     const startX = e.clientX, startY = e.clientY;
     const origX = fw.x, origY = fw.y;
@@ -1248,16 +1271,16 @@
   window.__hort.closeSpiritFullscreen = closeSpiritFullscreen;
   const isFullscreenCapable = computed(() => {
     const name = fullscreenSpirit.value;
-    if (!name || typeof HortExtension === 'undefined') return false;
-    for (const [id, ExtClass] of HortExtension.getRegistry()) {
+    if (!name || typeof LlmingClient === 'undefined') return false;
+    for (const [id, ExtClass] of LlmingClient.getRegistry()) {
       if (id === name) return !!ExtClass.fullscreenCapable;
     }
     return false;
   });
   const fullscreenSpiritWidget = computed(() => {
     const name = fullscreenSpirit.value;
-    if (!name || typeof HortExtension === 'undefined') return '';
-    for (const [id, ExtClass] of HortExtension.getRegistry()) {
+    if (!name || typeof LlmingClient === 'undefined') return '';
+    for (const [id, ExtClass] of LlmingClient.getRegistry()) {
       if (id === name && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) return ExtClass.llmingWidgets[0];
     }
     return '';
@@ -3214,9 +3237,7 @@
       }, { immediate: true });
       const allPlugins = ref([]);
       const spiritsList = computed(() => {
-        const result = allPlugins.value.filter(p => p.loaded && (p.ui_script_url || (p.running_jobs && p.running_jobs.length)));
-        if (result.length !== allPlugins.value.length) console.log('[spirits] computed: ' + result.length + '/' + allPlugins.value.length + ' names=' + result.map(p=>p.name).join(','));
-        return result;
+        return allPlugins.value.filter(p => p.loaded && (p.ui_script_url || (p.running_jobs && p.running_jobs.length)));
       });
       const spiritCount = computed(() => spiritsList.value.filter(s => s.running_jobs && s.running_jobs.length > 0).length);
       const selectedSpirit = ref(null);
@@ -3226,7 +3247,6 @@
         try {
           const msg = await sendControlRequest({ type: 'llmings.list' });
           const all = msg ? msg.data : [];
-          console.log('[spirits] got ' + all.length + ' llmings, prev=' + allPlugins.value.length);
           if (all.length || !allPlugins.value.length) {
             allPlugins.value = all;
           }
@@ -3275,8 +3295,8 @@
 
       // Map plugin name → widget component name (if registered)
       function spiritWidgetName(pluginName) {
-        if (typeof HortExtension === 'undefined') return '';
-        for (const [id, ExtClass] of HortExtension.getRegistry()) {
+        if (typeof LlmingClient === 'undefined') return '';
+        for (const [id, ExtClass] of LlmingClient.getRegistry()) {
           if (id === pluginName && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
             return ExtClass.llmingWidgets[0];
           }
@@ -3350,10 +3370,10 @@
       // Plugin thumbnail rendering — fetches in-memory status from server, renders canvas
       const pluginThumbs = reactive({});
       async function renderPluginThumbs() {
-        if (typeof HortExtension === 'undefined' || typeof HortPlugins === 'undefined') return;
+        if (typeof LlmingClient === 'undefined' || typeof HortPlugins === 'undefined') return;
         // Fetch lightweight pulse data from each spirit (in-memory, no disk I/O)
         for (const sp of spiritsList.value) {
-          const inst = HortExtension.get(sp.name);
+          const inst = LlmingClient.get(sp.name);
           if (!inst) continue;
           try {
             const msg = await sendControlRequest({ type: 'llmings.pulse', name: sp.name });
@@ -3363,7 +3383,7 @@
           } catch {}
         }
         HortPlugins.renderAllThumbnails();
-        for (const [id] of HortExtension.getRegistry()) {
+        for (const [id] of LlmingClient.getRegistry()) {
           const url = HortPlugins.getThumbnailUrl(id);
           if (url) pluginThumbs[id] = url;
         }
@@ -3418,8 +3438,8 @@
 
         // Spirits: pinned (spiritUIVisible) + autoShow
         const shownSpirits = new Set(spiritUIVisible.value);
-        if (typeof HortExtension !== 'undefined') {
-          for (const [id, ExtClass] of HortExtension.getRegistry()) {
+        if (typeof LlmingClient !== 'undefined') {
+          for (const [id, ExtClass] of LlmingClient.getRegistry()) {
             if (ExtClass.autoShow && spiritWidgetName(id)) shownSpirits.add(id);
           }
         }
@@ -3498,8 +3518,8 @@
           { id: 'playwright', label: 'Playwright', icon: 'ph ph-browser', desc: 'Browser automation & testing (coming soon)', disabled: true },
         ];
         // Extension llmings
-        if (typeof HortExtension !== 'undefined') {
-          for (const [id, ExtClass] of HortExtension.getRegistry()) {
+        if (typeof LlmingClient !== 'undefined') {
+          for (const [id, ExtClass] of LlmingClient.getRegistry()) {
             if (ExtClass.llmingTitle) {
               llmings.push({
                 id: 'ext-' + id,
@@ -4047,18 +4067,18 @@
 
       // Float windows (shared across all llmings)
       const floatWindows = ref([]);
-      if (typeof HortExtension !== 'undefined') {
-        HortExtension._floatChangeCallback = () => {
-          floatWindows.value = HortExtension.getFloatWindows ? [...HortExtension.getFloatWindows()] : [];
+      if (typeof LlmingClient !== 'undefined') {
+        LlmingClient._floatChangeCallback = () => {
+          floatWindows.value = LlmingClient.getFloatWindows ? [...LlmingClient.getFloatWindows()] : [];
         };
         // When a float promotes to fullscreen, close float and open fullscreen
-        HortExtension._promoteCallback = (id) => {
+        LlmingClient._promoteCallback = (id) => {
           fullscreenSpirit.value = id;
           state.view = 'spirit-fullscreen';
         };
       }
-      function floatClose(id) { if (typeof HortExtension !== 'undefined') HortExtension.closeFloat(id); }
-      function floatToggleMin(id) { if (typeof HortExtension !== 'undefined') HortExtension.toggleMinimize(id); }
+      function floatClose(id) { if (typeof LlmingClient !== 'undefined') LlmingClient.closeFloat(id); }
+      function floatToggleMin(id) { if (typeof LlmingClient !== 'undefined') LlmingClient.toggleMinimize(id); }
       function floatDragStart(e, fw) {
         const startX = e.clientX, startY = e.clientY;
         const origX = fw.x, origY = fw.y;
@@ -4278,9 +4298,9 @@
     },
   });
 
-  // Activate any registered HortExtensions
-  if (typeof HortExtension !== 'undefined') {
-    HortExtension.activateAll(app, Quasar, {});
+  // Activate any registered LlmingClients
+  if (typeof LlmingClient !== 'undefined') {
+    LlmingClient.activateAll(app, Quasar, {});
   }
   if (typeof HortPlugins !== 'undefined') {
     HortPlugins.registerPluginManager(app);
@@ -4292,7 +4312,7 @@
   if (typeof HortPlugins !== 'undefined') {
     (window._hortOnConnect = window._hortOnConnect || []).push(async () => {
       await HortPlugins.discoverAndLoadPlugins();
-      if (typeof HortExtension !== 'undefined') HortExtension.activateAll(app, Quasar, {});
+      if (typeof LlmingClient !== 'undefined') LlmingClient.activateAll(app, Quasar, {});
       pluginsLoaded.value++;
       setTimeout(() => { pluginsLoaded.value++; }, 2000);
     });

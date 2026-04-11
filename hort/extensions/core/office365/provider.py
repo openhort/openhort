@@ -14,12 +14,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 logger = logging.getLogger(__name__)
 
 
-class Office365Plugin(LlmingBase):
+class Office365Plugin(Llming):
     """Microsoft 365 llming — mail, calendar, teams, files."""
 
     _office: Any = None  # OfficeUserInstance, created after auth

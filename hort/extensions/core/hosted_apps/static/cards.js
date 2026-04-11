@@ -1,10 +1,10 @@
 /* Hosted Apps — Docker container manager */
-/* global HortExtension */
+/* global LlmingClient */
 
 (function () {
   'use strict';
 
-  class HostedAppsPanel extends HortExtension {
+  class HostedAppsPanel extends LlmingClient {
     static id = 'hosted-apps';
     static name = 'Hosted Apps';
 
@@ -39,7 +39,7 @@
 
     renderPanel(container, data) {
       var instances = data?.instances || [];
-      var bp = HortExtension.basePath;
+      var bp = LlmingClient.basePath;
 
       container.innerHTML =
         '<div class="connector-panel" style="padding:16px">' +
@@ -62,5 +62,5 @@
     }
   }
 
-  HortExtension.register(HostedAppsPanel);
+  LlmingClient.register(HostedAppsPanel);
 })();

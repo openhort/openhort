@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 
 # ── Helpers (module-level) ────────────────────────────────────────
@@ -90,7 +90,7 @@ def _state_border_color(cs: Any) -> str:
 # ── Extension class ───────────────────────────────────────────────
 
 
-class CodeWatch(LlmingBase):
+class CodeWatch(Llming):
     """Code session monitor — observes and interacts with tmux sessions."""
 
     def activate(self, config: dict[str, Any]) -> None:

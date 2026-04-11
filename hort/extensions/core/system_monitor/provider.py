@@ -1,6 +1,6 @@
 """System Monitor llming — tracks CPU, memory, and disk metrics.
 
-Migrated from v1 (PluginBase + 4 mixins) to v2 (LlmingBase, no mixins).
+Migrated from v1 (PluginBase + 4 mixins) to v2 (Llming, no mixins).
 All powers declared in a single get_powers() method.
 """
 
@@ -10,7 +10,7 @@ import asyncio
 import time
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 
 def _run_coro(coro):  # type: ignore[no-untyped-def]
@@ -33,7 +33,7 @@ def _run_coro(coro):  # type: ignore[no-untyped-def]
             new_loop.close()
 
 
-class SystemMonitor(LlmingBase):
+class SystemMonitor(Llming):
     """Polls system metrics and stores them for the dashboard and AI."""
 
     # In-memory live data (never written to disk for metrics)

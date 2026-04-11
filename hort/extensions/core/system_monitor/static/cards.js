@@ -1,10 +1,10 @@
 /* System Monitor — dashboard UI */
-/* global HortExtension, Vue, Plotly */
+/* global LlmingClient, Vue, Plotly */
 
 (function () {
   'use strict';
 
-  class SystemMonitorPanel extends HortExtension {
+  class SystemMonitorPanel extends LlmingClient {
     static id = 'system-monitor';
     static name = 'System Monitor';
     static llmingTitle = 'System Monitor';
@@ -95,7 +95,7 @@
     setup(app) {
       app.component('system-monitor-dashboard', {
         setup() {
-          const bp = HortExtension.basePath;
+          const bp = LlmingClient.basePath;
           const latest = Vue.ref(null);
           const history = Vue.ref([]);
           const chartRef = Vue.ref(null);
@@ -115,7 +115,7 @@
                 latest.value = store.latest;
                 history.value = store.history || [];
                 // Cache for thumbnail rendering
-                const inst = HortExtension.get('system-monitor');
+                const inst = LlmingClient.get('system-monitor');
                 if (inst) {
                   inst._lastMetrics = store.latest;
                   inst._history = store.history || [];
@@ -213,5 +213,5 @@
     }
   }
 
-  HortExtension.register(SystemMonitorPanel);
+  LlmingClient.register(SystemMonitorPanel);
 })();

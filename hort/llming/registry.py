@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from hort.ext.manifest import ExtensionManifest
-from hort.llming.base import LlmingBase
+from hort.llming.base import Llming
 from hort.llming.bus import MessageBus
 from hort.llming.pulse import PulseBus
 
@@ -38,7 +38,7 @@ class LlmingClass:
 
     name: str                          # e.g. "office365", "system-monitor"
     manifest: ExtensionManifest
-    python_class: type[LlmingBase]
+    python_class: type[Llming]
     soul_text: str = ""                # loaded from SOUL.md
     credential_specs: list[dict[str, Any]] = field(default_factory=list)
     singleton: bool = False            # from manifest
@@ -79,7 +79,7 @@ class LlmingRegistry:
 
     def __init__(self) -> None:
         self._classes: dict[str, LlmingClass] = {}
-        self._instances: dict[str, LlmingBase] = {}
+        self._instances: dict[str, Llming] = {}
         self._instance_info: dict[str, LlmingInstanceInfo] = {}
         self._bus = MessageBus.get()
         self._pulse = PulseBus.get()
@@ -117,7 +117,7 @@ class LlmingRegistry:
         instance_name: str,
         class_name: str,
         config: dict[str, Any] | None = None,
-    ) -> LlmingBase | None:
+    ) -> Llming | None:
         """Create and activate a llming instance.
 
         Returns the instance, or None if the class doesn't exist.
@@ -168,7 +168,7 @@ class LlmingRegistry:
         logger.info("Created llming instance: %s (class=%s)", instance_name, class_name)
         return instance
 
-    def get_instance(self, name: str) -> LlmingBase | None:
+    def get_instance(self, name: str) -> Llming | None:
         """Look up a running llming instance."""
         return self._instances.get(name)
 
@@ -208,7 +208,7 @@ class LlmingRegistry:
     def discover(self, extensions_dir: Path) -> list[LlmingClass]:
         """Scan extensions directory for llming classes.
 
-        Only discovers classes that inherit from LlmingBase.
+        Only discovers classes that inherit from Llming.
         v1 PluginBase extensions are handled by the existing ExtensionRegistry.
         """
         import importlib.util
@@ -263,8 +263,8 @@ class LlmingRegistry:
                 if ext_class is None:
                     continue
 
-                # Only register LlmingBase subclasses
-                if not (isinstance(ext_class, type) and issubclass(ext_class, LlmingBase)):
+                # Only register Llming subclasses
+                if not (isinstance(ext_class, type) and issubclass(ext_class, Llming)):
                     continue
 
                 # Load Soul
@@ -292,8 +292,8 @@ class LlmingRegistry:
 
     # ── Service injection ──
 
-    def _inject_services(self, instance: LlmingBase, llming_class: LlmingClass) -> None:
-        """Inject per-instance services into a LlmingBase instance."""
+    def _inject_services(self, instance: Llming, llming_class: LlmingClass) -> None:
+        """Inject per-instance services into a Llming instance."""
         from hort.ext.file_store import LocalFileStore
         from hort.ext.scheduler import PluginScheduler
         from hort.ext.store import FilePluginStore
@@ -306,7 +306,7 @@ class LlmingRegistry:
         instance._scheduler = PluginScheduler(name)
         instance._logger = logging.getLogger(f"hort.llming.{name}")
 
-    def _start_manifest_jobs(self, instance: LlmingBase, llming_class: LlmingClass) -> None:
+    def _start_manifest_jobs(self, instance: Llming, llming_class: LlmingClass) -> None:
         """Start jobs declared in the manifest."""
         from hort.ext.scheduler import JobSpec
 

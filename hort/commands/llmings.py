@@ -57,12 +57,12 @@ async def llming_feature(
 @router.handler("store")
 async def llming_store(controller: Any, name: str) -> dict[str, Any]:
     """Read store keys for a llming."""
-    from hort.llming.base import LlmingBase
+    from hort.llming.base import Llming
 
     registry = get_llming_registry()
     inst = registry.get_instance(name) if registry else None
     items: dict[str, Any] = {}
-    if isinstance(inst, LlmingBase) and inst._store is not None:
+    if isinstance(inst, Llming) and inst._store is not None:
         keys = await inst._store.list_keys()
         for k in keys[:100]:
             items[k] = await inst._store.get(k)
@@ -72,7 +72,7 @@ async def llming_store(controller: Any, name: str) -> dict[str, Any]:
 @router.handler("debug")
 async def llming_debug(controller: Any, name: str = "") -> dict[str, Any]:
     """Deep debug info for a llming — class, config, powers, pulse, scheduler, credentials."""
-    from hort.llming.base import LlmingBase
+    from hort.llming.base import Llming
 
     registry = get_llming_registry()
     if not registry:
@@ -84,7 +84,7 @@ async def llming_debug(controller: Any, name: str = "") -> dict[str, Any]:
         for inst_name in sorted(registry._instances.keys()):
             inst = registry.get_instance(inst_name)
             info: dict[str, Any] = {"name": inst_name, "type": type(inst).__name__}
-            if isinstance(inst, LlmingBase):
+            if isinstance(inst, Llming):
                 info["class_name"] = inst.class_name
                 info["has_pulse"] = bool(inst.get_pulse())
                 info["powers"] = [p.name for p in inst.get_powers()]
@@ -100,7 +100,7 @@ async def llming_debug(controller: Any, name: str = "") -> dict[str, Any]:
         "name": name,
         "type": type(inst).__name__,
     }
-    if isinstance(inst, LlmingBase):
+    if isinstance(inst, Llming):
         info["class_name"] = inst.class_name
         info["instance_name"] = inst.instance_name
         info["config"] = inst.config

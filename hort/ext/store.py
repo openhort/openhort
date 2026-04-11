@@ -1,6 +1,6 @@
 """Per-llming namespaced key-value storage with TTL.
 
-Each llming gets its own isolated store via ``LlmingBase.store``.
+Each llming gets its own isolated store via ``Llming.store``.
 Backed by ``LocalBlobStore`` — no locks, no deadlocks, atomic writes.
 """
 

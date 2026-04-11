@@ -85,11 +85,11 @@ def _load_mcp_extensions(
         if app_filter:
             config["app_filter"] = app_filter
 
-        # Inject services for LlmingBase instances
-        from hort.llming.base import LlmingBase
+        # Inject services for Llming instances
+        from hort.llming.base import Llming
         from hort.llming.pulse import PulseBus
 
-        if isinstance(instance, LlmingBase):
+        if isinstance(instance, Llming):
             instance._instance_name = manifest.name
             instance._class_name = manifest.name
             instance._store = FilePluginStore(manifest.name)
@@ -115,9 +115,9 @@ def _load_mcp_extensions(
                     except Exception:
                         pass  # non-critical — tool will just return "no data yet"
 
-        from hort.llming.base import LlmingBase
+        from hort.llming.base import Llming
 
-        if isinstance(instance, LlmingBase):
+        if isinstance(instance, Llming):
             tools = instance.get_mcp_tools()
             if tools:
                 providers.append(instance)

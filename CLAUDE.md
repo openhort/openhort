@@ -4,12 +4,12 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 
 ## Terminology
 
-- **Llming** — an extension unit (plugin). The universal building block. Has up to five parts: Soul, Powers, Pulse, Cards, Envoy.
-- **Soul** (`SOUL.md`) — what a Llming knows and how it behaves. Markdown file with feature-gated sections.
+- **Llming** — an extension unit. The universal building block. Has up to five parts: Soul, Powers, Pulse, Cards, Envoy. Server class: `Llming` (`hort/llming/base.py`). Client class: `LlmingClient` (`hort/static/vendor/hort-ext.js`).
+- **Soul** (`SOUL.md`) — what a Llming knows and how it behaves. Markdown file with feature-gated sections. Injected into the AI system prompt.
 - **Powers** — what a Llming can do. Three types: MCP (AI tools), COMMAND (slash commands), ACTION (typed Python functions).
 - **Pulse** — what a Llming radiates. Live state (readable) + events (subscribable). Like Redis pub/sub.
 - **Cards** — how a Llming looks. Grid thumbnails, detail panels, widgets, float windows.
-- **Envoy** — where a Llming executes remotely. The execution agent inside a sub-hort (container/VM).
+- **Envoy** — the Llming's execution agent inside a sub-hort (container/VM/remote machine). Runs locally inside the isolation boundary. Handles MCP (stdio + SSE, SDK-agnostic), process management, credential provisioning, and streaming output. Speaks H2H protocol over stdio/TCP. Works with any MCP client (Claude Code, OpenAI, Anthropic SDK). openhort can also run as a standalone MCP reverse proxy with policy enforcement. See [Envoy Architecture](docs/manual/internals/envoy-architecture.md).
 - **Circuits** — visual flow editor for wiring Llmings, triggers, and actions into automated workflows (`/hortmap`).
 - **Neighbors** — horts at the same level that can wire bidirectionally (first connection wins).
 
@@ -41,17 +41,21 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/spaces.py` — macOS Spaces detection and switching (SkyLight)
 - `hort/network.py` — LAN IP detection, QR code generation
 - `hort/cert.py` — Self-signed TLS certificate generation
-- `hort/ext/` — Extension system (types, manifest, registry)
+- `hort/llming/` — Llming framework (`Llming` base class, registry, powers, pulse bus)
+- `hort/envoy/` — Envoy agent (MCP stdio server, control channel, host client)
+- `hort/ext/` — Llming framework internals (types, manifest, registry, scheduler, store)
 - `hort/containers/` — Container management (base ABC, Docker provider, registry)
 - `hort/ext/connectors.py` — Connector framework (ConnectorBase, CommandRegistry, ConnectorMixin)
-- `hort/plugins.py` — Plugin lifecycle (discovery, loading, scheduler/connector startup, shutdown)
+- `hort/ext/chat_backend.py` — Chat backend (routes messages to Claude Code, MCP bridge, credential refresh)
+- `hort/commands/` — WS command modules (llmings, config, cam, wire, debug, sources)
+- `hort/plugins.py` — Llming lifecycle (discovery, loading, scheduler/connector startup, shutdown)
 - `hort/extensions/core/` — Built-in platform extensions (macOS, Linux, LAN/Cloud/Telegram connectors)
 - `hort/peer2peer/` — Reusable P2P hole punching library (STUN, signaling ABC, punch coordinator, UDP tunnel)
 - `hort/extensions/core/peer2peer/` — P2P extension (Azure VM provisioning, connector commands, MCP tools)
 - `hort/access/` — Remote access proxy server (Azure deployment, tunnel protocol, token auth)
 - `hort/access/docker-compose.yml` — Docker Compose for local dev and Azure deployment
 - `hort/static/index.html` — Quasar/Vue 3 mobile-first UI
-- `hort/static/vendor/` — Pre-compiled Vue 3, Quasar, xterm.js, Plotly.js, Material Icons, Phosphor Icons, hort-ext.js, hort-widgets.js
+- `hort/static/vendor/` — Pre-compiled Vue 3, Quasar, xterm.js, Plotly.js, Material Icons, Phosphor Icons, hort-ext.js (`LlmingClient` base), hort-widgets.js, hort-llmings-ui.js
 
 ## Communication Protocol
 
@@ -101,14 +105,16 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 **Doc structure:**
 - `docs/manual/guide/` — end-user pages (quickstart, config, cloud setup). Task-oriented, no jargon.
-- `docs/manual/develop/` — extension developer docs (plugins, extensions, providers, platform support, etc.)
+- `docs/manual/develop/` — llming developer docs (creating llmings, MCP, containers, platform support, etc.)
+- `docs/manual/develop/` → "Core Llmings" subsection — docs for built-in llmings (Code Watch, Wire Chat, Claude Code, P2P, Telegram)
 - `docs/manual/internals/` — core architecture, protocols, security, roadmap (coding agents)
 - `docs/mkdocs.yml` — nav tree. New pages MUST be added here to appear in the built site.
 
 **Rules:**
 - CLAUDE.md = compressed rules + links. Never duplicate full docs content here.
 - `docs/` = canonical detail. If CLAUDE.md and docs/ disagree, docs/ wins — update CLAUDE.md.
-- New extension developer docs go in `docs/manual/develop/`.
+- New llming developer docs go in `docs/manual/develop/`.
+- New core llming docs go in `docs/manual/develop/` under "Core Llmings" nav section.
 - New core/internals docs go in `docs/manual/internals/`.
 - When changing behavior, update docs/ first, then update the CLAUDE.md summary/link.
 - Before adding content to CLAUDE.md, check if it already exists in docs/ and link instead.
@@ -118,20 +124,22 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 
 - **[Coding Guidelines](docs/ai/coding-guidelines.md)** — MUST follow: no private access, no if/elif dispatch, config over hardcoding, WS-first, error handling
 - [UX Guidelines](docs/manual/develop/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
-- [Plugin Ecosystem](docs/manual/develop/plugins.md) — plugin development guide, storage, scheduler, MCP, intents, widgets
-- [Extension System](docs/manual/develop/extensions.md) — provider interfaces, manifest, registry, creating extensions
+- [Llming Development](docs/manual/develop/plugins.md) — creating llmings, storage, scheduler, MCP, intents, widgets
+- [Llming System](docs/manual/develop/extensions.md) — provider interfaces, manifest, registry, creating llmings
 - [Linux Support](docs/manual/develop/linux-support.md) — native Linux provider, X11 tools, Docker deployment, P2P networking
 - [Windows Support](docs/manual/develop/windows-support.md) — native Windows provider, Win32 API (ctypes), Azure VM testing
 - [Cross-Platform Testing](docs/manual/develop/cross-platform-testing.md) — Azure VM provisioning, E2E testing, distribution strategy
 - [Distribution & Installation](docs/manual/develop/distribution.md) — pipx/Docker/deb packaging, `hort setup` wizard, macOS .app bundle for Screen Recording
 - [Client Apps](docs/manual/develop/client-apps.md) — native WebView wrappers, deep linking (`openhort://`), QR scanner, native bridge protocol (`nav.update`), P2P auto-reconnect, theme delegation
-- [Llmings](docs/manual/develop/llmings.md) — panel architecture, shared components, plugin lifecycle
+- [Llming UI](docs/manual/develop/llmings.md) — panel architecture, shared components, llming lifecycle
 - [Access Server](docs/manual/develop/access-server.md) — remote proxy, Azure deployment, tunnel protocol
 - [Container Environments](docs/manual/develop/containers.md) — Docker/Azure container management, preview panel
 - [Agent Framework](docs/manual/index.md) — AI agent sandboxing, permissions, budget, multi-node orchestration
 - [Screen Capture](docs/manual/develop/screen-capture.md) — per-window + desktop capture, viewport-based streaming, output resolution rules (no DPR!), resize strategy, VP8 considerations, zoom behavior
 - [Memory Safety](docs/manual/develop/memory-safety.md) — CGImage native leaks, CGDataProviderCopyData autorelease trap, CGBitmapContext fix, WebSocket backpressure, asyncio buffer limits, aiortc zombie session cleanup
-- [MCP Bridge & Chat Backend](docs/manual/develop/mcp-servers.md#in-process-mcp-bridge) — extension MCP tools, tool namespacing, chat routing, SOUL.md prompt system
+- [MCP Bridge & Chat Backend](docs/manual/develop/mcp-servers.md#in-process-mcp-bridge) — llming MCP tools, tool namespacing, chat routing, SOUL.md prompt system
+- [Chat Debug API](docs/manual/internals/chat-debug-api.md) — send messages to AI, inspect tool calls, diagnose failures
+- [Envoy Architecture](docs/manual/internals/envoy-architecture.md) — execution agent inside sub-horts, MCP stdio, process management, credential provisioning, H2H wire channels
 - [Peer-to-Peer](docs/manual/develop/peer2peer.md) — P2P hole punching library, STUN, signaling, UDP tunnel, Azure test VM
 - [Telegram & Mini Apps](docs/manual/develop/telegram.md) — Bot API, Mini App WebView, WebRTC signaling, debugging
 - [Docs Writing Guide](docs/manual/develop/docs-writing-guide.md) — mkdocs-material features, mermaid, admonitions, syntax reference
@@ -159,11 +167,14 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - **OAuth callback is localhost-only.** Never serve `/auth/callback` via the cloud proxy — multi-tenant callback interception risk. Remote auth uses device code flow exclusively. See [Credentials docs](docs/manual/develop/mcp-servers.md#security-oauth-callback-restricted-to-localhost).
 - **NEVER block the async event loop.** Every subprocess call, Docker exec, provider method, file I/O, and network call MUST run in a thread executor (`await _run_sync(fn)`) or use native async I/O (`add_reader`, `asyncio.open_unix_connection`). A single blocking call on the main thread can hang the entire server and prevent clean shutdown (uvicorn --reload). No exceptions.
 - **NEVER use `lsof -ti :PORT | xargs kill`** — this kills Docker containers. Always kill by process name: `pgrep -f "uvicorn hort.app" | xargs kill -9`
-- **NEVER load or start plugins at import time or in `create_app()`.** Plugin loading (`load_plugins_sync`), scheduler start, and connector start MUST happen exclusively in the FastAPI `on_event("startup")` handler. With uvicorn `--reload`, `create_app()` runs multiple times per module import — loading plugins there causes duplicate instances (e.g. multiple Telegram bots competing for the same token via `TelegramConflictError`). Clean shutdown via `stop_plugins()` in `on_event("shutdown")`.
-- **NEVER use `asyncio.create_task` for deferred plugin startup.** Background tasks created in startup events get killed silently on `--reload`. Run plugin startup synchronously in the startup event instead.
+- **NEVER load or start llmings at import time or in `create_app()`.** Llming loading (`load_llmings_sync`), scheduler start, and connector start MUST happen exclusively in the FastAPI `on_event("startup")` handler. With uvicorn `--reload`, `create_app()` runs multiple times per module import — loading llmings there causes duplicate instances (e.g. multiple Telegram bots competing for the same token via `TelegramConflictError`). Clean shutdown via `stop_llmings()` in `on_event("shutdown")`.
+- **NEVER use `asyncio.create_task` for deferred llming startup.** Background tasks created in startup events get killed silently on `--reload`. Run llming startup synchronously in the startup event instead.
 - **ALWAYS release native macOS resources promptly.** `CGWindowListCreateImage` returns Core Foundation objects whose pixel buffers (10-50 MB each) are NOT tracked by Python's GC. **Every capture MUST be wrapped in `objc.autorelease_pool()`** — use `CGDataProviderCopyData` inside the pool (<2 MB/frame leak). **NEVER use `CGBitmapContextCreate`** for pixel extraction — its internal decompression cache leaks ~34 MB/frame and cannot be released by Python. Call `del cg_image` immediately after conversion and `pil_image.close()` after encoding. Do NOT call `CFRelease()` directly — pyobjc owns the ref and double-release causes SIGABRT. See [Memory Safety](docs/manual/develop/memory-safety.md).
 - **Desktop capture uses `CGDisplayCreateImage(CGMainDisplayID())`** — captures the main display only (not all monitors). Window_id `-1` (`DESKTOP_WINDOW_ID`) triggers this path. Desktop bounds come from `CGDisplayBounds()` for correct coordinate mapping. Input clicks go to absolute screen coordinates (no app activation).
-- **Status bar IPC uses a shared key file.** Both the plugin and status bar read/write `~/.hort/statusbar.key`. Whoever starts first creates it; either side rotates when it's older than 24 h. The status bar sends the key as `X-Hort-Key` header on every request. The plugin's `/verify` endpoint validates with `secrets.compare_digest`. Atomic writes (tempfile + rename) prevent corruption from concurrent starts. See [Threat Model](docs/manual/internals/security/threat-model.md).
+- **Status bar IPC uses a shared key file.** Both the llming and status bar read/write `~/.hort/statusbar.key`. Whoever starts first creates it; either side rotates when it's older than 24 h. The status bar sends the key as `X-Hort-Key` header on every request. The plugin's `/verify` endpoint validates with `secrets.compare_digest`. Atomic writes (tempfile + rename) prevent corruption from concurrent starts. See [Threat Model](docs/manual/internals/security/threat-model.md).
+
+- **Claude Code CLI: `--mcp-config` is variadic.** The `--mcp-config <configs...>` flag consumes all following positional args. The user message MUST come after a `--` separator: `claude -p --mcp-config config.json -- "message"`. Without `--`, the message is consumed as a config file path → exit code 1.
+- **Claude Code MCP: session-sticky failures.** If an MCP server connection fails during session init, Claude Code marks it as `"status": "failed"` in the session file. Resuming that session (`--resume`) keeps it failed — it never retries. The only fix is a new session (no `--resume`).
 
 ## Quality Standards
 
@@ -258,35 +269,44 @@ bash scripts/deploy-access.sh
 - **Quasar UMD:** Scripts MUST be in `<body>`, not `<head>` — Quasar needs DOM to exist at load time.
 - **Persistent storage:** FileStore JSON is ephemeral. Mount `/data/` volume. Admin user created by entrypoint only if store missing.
 - **Service worker:** Never register SW when proxied (`_basePath` set). Old cached SWs must be manually unregistered.
-- **Plugin scripts:** Script URLs from `/api/plugins` must be prefixed with `basePath` for proxy routing.
+- **Llming scripts:** Script URLs from `/api/llmings` must be prefixed with `basePath` for proxy routing.
 
-### Plugin Architecture Rules
-- **activate() always called** — even without config (receives `{}`). Initialize all instance vars here.
+### Llming Architecture Rules
+- **`activate()` always called** — even without config (receives `{}`). Initialize all instance vars here.
+- **`on_viewer_connect(session_id, controller)`** — called when a browser viewer connects. Use for browser-side resource init (e.g., browser cameras).
+- **`on_viewer_disconnect(session_id)`** — called when a viewer disconnects. Clean up viewer-specific resources.
 - **Live data in memory** — never write volatile metrics to disk. Use `self._latest`, `self._history`.
 - **Disk for persistence only** — clipboard entries, user config, saved tokens.
 - **No locks** — `LocalBlobStore` uses atomic file writes (`tempfile + os.replace`). No threading.Lock (deadlocks on hot-reload).
-- **Thumbnail data flow:** Python `get_status()` → JS `_feedStore()` → `renderThumbnail()` → canvas → grid card.
+- **Thumbnail data flow:** Python `get_pulse()` → JS `_feedStore()` → `renderThumbnail()` → canvas → grid card.
 
-### Plugin Lifecycle (startup/shutdown)
+### Llming Lifecycle (startup/shutdown)
 ```
-create_app()          → setup_plugins() discovers manifests, registers API routes (NO loading)
-on_event("startup")   → load_plugins_sync() → start_plugins() → schedulers → connectors
-on_event("shutdown")  → stop_plugins() → stop connectors → stop schedulers
+create_app()          → setup_llmings() discovers manifests, registers API routes (NO loading)
+on_event("startup")   → load_llmings_sync() → start_llmings() → schedulers → connectors
+on_event("shutdown")  → stop_llmings() → stop connectors → stop schedulers
 ```
-This ensures each plugin is loaded exactly once and cleaned up on shutdown. With `--reload`, the old worker shuts down cleanly before the new one starts.
+This ensures each llming is loaded exactly once and cleaned up on shutdown. With `--reload`, the old worker shuts down cleanly before the new one starts.
+
+### Envoy (container execution)
+- **MCP is always local** — Envoy runs inside the container as an MCP stdio server. No network hop for tool discovery.
+- **Tools are dynamic** — host pushes current tool definitions before each LLM invocation. No caching, no stale state.
+- **Credentials are ephemeral** — provisioned in-memory via the control channel. Never persisted to disk inside containers.
+- **`ChatBackendManager` is a singleton** — all connectors (Wire, Telegram) share one instance via `get_chat_manager()`. Multiple managers = multiple bridges = port conflicts.
+- **`hort/envoy/`** — Envoy server, protocol, and host client code.
 
 ### Connector Framework
 - **Files:** `hort/ext/connectors.py` (framework), `hort/extensions/core/telegram_connector/` (Telegram impl)
-- **Classes:** `ConnectorBase` (abstract connector), `ConnectorMixin` (plugin commands), `CommandRegistry` (routing), `ConnectorResponse` (multi-format response)
-- **System commands** (help, status, link, etc.) defined in the connector provider — plugins CANNOT override them
-- **Plugin commands** registered via `ConnectorMixin.get_connector_commands()` on any `PluginBase` subclass
+- **Classes:** `ConnectorBase` (abstract connector), `ConnectorMixin` (llming commands), `CommandRegistry` (routing), `ConnectorResponse` (multi-format response)
+- **System commands** (help, status, link, etc.) defined in the connector provider — llmings CANNOT override them
+- **Llming commands** registered via `ConnectorMixin.get_connector_commands()` on any `Llming` subclass
 - **Response fallback:** `render_text()` picks best format for the connector (HTML → Markdown → plain text). `send_response()` auto-falls back to plain text on parse failure.
 - **Telegram specifics:**
   - Use **HTML** (`<b>bold</b>`) not Markdown v1 (`*bold*`) — Markdown v1 breaks on em-dashes and `/` characters
   - `delete_webhook(drop_pending_updates=True)` before polling to claim exclusive access (prevents conflicts on restart)
   - Retry logic (5 attempts with backoff) for `TelegramConflictError`
   - Requires `TELEGRAM_BOT_TOKEN` env var; ACL via `allowed_users` config
-- **UI panels:** Each connector has `static/panel.js` extending `HortExtension`, using `connector-panel` CSS classes (same pattern as LAN/Cloud panels)
+- **UI panels:** Each connector has `static/cards.js` extending `LlmingClient`, using `connector-panel` CSS classes (same pattern as LAN/Cloud panels)
 
 ### Debugging Stale Processes
 When the server behaves unexpectedly (old code running, Telegram conflicts, port busy):
@@ -362,3 +382,5 @@ Output: `docs/_site/` (gitignored)
 ## Environment
 
 Set `LLMING_AUTH_SECRET` in `.env` (already configured for dev).
+
+`TEST_ANTHROPIC_API_KEY` is available in `.env` for unit tests that need the Claude API. **Test-only, low-tier key.** NEVER use for production, containers, or user-facing features. Use `os.environ["TEST_ANTHROPIC_API_KEY"]` in tests.

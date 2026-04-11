@@ -1,10 +1,10 @@
 /* Process Manager — task manager UI */
-/* global HortExtension, Vue */
+/* global LlmingClient, Vue */
 
 (function () {
   'use strict';
 
-  class ProcessManagerPanel extends HortExtension {
+  class ProcessManagerPanel extends LlmingClient {
     static id = 'process-manager';
     static name = 'Process Manager';
     static llmingTitle = 'Task Manager';
@@ -57,7 +57,7 @@
     setup(app) {
       app.component('process-manager-panel', {
         setup() {
-          const bp = HortExtension.basePath;
+          const bp = LlmingClient.basePath;
           const processes = Vue.ref([]);
           const totalCount = Vue.ref(0);
           const sortBy = Vue.ref('cpu');
@@ -70,7 +70,7 @@
               processes.value = data.list || [];
               totalCount.value = data.total || 0;
               // Cache for thumbnail rendering
-              const inst = HortExtension.get('process-manager');
+              const inst = LlmingClient.get('process-manager');
               if (inst) inst._lastProcesses = data.list || [];
             } catch {}
           }
@@ -140,5 +140,5 @@
     }
   }
 
-  HortExtension.register(ProcessManagerPanel);
+  LlmingClient.register(ProcessManagerPanel);
 })();

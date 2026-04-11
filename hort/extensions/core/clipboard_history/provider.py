@@ -7,10 +7,10 @@ import subprocess
 import time
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 
-class ClipboardHistory(LlmingBase):
+class ClipboardHistory(Llming):
     """Polls the system clipboard and stores unique entries for search and review."""
 
     def activate(self, config: dict[str, Any]) -> None:

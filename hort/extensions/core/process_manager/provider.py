@@ -6,10 +6,10 @@ import os
 import signal
 from typing import Any
 
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 
 
-class ProcessManager(LlmingBase):
+class ProcessManager(Llming):
     """Lists processes with CPU/memory usage, allows killing by PID."""
 
     def activate(self, config: dict[str, Any]) -> None:

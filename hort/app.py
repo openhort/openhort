@@ -387,6 +387,24 @@ def _refresh_docker_targets() -> None:
         pass
 
 
+async def _notify_llmings_viewer(event: str, session_id: str, controller: Any = None) -> None:
+    """Notify all llmings about viewer connect/disconnect."""
+    from hort.llming.base import Llming
+
+    if not hasattr(app.state, "llming_registry"):
+        return
+    for name, inst in app.state.llming_registry._instances.items():
+        if not isinstance(inst, Llming):
+            continue
+        try:
+            if event == "connect":
+                await inst.on_viewer_connect(session_id, controller)
+            elif event == "disconnect":
+                await inst.on_viewer_disconnect(session_id)
+        except Exception:
+            logger.exception("Llming %s failed on viewer %s", name, event)
+
+
 def _register_media_providers() -> None:
     """Register unified media providers with the SourceRegistry.
 
@@ -534,13 +552,13 @@ def _register_routes(app: FastAPI) -> None:
 
         Used by the proxy MCP bridge to discover tools without loading extensions.
         """
-        from hort.llming.base import LlmingBase
+        from hort.llming.base import Llming
 
         if not hasattr(app.state, "llming_registry"):
             return []
         tools: list[dict[str, Any]] = []
         for name, inst in app.state.llming_registry._instances.items():
-            if not isinstance(inst, LlmingBase):
+            if not isinstance(inst, Llming):
                 continue
             for t in inst.get_mcp_tools():
                 tools.append({
@@ -555,13 +573,13 @@ def _register_routes(app: FastAPI) -> None:
     @app.get("/api/debug/souls")
     async def debug_souls() -> list[dict[str, Any]]:
         """Get all llming SOUL texts for system prompt building."""
-        from hort.llming.base import LlmingBase
+        from hort.llming.base import Llming
 
         if not hasattr(app.state, "llming_registry"):
             return []
         souls: list[dict[str, Any]] = []
         for name, inst in app.state.llming_registry._instances.items():
-            if not isinstance(inst, LlmingBase):
+            if not isinstance(inst, Llming):
                 continue
             soul = inst.soul
             if soul:
@@ -601,7 +619,7 @@ def _register_routes(app: FastAPI) -> None:
     @app.post("/api/debug/call")
     async def debug_call_llming(request: Request) -> dict[str, Any]:
         """Route a power call to a specific llming. Returns the result."""
-        from hort.llming.base import LlmingBase
+        from hort.llming.base import Llming
         body = await request.json()
         llming_name = body.get("llming", "")
         power = body.get("power", "")
@@ -612,8 +630,8 @@ def _register_routes(app: FastAPI) -> None:
         inst = app.state.llming_registry.get_instance(llming_name)
         if inst is None:
             return {"error": f"llming '{llming_name}' not found"}
-        if not isinstance(inst, LlmingBase):
-            return {"error": f"'{llming_name}' is not a LlmingBase"}
+        if not isinstance(inst, Llming):
+            return {"error": f"'{llming_name}' is not a Llming"}
 
         result = await inst.execute_power(power, args)
         if isinstance(result, str):
@@ -1455,6 +1473,8 @@ def _register_routes(app: FastAPI) -> None:
             controller.mount_router(build_ws_router())
             entry.controller = controller
             await controller.send({"type": "connected", "version": "0.1.0"})
+            # Notify all llmings that a viewer connected
+            await _notify_llmings_viewer("connect", session_id, controller)
 
         async def on_message(entry: object, msg: dict[str, Any]) -> None:
             assert isinstance(entry, HortSessionEntry)
@@ -1463,6 +1483,8 @@ def _register_routes(app: FastAPI) -> None:
 
         async def on_disconnect(sid: str, entry: object) -> None:
             assert isinstance(entry, HortSessionEntry)
+            # Notify all llmings that a viewer disconnected
+            await _notify_llmings_viewer("disconnect", sid)
             if entry.controller:
                 await entry.controller.cleanup()
 
@@ -1486,8 +1508,8 @@ def _register_routes(app: FastAPI) -> None:
         registry: HortRegistry = HortRegistry.get()  # type: ignore[assignment]
         await run_stream(websocket, session_id, registry)
 
-    @app.websocket("/ws/camera/{session_id}")
-    async def camera_upload_ws(websocket: WebSocket, session_id: str) -> None:
+    @app.websocket("/ws/camera/{session_id}/{source_id:path}")
+    async def camera_upload_ws(websocket: WebSocket, session_id: str, source_id: str = "") -> None:
         """Binary WebSocket for browser camera frames (client → server).
 
         The browser sends WebP frames, server buffers the latest one.
@@ -1505,9 +1527,10 @@ def _register_routes(app: FastAPI) -> None:
 
         await websocket.accept()
 
-        # Find the browser camera session for this WS session
-        controller = getattr(entry, "controller", None)
-        source_id = getattr(controller, "_browser_camera_source_id", "") if controller else ""
+        # Find the browser camera session — by source_id param or legacy controller attr
+        if not source_id:
+            controller = getattr(entry, "controller", None)
+            source_id = getattr(controller, "_browser_camera_source_id", "") if controller else ""
         if not source_id:
             await websocket.close(code=4005, reason="No camera offered — send camera_offer first")
             return
@@ -1528,14 +1551,18 @@ def _register_routes(app: FastAPI) -> None:
                 data = await websocket.receive_bytes()
                 if len(data) < 10:
                     continue
-                # Frame data (skip the 10-byte header if present, or accept raw WebP)
                 session.receive_frame(data)
-                # ACK: tell browser it can send the next frame
                 await websocket.send_text('{"type":"camera_ack"}')
         except Exception:
             pass
         finally:
-            logger.info("Browser camera WS disconnected: %s", source_id)
+            # Clean up: stop the session so it's not shown as active
+            if cam_provider and source_id:
+                stale = cam_provider._sessions.get(source_id)
+                if stale:
+                    stale.stop()
+                    cam_provider._sessions.pop(source_id, None)
+            logger.info("Browser camera WS disconnected and cleaned up: %s", source_id)
 
     @app.websocket("/ws/terminal/{terminal_id}")
     async def terminal_ws(websocket: WebSocket, terminal_id: str) -> None:

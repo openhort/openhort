@@ -10,7 +10,7 @@
  * Loaded after hort-widgets.js.
  */
 
-/* global Vue, HortExtension */
+/* global Vue, LlmingClient */
 
 (function (root) {
   'use strict';
@@ -30,7 +30,7 @@
       if (!window.hortWS) { console.warn('[plugins] WS not ready'); return; }
       const msg = await window.hortWS.request({ type: 'llmings.list' });
       _pluginsData = msg ? msg.data : [];
-      const bp = HortExtension.basePath;
+      const bp = LlmingClient.basePath;
       const promises = [];
       for (const p of _pluginsData) {
         if (p.loaded && p.ui_script_url && !_loadedScripts.has(p.ui_script_url)) {
@@ -60,9 +60,9 @@
   // ---- Thumbnail rendering ----
 
   function renderAllThumbnails() {
-    for (const [id, inst] of HortExtension.getRegistry()) {
-      if (!inst || !HortExtension.get(id)) continue;
-      const active = HortExtension.get(id);
+    for (const [id, inst] of LlmingClient.getRegistry()) {
+      if (!inst || !LlmingClient.get(id)) continue;
+      const active = LlmingClient.get(id);
       if (typeof active.renderThumbnail !== 'function') continue;
       if (!_thumbCanvases[id]) {
         const c = document.createElement('canvas');
@@ -103,7 +103,7 @@
 
   function getAutoShowPlugins() {
     const result = [];
-    for (const [id, ExtClass] of HortExtension.getRegistry()) {
+    for (const [id, ExtClass] of LlmingClient.getRegistry()) {
       if (ExtClass.autoShow && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
         result.push({
           id,

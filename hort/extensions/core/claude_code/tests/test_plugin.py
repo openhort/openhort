@@ -11,7 +11,7 @@ from hort.extensions.core.claude_code.provider import ClaudeCodePlugin
 
 @pytest.fixture
 def plugin():
-    """Create a ClaudeCodePlugin with minimal LlmingBase context."""
+    """Create a ClaudeCodePlugin with minimal Llming context."""
     import logging
     p = ClaudeCodePlugin()
     p._instance_name = "claude-code"

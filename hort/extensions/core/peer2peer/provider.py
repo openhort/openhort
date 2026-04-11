@@ -13,7 +13,7 @@ from hort.ext.connectors import (
     ConnectorResponse,
     IncomingMessage,
 )
-from hort.llming import LlmingBase, Power, PowerType
+from hort.llming import Llming, Power, PowerType
 from hort.peer2peer import StunClient
 from hort.peer2peer.models import PunchResult, StunResult
 
@@ -56,7 +56,7 @@ def _run_coro(coro):  # type: ignore[no-untyped-def]
         new_loop.close()
 
 
-class HolepunchPlugin(LlmingBase):
+class HolepunchPlugin(Llming):
     """P2P hole punching with Azure VM provisioning for testing."""
 
     _stun_result: StunResult | None = None

@@ -1,10 +1,10 @@
 /* Clipboard History — searchable clipboard panel UI */
-/* global HortExtension, Vue */
+/* global LlmingClient, Vue */
 
 (function () {
   'use strict';
 
-  class ClipboardHistoryPanel extends HortExtension {
+  class ClipboardHistoryPanel extends LlmingClient {
     static id = 'clipboard-history';
     static name = 'Clipboard History';
     static llmingTitle = 'Clipboard History';
@@ -68,7 +68,7 @@
     setup(app) {
       app.component('clipboard-history-panel', {
         setup() {
-          const bp = HortExtension.basePath;
+          const bp = LlmingClient.basePath;
           const entries = Vue.ref([]);
           const searchQuery = Vue.ref('');
           const selectedEntry = Vue.ref(null);
@@ -84,7 +84,7 @@
               items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
               entries.value = items;
               // Cache for thumbnail rendering
-              const inst = HortExtension.get('clipboard-history');
+              const inst = LlmingClient.get('clipboard-history');
               if (inst) inst._lastClips = items;
             } catch {}
           }
@@ -172,5 +172,5 @@
     }
   }
 
-  HortExtension.register(ClipboardHistoryPanel);
+  LlmingClient.register(ClipboardHistoryPanel);
 })();

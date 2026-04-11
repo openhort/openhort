@@ -1,10 +1,10 @@
 /* Telegram Connector — panel UI extension */
-/* global HortExtension, Vue */
+/* global LlmingClient, Vue */
 
 (function () {
   'use strict';
 
-  class TelegramConnectorExt extends HortExtension {
+  class TelegramConnectorExt extends LlmingClient {
     static id = 'telegram-connector';
     static name = 'Telegram';
     static connectorIcon = 'ph ph-telegram-logo';
@@ -15,7 +15,7 @@
         emits: ['close'],
         setup(props) {
           const { computed, ref, onMounted } = Vue;
-          const bp = HortExtension.basePath;
+          const bp = LlmingClient.basePath;
           const tg = computed(() => (props.connectors.messaging || {}).telegram || {});
           const config = Vue.reactive({ allowed_users: '' });
 
@@ -69,5 +69,5 @@
     }
   }
 
-  HortExtension.register(TelegramConnectorExt);
+  LlmingClient.register(TelegramConnectorExt);
 })();

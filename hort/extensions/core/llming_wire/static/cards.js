@@ -1,5 +1,5 @@
 /* LlmingWire — built-in chat UI with IndexedDB persistence */
-/* global HortExtension */
+/* global LlmingClient */
 
 (function () {
   'use strict';
@@ -145,7 +145,7 @@
 
   // ── Panel ────────────────────────────────────────────────────
 
-  class LlmingWirePanel extends HortExtension {
+  class LlmingWirePanel extends LlmingClient {
     static id = 'llming-wire';
     static name = 'LlmingWire';
     static llmingTitle = 'LlmingWire';
@@ -588,5 +588,5 @@
     }
   }
 
-  HortExtension.register(LlmingWirePanel);
+  LlmingClient.register(LlmingWirePanel);
 })();
