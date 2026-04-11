@@ -70,7 +70,7 @@ def _container_turn(
 ) -> str:
     """Execute one turn inside the container, return response text."""
     cmd = [
-        "python3", "-m", "llmings.llms.llming_api.container_entry",
+        "python3", "-m", "llmings.llms.llming_models_ext.container_entry",
         "--model", model,
     ]
     if system_prompt:

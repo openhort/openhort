@@ -1,4 +1,4 @@
-"""Tests for ClaudeCodePlugin — activation, status, envoy config loading."""
+"""Tests for ClaudeCodeExecutor — activation, status, envoy config loading."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llmings.core.claude_code.provider import ClaudeCodePlugin
+from llmings.core.claude_code.provider import ClaudeCodeExecutor
 
 
 @pytest.fixture
 def plugin():
-    """Create a ClaudeCodePlugin with minimal Llming context."""
+    """Create a ClaudeCodeExecutor with minimal Llming context."""
     import logging
-    p = ClaudeCodePlugin()
+    p = ClaudeCodeExecutor()
     p._instance_name = "claude-code"
     p._class_name = "claude-code"
     p._store = MagicMock()

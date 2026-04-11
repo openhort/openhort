@@ -1,4 +1,4 @@
-"""Entry point: poetry run python -m llmings.llms.llming_api"""
+"""Entry point: poetry run python -m llmings.llms.llming_models_ext"""
 
 from __future__ import annotations
 

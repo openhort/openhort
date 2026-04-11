@@ -587,12 +587,38 @@ class ChatSession:
 _shared_manager: "ChatBackendManager | None" = None
 
 
+def get_llm_executor() -> Any:
+    """Get the configured LLM executor llming.
+
+    Looks up the LLM provider from AgentConfig.provider (e.g. "claude-code")
+    in the llming registry and returns the LlmExecutor instance.
+
+    This is the preferred entry point for connectors. Call
+    ``await executor.execute_power("send_message", {...})`` to chat.
+    """
+    from hort.commands._registry import get_llming_registry
+
+    registry = get_llming_registry()
+    if registry is None:
+        return None
+
+    from hort.agent import get_agent_config
+    provider = get_agent_config().provider
+
+    # Try exact match first, then with common naming patterns
+    for name in (provider, provider.replace("-", "_"), provider.replace("_", "-")):
+        inst = registry.get_instance(name)
+        if inst is not None:
+            return inst
+
+    return None
+
+
 def get_chat_manager() -> "ChatBackendManager":
     """Get the shared ChatBackendManager singleton.
 
-    All connectors (Telegram, Wire, Claude Code) MUST use this instead
-    of creating their own. Multiple managers = multiple MCP bridges =
-    port conflicts in shared containers.
+    DEPRECATED: Use get_llm_executor() instead for provider-agnostic access.
+    Kept for backward compatibility with connectors that haven't migrated.
     """
     global _shared_manager
     if _shared_manager is None:

@@ -5,7 +5,7 @@
   "provider": "core",
   "platforms": ["darwin", "linux", "win32"],
   "capabilities": ["mcp"],
-  "entry_point": "provider:ClaudeCodePlugin",
+  "entry_point": "provider:ClaudeCodeExecutor",
   "icon": "ph ph-robot",
   "author": "openhort",
   "llming_type": "llm",

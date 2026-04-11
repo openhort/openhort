@@ -3,7 +3,7 @@
 Run explicitly with an API key:
 
     ANTHROPIC_API_KEY=sk-... poetry run pytest \
-        hort/extensions/llms/llming_api/tests/ -v -m integration
+        hort/extensions/llms/llming_models_ext/tests/ -v -m integration
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def store(tmp_path: Path) -> ConversationStore:
 
 @pytest.fixture
 def provider(store: ConversationStore):
-    from llmings.llms.llming_api.provider import LlmingProvider
+    from llmings.llms.llming_models_ext.provider import LlmingProvider
 
     return LlmingProvider(
         model="claude_haiku",
@@ -96,7 +96,7 @@ def test_multi_turn_conversation(
 @pytest.mark.skipif(not _has_api_key(), reason="ANTHROPIC_API_KEY not set")
 def test_conversation_persist_and_resume(tmp_path: Path) -> None:
     """Create a conversation, destroy the provider, resume from store."""
-    from llmings.llms.llming_api.provider import LlmingProvider
+    from llmings.llms.llming_models_ext.provider import LlmingProvider
 
     store = ConversationStore(store_dir=tmp_path)
     p1 = LlmingProvider(
