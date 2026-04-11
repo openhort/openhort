@@ -3,14 +3,26 @@
   "version": "0.2.0",
   "description": "Monitors CPU, memory, and disk usage with live dashboard",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["monitor", "mcp"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "capabilities": [
+    "monitor",
+    "mcp"
+  ],
   "entry_point": "provider:SystemMonitor",
   "icon": "ph ph-cpu",
   "author": "openhort",
   "llming_type": "monitor",
-  "publishes": ["system_metrics"],
+  "publishes": [
+    "system_metrics"
+  ],
   "mcp": true,
-  "ui_widgets": ["system-monitor-dashboard"],
-  "ui_script": "static/cards.js"
+  "ui_widgets": [
+    "system-monitor-dashboard"
+  ],
+  "ui_script": "static/cards.js",
+  "group": "core.systeminfo"
 }

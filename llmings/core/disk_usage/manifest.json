@@ -3,14 +3,26 @@
   "version": "0.2.0",
   "description": "Monitors disk partitions and usage across all mountpoints",
   "provider": "core",
-  "platforms": ["darwin", "linux", "win32"],
-  "capabilities": ["monitor", "mcp"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "capabilities": [
+    "monitor",
+    "mcp"
+  ],
   "entry_point": "provider:DiskUsage",
   "icon": "ph ph-hard-drive",
   "author": "openhort",
   "llming_type": "monitor",
-  "publishes": ["disk_usage"],
+  "publishes": [
+    "disk_usage"
+  ],
   "mcp": true,
-  "ui_widgets": ["disk-usage-panel"],
-  "ui_script": "static/cards.js"
+  "ui_widgets": [
+    "disk-usage-panel"
+  ],
+  "ui_script": "static/cards.js",
+  "group": "core.systeminfo"
 }

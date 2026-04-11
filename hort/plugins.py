@@ -43,18 +43,34 @@ setup_plugins = setup_llmings
 
 
 def load_llmings_sync(registry: ExtensionRegistry) -> None:  # pragma: no cover
-    """Load compatible llmings synchronously (no scheduler start — call start_schedulers separately)."""
-    # Pass per-llming config from the YAML config store
+    """Load llmings — grouped manifests go to subprocesses, ungrouped load in-process."""
     from hort.config import get_store
     store = get_store()
-    llming_configs: dict[str, dict] = {}
+
+    # Separate grouped (subprocess) from ungrouped (in-process)
+    grouped: dict[str, list] = {}  # {group_name: [manifest, ...]}
+    ungrouped: list = []
+
     for manifest in registry._manifests:
+        if not registry.is_compatible(manifest):
+            continue
+        if manifest.group:
+            grouped.setdefault(manifest.group, []).append(manifest)
+        else:
+            ungrouped.append(manifest)
+
+    # Load ungrouped llmings in-process (existing behavior)
+    for manifest in ungrouped:
         cfg = store.get(manifest.name)
-        if cfg:
-            llming_configs[manifest.name] = cfg
-    registry.load_compatible(llming_configs or None)
+        registry.load_extension(manifest, cfg)
+
+    # Store grouped manifests for async subprocess spawning in start_llmings
+    registry._grouped_manifests = grouped  # type: ignore[attr-defined]
+
     loaded = list(registry._instances.keys())
-    logger.info("Loaded %d llmings: %s", len(loaded), loaded)
+    group_names = list(grouped.keys())
+    group_count = sum(len(v) for v in grouped.values())
+    logger.info("Loaded %d llmings in-process, %d in %d groups (subprocess)", len(loaded), group_count, len(group_names))
 
 
 # Backward-compatible alias
@@ -62,13 +78,14 @@ load_plugins_sync = load_llmings_sync
 
 
 async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cover
-    """Start all llmings — schedulers, @on subscriptions, background tasks.
+    """Start all llmings — subprocesses, schedulers, @on subscriptions.
 
-    Everything runs in parallel background tasks. The startup event
-    completes immediately so uvicorn can accept connections.
+    Grouped llmings are spawned as subprocesses. Ungrouped ones
+    (already loaded in-process) get their schedulers and subscriptions wired.
     """
     import asyncio
 
+    from hort.config import get_store
     from hort.ext.scheduler import JobSpec
     from hort.llming.base import Llming
     from hort.llming.decorators import collect_subscriptions, collect_ready_handlers
@@ -77,6 +94,45 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
     bus = PulseBus.get()
     ready_set: set[str] = set()
     ready_waiters: list[tuple[tuple[str, ...], Any]] = []
+    store = get_store()
+
+    # ── Spawn subprocess groups ──
+    grouped = getattr(registry, "_grouped_manifests", {})
+    if grouped:
+        from hort.lifecycle.llming_process import GroupProcess
+
+        async def _spawn_group(gname: str, manifests: list) -> None:
+            manifest_paths = {m.name: str(m.path) + "/manifest.json" for m in manifests}
+            proc = GroupProcess(gname, manifest_paths)
+            try:
+                started = await proc.start()
+                if not started:
+                    logger.error("Failed to start group %s", gname)
+                    return
+
+                ready = await proc.wait_ready(timeout=10)
+                if not ready:
+                    logger.warning("Group %s not ready in time", gname)
+
+                for m in manifests:
+                    cfg = store.get(m.name) or {}
+                    await proc.activate_llming(m.name, cfg)
+
+                for name, proxy in proc.proxies.items():
+                    registry._instances[name] = proxy
+                    from hort.llming.bus import MessageBus
+                    MessageBus.get().register(name, proxy)
+                    ready_set.add(name)
+
+                logger.info("Group %s: %s", gname, list(manifest_paths.keys()))
+            except Exception:
+                logger.exception("Failed to start group %s", gname)
+
+        # Spawn all groups as background tasks (don't block startup)
+        for gname, manifests in grouped.items():
+            asyncio.create_task(_spawn_group(gname, manifests))
+
+    # ── Wire in-process + subprocess llmings ──
 
     for name, inst in registry._instances.items():
         if not isinstance(inst, Llming):
