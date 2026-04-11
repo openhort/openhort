@@ -62,38 +62,109 @@ load_plugins_sync = load_llmings_sync
 
 
 async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cover
-    """Start llming schedulers and connectors. Called once from startup event."""
+    """Start all llmings — schedulers, @on subscriptions, background tasks.
+
+    Everything runs in parallel background tasks. The startup event
+    completes immediately so uvicorn can accept connections.
+    """
+    import asyncio
+
     from hort.ext.scheduler import JobSpec
     from hort.llming.base import Llming
+    from hort.llming.decorators import collect_subscriptions, collect_ready_handlers
+    from hort.llming.pulse import PulseBus
 
-    # Start schedulers for all Llming instances
+    bus = PulseBus.get()
+    ready_set: set[str] = set()
+    ready_waiters: list[tuple[tuple[str, ...], Any]] = []
+
     for name, inst in registry._instances.items():
         if not isinstance(inst, Llming):
             continue
+
+        # Build @power handler map
+        inst._build_power_map()
+
+        # Wire @on subscriptions
+        for channel, handler in collect_subscriptions(inst):
+            bus.subscribe_channel(channel, handler)
+
+        # Collect @on_ready handlers
+        for deps, handler in collect_ready_handlers(inst):
+            ready_waiters.append((deps, handler))
+
+        # Start manifest-declared scheduler jobs
         manifest = registry.get_manifest(name)
-        if not manifest:
-            continue
-        # Manifest-declared jobs
-        for jm in manifest.jobs:
-            fn = getattr(inst, jm.method, None)
-            if fn and inst._scheduler is not None:
-                spec = JobSpec(
-                    id=jm.id, fn_name=jm.method,
-                    interval_seconds=jm.interval_seconds,
-                    run_on_activate=jm.run_on_activate,
-                    enabled_feature=jm.enabled_feature,
-                )
-                inst._scheduler.start_job(spec, fn)
-    logger.info("Llming schedulers started")
+        if manifest:
+            for jm in manifest.jobs:
+                fn = getattr(inst, jm.method, None)
+                if fn and inst._scheduler is not None:
+                    spec = JobSpec(
+                        id=jm.id, fn_name=jm.method,
+                        interval_seconds=jm.interval_seconds,
+                        run_on_activate=jm.run_on_activate,
+                        enabled_feature=jm.enabled_feature,
+                    )
+                    inst._scheduler.start_job(spec, fn)
 
-    # Start messaging connectors (Telegram, etc.)
-    await _start_connectors(registry)
+        # Start ConnectorBase instances (legacy — will be removed)
+        from hort.ext.connectors import ConnectorBase
+        if isinstance(inst, ConnectorBase) and hasattr(inst, "start"):
+            async def _start_bg(n: str, c: Any) -> None:
+                try:
+                    await c.start()
+                    logger.info("Started connector: %s", n)
+                except Exception as e:
+                    logger.error("Failed to start connector %s: %s", n, e)
+            asyncio.create_task(_start_bg(name, inst))
 
-    # Apply power settings from config on startup
+        # Track as ready and emit lifecycle pulse
+        ready_set.add(name)
+        await bus.emit_channel("llming:started", {"name": name})
+
+    # Fire @on_ready handlers whose dependencies are all met
+    for deps, handler in ready_waiters:
+        if all(d in ready_set for d in deps):
+            try:
+                await handler()
+            except Exception:
+                logger.exception("on_ready handler failed")
+
+    logger.info("Llmings started (%d instances)", len(ready_set))
+
+    # Apply power settings from config
     try:
         apply_power_settings()
     except Exception:
         pass
+
+    # Start built-in tick channels in background
+    asyncio.create_task(_tick_loop(bus))
+
+
+async def _tick_loop(bus: Any) -> None:
+    """Emit built-in tick channels."""
+    import asyncio
+    import time
+
+    counter = 0
+    interval = 1.0 / 10  # 10 Hz base
+
+    while True:
+        await asyncio.sleep(interval)
+        counter += 1
+        now = time.time()
+
+        # tick:10hz — every tick (100ms)
+        await bus.emit_channel("tick:10hz", {"ts": now})
+
+        # tick:1hz — every 10th tick
+        if counter % 10 == 0:
+            await bus.emit_channel("tick:1hz", {"ts": now})
+
+        # tick:slow — every 50th tick (5s)
+        if counter % 50 == 0:
+            await bus.emit_channel("tick:slow", {"ts": now})
 
 
 # Backward-compatible alias
@@ -101,74 +172,42 @@ start_plugins = start_llmings
 
 
 async def stop_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cover
-    """Stop connectors and schedulers cleanly. Called from shutdown event."""
-    from hort.ext.connectors import ConnectorBase
+    """Stop all llmings cleanly. Called from shutdown event."""
     from hort.llming.base import Llming
     from hort.llming.bus import MessageBus
     from hort.llming.pulse import PulseBus
 
+    bus = PulseBus.get()
+
     for name, inst in registry._instances.items():
-        if isinstance(inst, ConnectorBase):
+        if not isinstance(inst, Llming):
+            continue
+
+        # Emit lifecycle pulse before stopping
+        try:
+            await bus.emit_channel("llming:stopped", {"name": name})
+        except Exception:
+            pass
+
+        # Stop ConnectorBase instances (legacy)
+        from hort.ext.connectors import ConnectorBase
+        if isinstance(inst, ConnectorBase) and hasattr(inst, "stop"):
             try:
                 await inst.stop()
-                logger.info("Stopped connector: %s", name)
             except Exception as e:
-                logger.error("Error stopping connector %s: %s", name, e)
+                logger.error("Error stopping %s: %s", name, e)
 
-    # Stop all Llming instances
-    for name, inst in registry._instances.items():
-        if isinstance(inst, Llming):
-            if inst._scheduler is not None:
-                inst._scheduler.stop_all()
-            inst.deactivate()
-            MessageBus.get().unregister(name)
-            PulseBus.get().clear_instance(name)
+        if inst._scheduler is not None:
+            inst._scheduler.stop_all()
+        inst.deactivate()
+        MessageBus.get().unregister(name)
+        bus.clear_instance(name)
 
     logger.info("Llmings stopped")
 
 
 # Backward-compatible alias
 stop_plugins = stop_llmings
-
-
-async def _start_connectors(registry: ExtensionRegistry) -> None:  # pragma: no cover
-    """Discover and start messaging connectors with command registry."""
-    logger.info("Starting connector discovery...")
-    from hort.ext.connectors import CommandRegistry, ConnectorBase
-    from hort.llming.base import Llming
-
-    cmd_registry = CommandRegistry()
-    _global_cmd_registry[0] = cmd_registry
-
-    # Register system commands (defined in the framework, not in llming code)
-    from hort.ext.connectors import SYSTEM_COMMANDS
-    cmd_registry.register_system(SYSTEM_COMMANDS)
-
-    # Collect commands from all Llming instances (skip connectors themselves)
-    for name, inst in registry._instances.items():
-        if isinstance(inst, Llming) and not isinstance(inst, ConnectorBase):
-            commands = inst.get_connector_commands()
-            if commands:
-                cmd_registry.register_llming(name, inst, commands)
-                logger.info("Registered %d commands from %s", len(commands), name)
-
-    # Start connectors
-    for name, inst in registry._instances.items():
-        if isinstance(inst, ConnectorBase):
-            inst.set_command_registry(cmd_registry)
-            try:
-                await inst.start()
-                logger.info("Started connector: %s", name)
-            except Exception as e:
-                logger.error("Failed to start connector %s: %s", name, e)
-
-
-_global_cmd_registry: list = [None]  # mutable container for the singleton
-
-
-def get_command_registry():
-    """Get the global command registry (available after llming startup)."""
-    return _global_cmd_registry[0]
 
 
 _caffeinate_proc: Any = None
