@@ -21,7 +21,7 @@
       this.subscribe('network_metrics', (data) => {
         if (data) this._lastNetwork = data;
       });
-      this.vaultRead('latest').then(data => {
+      this.vault.get('latest').then(data => {
         if (data && data.total_upload_bps !== undefined) this._lastNetwork = data;
       });
     }

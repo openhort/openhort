@@ -36,7 +36,7 @@
           this._lastClips = data.clips;
         }
       });
-      this.vaultRead('latest').then(store => {
+      this.vault.get('latest').then(store => {
         if (!store) return;
         const clips = [];
         for (const [k, v] of Object.entries(store)) {

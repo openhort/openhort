@@ -13,10 +13,10 @@ Pythonic access to other llmings::
     await self.vaults["system-monitor"].read("latest_metrics")
     self.channels["cpu_spike"].subscribe(self.on_spike)
 
-Storage one-liners::
+Vault (own data)::
 
-    self.save("key", {"cpu": 42})
-    data = self.load("key", default={"cpu": 0})
+    self.vault.set("state", {"connected": True})
+    data = self.vault.get("state", default={})
 
 Powers via decorators (no get_powers / execute_power needed)::
 
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from hort.ext.scheduler import PluginScheduler
     from hort.ext.store import PluginStore
     from hort.llming.decorators import PowerMeta
-    from hort.llming.handles import ChannelHandleMap, LlmingHandleMap, VaultHandleMap
+    from hort.llming.handles import ChannelHandleMap, LlmingHandleMap, Vault, VaultHandleMap
 
 
 class Llming:
@@ -60,13 +60,14 @@ class Llming:
 
     # ── Pythonic handles (injected by framework) ──
 
+    vault: "Vault"                # self.vault.set("state", {...})
     llmings: "LlmingHandleMap"    # self.llmings["name"].call("power")
-    vaults: "VaultHandleMap"      # self.vaults["name"].read("key")
+    vaults: "VaultHandleMap"      # self.vaults["name"].get("key")
     channels: "ChannelHandleMap"  # self.channels["name"].subscribe(handler)
 
     # ── Injected services ──
 
-    _store: PluginStore | None = None        # legacy — use self.save/self.load
+    _store: PluginStore | None = None        # legacy — use self.vault
     _files: PluginFileStore | None = None    # legacy — use self.persist.crates
     _storage: Any = None
     _scheduler: PluginScheduler | None = None
@@ -245,42 +246,6 @@ class Llming:
         """Scoped credential access for this instance."""
         return self._credentials
 
-    # ── Storage one-liners ──
-
-    def save(self, key: str, data: dict[str, Any] | BaseModel, *, ttl: int | None = None, ephemeral: bool = False) -> None:
-        """Save data by key. Persistent by default.
-
-        ::
-            self.save("latest_metrics", {"cpu": 42, "memory": 68})
-            self.save("cache", data, ttl=300, ephemeral=True)
-        """
-        payload = data.model_dump() if isinstance(data, BaseModel) else dict(data)
-        payload["_key"] = key
-        ns = self.runtime if ephemeral else self.persist
-        ns.scrolls.delete_one("_kv", {"_key": key})
-        ns.scrolls.insert("_kv", payload, ttl=ttl)
-
-    def load(self, key: str, default: dict[str, Any] | None = None, *, ephemeral: bool = False) -> dict[str, Any]:
-        """Load data by key. Returns default if not found.
-
-        ::
-            data = self.load("latest_metrics", default={"cpu": 0})
-        """
-        ns = self.runtime if ephemeral else self.persist
-        result = ns.scrolls.find_one("_kv", {"_key": key})
-        if result is None:
-            return default if default is not None else {}
-        result.pop("_id", None)
-        result.pop("_key", None)
-        result.pop("_access", None)
-        return result
-
-    def delete(self, key: str, *, ephemeral: bool = False) -> bool:
-        """Delete data by key."""
-        ns = self.runtime if ephemeral else self.persist
-        result = ns.scrolls.delete_one("_kv", {"_key": key})
-        return result.get("deleted", 0) > 0
-
     # ── Discovery ──
 
     async def discover(self, target: str | None = None) -> dict[str, list[dict[str, Any]]]:
@@ -408,8 +373,8 @@ class Llming:
         return self._instance_name or self._class_name
 
     def get_status(self) -> dict[str, Any]:
-        """v1 compat: Read status from own vault."""
-        return self.load("state")
+        """v1 compat: Read state from own vault."""
+        return self.vault.get("state") if hasattr(self, "vault") else {}
 
     def get_jobs(self) -> list[Any]:
         """v1 compat: Return scheduled job definitions.

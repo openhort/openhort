@@ -414,7 +414,7 @@ def _register_llming_routes(app: FastAPI, registry: ExtensionRegistry) -> None:
         status: dict[str, Any] = {}
         if hasattr(inst, "load"):
             try:
-                status = inst.load("state")
+                status = inst.vault.get("state") if hasattr(inst, "vault") else {}
             except Exception:
                 pass
         return Response(

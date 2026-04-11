@@ -72,7 +72,7 @@ class LlmingProxy(Llming):
         return self._instance_name
 
     def get_status(self) -> dict[str, Any]:
-        return self.load("state")
+        return self.vault.get("state") if hasattr(self, "vault") else {}
 
 
 class GroupProcess(ManagedProcess):

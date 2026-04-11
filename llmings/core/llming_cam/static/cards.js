@@ -200,7 +200,7 @@
       this.subscribe('camera_update', (data) => {
         if (data) this._statusData = data;
       });
-      this.vaultRead('latest').then(data => {
+      this.vault.get('latest').then(data => {
         if (data && (data.total_cameras !== undefined || data.active_cameras !== undefined)) {
           this._statusData = data;
         }

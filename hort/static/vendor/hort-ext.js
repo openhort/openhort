@@ -193,37 +193,44 @@
     }
 
     /**
-     * Read from a vault (own or another llming's).
-     *
-     * @param {string} key - Key to read
-     * @param {string} [owner] - Vault owner (default: own llming)
-     * @returns {Promise<object>}
+     * Own vault — cached, synced.
+     * this.vault.get("state")
+     * this.vault.set("state", {...})
+     * For other llming's vault: this.vaults("other").get("key")
      */
-    async vaultRead(key, owner) {
-      if (!window.hortWS) return {};
-      const msg = await window.hortWS.request({
-        type: 'card.vault.read',
-        owner: owner || this.constructor.id,
-        key,
-      });
-      return msg && msg.data ? msg.data : {};
+    get vault() {
+      const self = this;
+      const id = this.constructor.id;
+      return {
+        async get(key, dflt) {
+          if (!window.hortWS) return dflt || {};
+          const msg = await window.hortWS.request({ type: 'card.vault.read', owner: id, key });
+          return msg && msg.data ? msg.data : (dflt || {});
+        },
+        async set(key, data) {
+          if (!window.hortWS) return;
+          await window.hortWS.request({ type: 'card.vault.write', owner: id, key, data });
+        },
+      };
     }
 
     /**
-     * Write to own vault.
-     *
-     * @param {string} key - Key to write
-     * @param {object} data - Data to store
+     * Other llming's vault (read-only).
+     * this.vaults("system-monitor").get("state")
      */
-    async vaultWrite(key, data) {
-      if (!window.hortWS) return;
-      await window.hortWS.request({
-        type: 'card.vault.write',
-        owner: this.constructor.id,
-        key,
-        data,
-      });
+    vaults(owner) {
+      return {
+        async get(key, dflt) {
+          if (!window.hortWS) return dflt || {};
+          const msg = await window.hortWS.request({ type: 'card.vault.read', owner, key });
+          return msg && msg.data ? msg.data : (dflt || {});
+        },
+      };
     }
+
+    // Legacy aliases
+    async vaultRead(key, owner) { return this.vault.get(key); }
+    async vaultWrite(key, data) { return this.vault.set(key, data); }
 
     /**
      * Execute a power on own llming or another llming.
