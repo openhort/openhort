@@ -17,6 +17,17 @@
 
     _feedStore(store) { if (store.processes) this._lastProcesses = store.processes.list || store.processes; }
 
+    onConnect() {
+      this.subscribe('process_update', (data) => {
+        if (data) this._lastProcesses = data.list || data;
+      });
+      this.vaultRead('latest').then(data => {
+        if (data && data.processes) {
+          this._lastProcesses = data.processes.list || data.processes;
+        }
+      });
+    }
+
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff', bar = '#3b82f6';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);

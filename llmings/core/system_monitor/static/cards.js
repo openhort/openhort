@@ -27,6 +27,15 @@
       this._history = h.slice(-60);
     }
 
+    onConnect() {
+      this.subscribe('system_metrics', (data) => {
+        this._lastMetrics = {...this._lastMetrics, ...data};
+      });
+      this.vaultRead('latest').then(data => {
+        if (data && data.cpu_percent !== undefined) this._lastMetrics = data;
+      });
+    }
+
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#64748b', text = '#f0f4ff', muted = '#94a3b8';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);

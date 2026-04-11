@@ -1,8 +1,4 @@
-"""System Monitor llming — tracks CPU, memory, and disk metrics.
-
-Migrated from v1 (PluginBase + 4 mixins) to v2 (Llming, no mixins).
-All powers declared in a single get_powers() method.
-"""
+"""System Monitor — tracks CPU, memory, and disk metrics."""
 
 from __future__ import annotations
 
@@ -10,33 +6,42 @@ import asyncio
 import time
 from typing import Any
 
-from hort.llming import Llming, Power, PowerType
+from hort.llming import Llming, power, on, PowerInput, PowerOutput, PulseEvent
 
 
-def _run_coro(coro):  # type: ignore[no-untyped-def]
-    """Run a coroutine from sync context, handling nested event loops."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-    if loop and loop.is_running():
-        new_loop = asyncio.new_event_loop()
-        try:
-            return new_loop.run_until_complete(coro)
-        finally:
-            new_loop.close()
-    else:
-        new_loop = asyncio.new_event_loop()
-        try:
-            return new_loop.run_until_complete(coro)
-        finally:
-            new_loop.close()
+# ── Data models ──
+
+
+class MetricsResponse(PowerOutput):
+    version: int = 1
+    cpu_percent: float = 0
+    cpu_count: int = 0
+    mem_percent: float = 0
+    mem_used_gb: float = 0
+    mem_total_gb: float = 0
+    disk_percent: float = 0
+    disk_used_gb: float = 0
+    disk_total_gb: float = 0
+
+
+class HistoryRequest(PowerInput):
+    version: int = 1
+    limit: int = 30
+
+
+class MetricsUpdate(PulseEvent):
+    version: int = 1
+    cpu_percent: float = 0
+    mem_percent: float = 0
+    disk_percent: float = 0
+
+
+# ── Llming ──
 
 
 class SystemMonitor(Llming):
     """Polls system metrics and stores them for the dashboard and AI."""
 
-    # In-memory live data (never written to disk for metrics)
     _latest: dict[str, Any] = {}
     _history: list[dict[str, Any]] = []
 
@@ -45,83 +50,78 @@ class SystemMonitor(Llming):
         self._history = []
         self.log.info("System monitor activated")
 
-    def deactivate(self) -> None:
-        self.log.info("System monitor deactivated")
+    @on("tick:slow")
+    async def poll_metrics(self, _data: dict) -> None:
+        """Poll system metrics every 5s via tick:slow."""
+        metrics = await asyncio.to_thread(self._read_metrics)
+        self._latest = metrics
+        self._history.append(metrics)
+        if len(self._history) > 60:
+            self._history = self._history[-60:]
+
+        self.save("latest", metrics)
+        await self.emit("system_metrics", MetricsUpdate(
+            cpu_percent=metrics.get("cpu_percent", 0),
+            mem_percent=metrics.get("mem_percent", 0),
+            disk_percent=metrics.get("disk_percent", 0),
+        ))
 
     # ── Powers ──
 
-    def get_powers(self) -> list[Power]:
-        return [
-            # MCP tools — for AI agents
-            Power(
-                name="get_system_metrics",
-                type=PowerType.MCP,
-                description="Get current CPU, memory, and disk usage metrics",
-                input_schema={"type": "object", "properties": {}},
-            ),
-            Power(
-                name="get_system_history",
-                type=PowerType.MCP,
-                description="Get recent system metrics history (last 5 minutes)",
-                input_schema={"type": "object", "properties": {
-                    "limit": {"type": "integer", "description": "Max entries to return", "default": 30}
-                }},
-            ),
-            # Slash commands — for humans via Telegram/Wire
-            Power(
-                name="cpu",
-                type=PowerType.COMMAND,
-                description="Current CPU, memory, disk usage",
-            ),
-            Power(
-                name="health",
-                type=PowerType.COMMAND,
-                description="Full system health report",
-            ),
+    @power("get_system_metrics", description="Get current CPU, memory, and disk usage metrics")
+    async def get_system_metrics(self) -> MetricsResponse:
+        if not self._latest:
+            return MetricsResponse(code=404, message="No metrics available yet")
+        d = self._latest
+        return MetricsResponse(
+            cpu_percent=d.get("cpu_percent", 0),
+            cpu_count=d.get("cpu_count", 0),
+            mem_percent=d.get("mem_percent", 0),
+            mem_used_gb=d.get("mem_used_gb", 0),
+            mem_total_gb=d.get("mem_total_gb", 0),
+            disk_percent=d.get("disk_percent", 0),
+            disk_used_gb=d.get("disk_used_gb", 0),
+            disk_total_gb=d.get("disk_total_gb", 0),
+        )
+
+    @power("get_system_history", description="Get recent system metrics history")
+    async def get_system_history(self, req: HistoryRequest) -> PowerOutput:
+        entries = list(reversed(self._history[-req.limit:]))
+        text = f"{len(entries)} entries:\n" + "\n".join(
+            f"  CPU:{e.get('cpu_percent', '?')}% MEM:{e.get('mem_percent', '?')}% DISK:{e.get('disk_percent', '?')}%"
+            for e in entries
+        )
+        return PowerOutput(message=text)
+
+    @power("cpu", description="Current CPU, memory, disk usage", command="/cpu")
+    async def cpu_command(self) -> str:
+        if not self._latest:
+            return "No metrics available yet."
+        d = self._latest
+        return f"CPU: {d.get('cpu_percent', '?')}%  MEM: {d.get('mem_percent', '?')}%  DISK: {d.get('disk_percent', '?')}%"
+
+    @power("health", description="Full system health report", command="/health")
+    async def health_command(self) -> str:
+        if not self._latest:
+            return "No system metrics available yet."
+        d = self._latest
+        lines = [
+            f"CPU: {d.get('cpu_percent', '?')}% ({d.get('cpu_count', '?')} cores)",
+            f"Memory: {d.get('mem_used_gb', '?')}/{d.get('mem_total_gb', '?')} GB ({d.get('mem_percent', '?')}%)",
+            f"Disk: {d.get('disk_used_gb', '?')}/{d.get('disk_total_gb', '?')} GB ({d.get('disk_percent', '?')}%)",
         ]
+        return "\n".join(lines)
 
-    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
-        # MCP tools
-        if name == "get_system_metrics":
-            return self._format_metrics()
-
-        if name == "get_system_history":
-            limit = args.get("limit", 30)
-            entries = list(reversed(self._history[-limit:]))
-            text = f"{len(entries)} entries:\n" + "\n".join(
-                f"  CPU:{e.get('cpu_percent', '?')}% MEM:{e.get('mem_percent', '?')}% DISK:{e.get('disk_percent', '?')}%"
-                for e in entries
-            )
-            return {"content": [{"type": "text", "text": text}]}
-
-        # Slash commands
-        if name == "cpu":
-            data = self._latest
-            if not data:
-                return "No metrics available yet."
-            cpu = data.get("cpu_percent", "?")
-            mem = data.get("mem_percent", "?")
-            disk = data.get("disk_percent", "?")
-            return f"CPU: {cpu}%  MEM: {mem}%  DISK: {disk}%"
-
-        if name == "health":
-            return self._get_health_summary()
-
-        return {"error": f"Unknown power: {name}"}
-
-    # ── Pulse ──
+    # ── Pulse (UI thumbnail) ──
 
     def get_pulse(self) -> dict[str, Any]:
-        """Return in-memory status for thumbnail rendering."""
         return {"latest": self._latest, "history": self._history[-60:]}
 
-    def get_pulse_channels(self) -> list[str]:
-        return ["cpu_spike", "memory_warning", "disk_full"]
+    # ── Internal ──
 
-    # ── Scheduled job (declared in manifest, called by framework) ──
-
-    def poll_metrics(self) -> None:
-        """Polls CPU, memory, and disk metrics. Runs in executor thread."""
+    @staticmethod
+    def _read_metrics() -> dict[str, Any]:
+        import os
         import psutil
 
         now = time.time()
@@ -148,49 +148,10 @@ class SystemMonitor(Llming):
         metrics["swap_used_gb"] = round(swap.used / (1024**3), 1)
         metrics["swap_percent"] = swap.percent
 
-        import os
         disk_path = "/System/Volumes/Data" if os.path.exists("/System/Volumes/Data") else "/"
         disk = psutil.disk_usage(disk_path)
         metrics["disk_total_gb"] = round(disk.total / (1024**3), 1)
         metrics["disk_used_gb"] = round(disk.used / (1024**3), 1)
         metrics["disk_percent"] = disk.percent
 
-        self._latest = metrics
-        self._history.append(metrics)
-        if len(self._history) > 60:
-            self._history = self._history[-60:]
-
-    # ── Internal helpers ──
-
-    def _format_metrics(self) -> dict[str, Any]:
-        """Format latest metrics as MCP content blocks."""
-        data = self._latest
-        if not data:
-            return {"content": [{"type": "text", "text": "No metrics available yet"}]}
-        lines = []
-        if "cpu_percent" in data:
-            lines.append(f"CPU: {data['cpu_percent']}% ({data.get('cpu_count', '?')} cores, {data.get('cpu_freq_mhz', '?')} MHz)")
-        if "cpu_temp_c" in data:
-            lines.append(f"CPU Temperature: {data['cpu_temp_c']}°C")
-        if "mem_percent" in data:
-            lines.append(f"Memory: {data['mem_used_gb']}/{data['mem_total_gb']} GB ({data['mem_percent']}%)")
-        if "disk_percent" in data:
-            lines.append(f"Disk: {data['disk_used_gb']}/{data['disk_total_gb']} GB ({data['disk_percent']}%)")
-        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
-
-    def _get_health_summary(self) -> str:
-        """Full health report text."""
-        data = self._latest
-        if not data:
-            return "No system metrics available yet. The monitor is starting up."
-        lines = [
-            "System Health Report (polled every 5 seconds)",
-            f"CPU: {data.get('cpu_percent', '?')}% usage, {data.get('cpu_count', '?')} cores",
-        ]
-        if "cpu_temp_c" in data:
-            lines.append(f"CPU Temperature: {data['cpu_temp_c']}°C")
-        lines.extend([
-            f"Memory: {data.get('mem_used_gb', '?')}/{data.get('mem_total_gb', '?')} GB ({data.get('mem_percent', '?')}%)",
-            f"Disk: {data.get('disk_used_gb', '?')}/{data.get('disk_total_gb', '?')} GB ({data.get('disk_percent', '?')}%)",
-        ])
-        return "\n".join(lines)
+        return metrics

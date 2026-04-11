@@ -31,6 +31,17 @@ class LlmingLensExt extends LlmingClient {
     this._statusData = data;
   }
 
+  onConnect() {
+    this.subscribe('lens_update', (data) => {
+      if (data) this._statusData = data;
+    });
+    this.vaultRead('latest').then(data => {
+      if (data && (data.preview !== undefined || data.window_thumbs !== undefined)) {
+        this._statusData = data;
+      }
+    });
+  }
+
   renderThumbnail(ctx, width, height) {
     const data = this._statusData;
     if (data && data.preview) {

@@ -24,6 +24,31 @@
       this._lastClips = clips;
     }
 
+    onConnect() {
+      this.subscribe('clipboard_update', (data) => {
+        if (!data) return;
+        // Single clip update — merge into existing list
+        if (data.text !== undefined) {
+          const clips = [...(this._lastClips || [])];
+          clips.unshift(data);
+          this._lastClips = clips;
+        } else if (Array.isArray(data.clips)) {
+          this._lastClips = data.clips;
+        }
+      });
+      this.vaultRead('latest').then(store => {
+        if (!store) return;
+        const clips = [];
+        for (const [k, v] of Object.entries(store)) {
+          if (k.startsWith('clip:') && v) clips.push(v);
+        }
+        if (clips.length) {
+          clips.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          this._lastClips = clips;
+        }
+      });
+    }
+
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);

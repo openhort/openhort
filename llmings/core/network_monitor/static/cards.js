@@ -17,6 +17,15 @@
 
     _feedStore(store) { if (store.latest) this._lastNetwork = store.latest; }
 
+    onConnect() {
+      this.subscribe('network_metrics', (data) => {
+        if (data) this._lastNetwork = data;
+      });
+      this.vaultRead('latest').then(data => {
+        if (data && data.total_upload_bps !== undefined) this._lastNetwork = data;
+      });
+    }
+
     renderThumbnail(ctx, w, h) {
       const bg = '#111827', dim = '#94a3b8', text = '#f0f4ff';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);

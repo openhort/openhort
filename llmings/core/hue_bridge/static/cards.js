@@ -16,6 +16,15 @@ class HueBridgePanel extends LlmingClient {
     this._statusData = data;
   }
 
+  onConnect() {
+    this.subscribe('hue_update', (data) => {
+      if (data) this._statusData = data;
+    });
+    this.vaultRead('latest').then(data => {
+      if (data && data.auth_state !== undefined) this._statusData = data;
+    });
+  }
+
   renderThumbnail(ctx, width, height) {
     const data = this._statusData;
     ctx.fillStyle = '#0f1724';

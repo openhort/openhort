@@ -196,6 +196,16 @@
     }
 
     async onConnect() {
+      // Subscribe to camera pulse updates
+      this.subscribe('camera_update', (data) => {
+        if (data) this._statusData = data;
+      });
+      this.vaultRead('latest').then(data => {
+        if (data && (data.total_cameras !== undefined || data.active_cameras !== undefined)) {
+          this._statusData = data;
+        }
+      });
+
       // Register browser camera devices and auto-start "on" cameras
       if (!window.hortWS || !window.hortCamera) return;
       try {
