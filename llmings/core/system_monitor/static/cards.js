@@ -31,7 +31,7 @@
       this.subscribe('system_metrics', (data) => {
         this._lastMetrics = {...this._lastMetrics, ...data};
       });
-      this.vault.get('latest').then(data => {
+      this.vault.get('state').then(data => {
         if (data && data.cpu_percent !== undefined) this._lastMetrics = data;
       });
     }

@@ -80,6 +80,7 @@ class ClaudeCodeExecutor(LlmExecutor):
                 "Claude backend started (container=%s, image=%s)",
                 agent_cfg.container, agent_cfg.image,
             )
+            self.vault.set("state", self.get_pulse())
         except Exception:
             self.log.exception("Failed to start Claude backend")
 
@@ -103,6 +104,7 @@ class ClaudeCodeExecutor(LlmExecutor):
     async def _on_end_session(self, session_key: str) -> None:
         if self._chat_mgr:
             self._chat_mgr.reset_session(session_key)
+        self.vault.set("state", self.get_pulse())
 
     # ── Pulse (extends base) ──
 

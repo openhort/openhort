@@ -168,6 +168,10 @@ class MacOSStatusBarPlugin(Llming):
             start_new_session=True,  # detach from parent process group
         )
         self.log.info("Status bar launched (PID %d)", self._process.pid)
+        self.vault.set("state", {
+            "running": True,
+            "pid": self._process.pid,
+        })
 
     def _terminate(self) -> None:
         """Send SIGTERM to the status bar process."""
@@ -189,6 +193,7 @@ class MacOSStatusBarPlugin(Llming):
         except ProcessLookupError:
             pass  # already exited
         self._process = None
+        self.vault.set("state", {"running": False, "pid": None})
 
     def _is_alive(self) -> bool:
         """Check if our managed subprocess is still running."""

@@ -59,7 +59,7 @@ class SystemMonitor(Llming):
         if len(self._history) > 60:
             self._history = self._history[-60:]
 
-        self.vault.set("latest", metrics)
+        self.vault.set("state", metrics)
         await self.emit("system_metrics", MetricsUpdate(
             cpu_percent=metrics.get("cpu_percent", 0),
             mem_percent=metrics.get("mem_percent", 0),

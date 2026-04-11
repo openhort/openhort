@@ -64,6 +64,7 @@ class ClipboardHistory(Llming):
         self._clips.append(entry)
         if len(self._clips) > 100:
             self._clips = self._clips[-100:]
+        self.vault.set("state", {"clips": self._clips[-20:]})
 
         # Persist to disk (clipboard is persistent data)
         import asyncio

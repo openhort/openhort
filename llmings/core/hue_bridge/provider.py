@@ -173,6 +173,7 @@ class HueBridge(Llming):
             self.log.warning("Failed to poll Hue: %s", e)
             self._auth_state = "error"
             self._auth_message = str(e)
+        self.vault.set("state", self.get_pulse())
 
     # ── Pulse ───────────────────────────────────────────────────────
 

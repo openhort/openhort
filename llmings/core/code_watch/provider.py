@@ -96,6 +96,10 @@ class CodeWatch(Llming):
     def activate(self, config: dict[str, Any]) -> None:
         self.log.info("Code-watch activated")
 
+    def _sync_vault(self) -> None:
+        """Write current session state to vault."""
+        self.vault.set("state", self.get_pulse())
+
     def get_pulse(self) -> dict[str, Any]:
         """Return session data for the dashboard with full state detection."""
         from hort.tmux import list_sessions
@@ -254,6 +258,7 @@ class CodeWatch(Llming):
             session = tmux_create(name, command=arguments.get("command"), cwd=arguments.get("cwd"))
             if session is None:
                 return {"content": [{"type": "text", "text": f"Failed to create '{name}'."}], "is_error": True}
+            self._sync_vault()
             return {"content": [{"type": "text", "text": f"Created session '{session.short_name}'."}]}
 
         if tool_name == "kill_session":
@@ -261,6 +266,7 @@ class CodeWatch(Llming):
             if not tmux_exists(session):
                 return {"content": [{"type": "text", "text": f"Session '{session}' not found."}], "is_error": True}
             tmux_kill(session)
+            self._sync_vault()
             return {"content": [{"type": "text", "text": f"Session '{session}' terminated."}]}
 
         if tool_name == "attach_web_terminal":

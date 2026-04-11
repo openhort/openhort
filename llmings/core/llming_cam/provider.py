@@ -159,6 +159,19 @@ class LlmingCam(Llming):
                 await ctrl.send_ui_action("stop_browser_camera", source_id=source_id)
                 return
 
+    def _sync_vault(self) -> None:
+        """Write current camera state to vault."""
+        if self._cam is None:
+            self.vault.set("state", {"total_cameras": 0, "active_cameras": 0, "cameras": []})
+            return
+        sources = self._cam.list_sources()
+        active = [s for s in sources if s.metadata.get("active", False)]
+        self.vault.set("state", {
+            "total_cameras": len(sources),
+            "active_cameras": len(active),
+            "cameras": [{"name": s.name, "active": s.metadata.get("active", False)} for s in sources],
+        })
+
     def get_powers(self) -> list[Power]:
         return [
             Power(
@@ -271,12 +284,14 @@ class LlmingCam(Llming):
             source_id = args.get("source_id", "")
             ok = await cam.start_source(source_id)
             await self._persist_wanted()
+            self._sync_vault()
             return {"content": [{"type": "text", "text": f"Camera {'started' if ok else 'failed to start'}: {source_id}"}]}
 
         if name == "stop_camera":
             source_id = args.get("source_id", "")
             await cam.stop_source(source_id)
             await self._persist_wanted()
+            self._sync_vault()
             return {"content": [{"type": "text", "text": f"Camera stopped: {source_id}"}]}
 
         if name == "set_camera_policy":
@@ -303,6 +318,7 @@ class LlmingCam(Llming):
                     await cam.stop_source(source_id)
                 cam._wanted.discard(source_id)
             await self._persist_wanted()
+            self._sync_vault()
             return {"content": [{"type": "text", "text": f"Camera {source_id} policy set to '{policy}'"}]}
 
         if name == "camera":

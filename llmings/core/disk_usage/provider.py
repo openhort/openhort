@@ -59,7 +59,7 @@ class DiskUsage(Llming):
         now = time.time()
 
         self._latest = {"timestamp": now, "partitions": partitions}
-        self.vault.set("latest", self._latest)
+        self.vault.set("state", self._latest)
         await self.emit("disk_usage", DiskUpdate(partitions=partitions, timestamp=now))
 
     @power("get_disk_usage", description="Get disk usage for all partitions")

@@ -20,7 +20,7 @@ class HueBridgePanel extends LlmingClient {
     this.subscribe('hue_update', (data) => {
       if (data) this._statusData = data;
     });
-    this.vault.get('latest').then(data => {
+    this.vault.get('state').then(data => {
       if (data && data.auth_state !== undefined) this._statusData = data;
     });
   }

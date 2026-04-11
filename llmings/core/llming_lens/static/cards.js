@@ -35,7 +35,7 @@ class LlmingLensExt extends LlmingClient {
     this.subscribe('lens_update', (data) => {
       if (data) this._statusData = data;
     });
-    this.vault.get('latest').then(data => {
+    this.vault.get('state').then(data => {
       if (data && (data.preview !== undefined || data.window_thumbs !== undefined)) {
         this._statusData = data;
       }

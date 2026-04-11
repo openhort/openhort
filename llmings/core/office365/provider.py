@@ -49,6 +49,10 @@ class Office365Plugin(Llming):
                 access_token=cred["access_token"],
             )
             self.log.info("Connected to Microsoft 365")
+            self.vault.set("state", {
+                "connected": True,
+                "tenant": self._config.get("tenant", ""),
+            })
             return True
         except ImportError:
             self.log.warning("office-connect not installed")

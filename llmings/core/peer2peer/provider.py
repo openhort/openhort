@@ -177,6 +177,7 @@ class HolepunchPlugin(Llming):
             return
         try:
             self._vm_status = _run_coro(self._vm_manager.get_status())
+            self.vault.set("state", self.get_pulse())
         except Exception as exc:
             self.log.debug("VM status check failed: %s", exc)
 
@@ -296,6 +297,7 @@ class HolepunchPlugin(Llming):
             }
         try:
             self._stun_result = await self._stun_client.detect_nat_type()
+            self.vault.set("state", self.get_pulse())
             return {"content": [{"type": "text", "text": (
                 f"Public: {self._stun_result.public_ip}:{self._stun_result.public_port}\n"
                 f"Local: {self._stun_result.local_ip}:{self._stun_result.local_port}\n"

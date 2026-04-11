@@ -21,7 +21,7 @@
       this.subscribe('process_update', (data) => {
         if (data) this._lastProcesses = data.list || data;
       });
-      this.vault.get('latest').then(data => {
+      this.vault.get('state').then(data => {
         if (data && data.processes) {
           this._lastProcesses = data.processes.list || data.processes;
         }

@@ -45,6 +45,7 @@ class ProcessManager(Llming):
         top = procs[:50]
 
         self._latest = {"list": top, "total": len(procs)}
+        self.vault.set("state", {"processes": self._latest})
 
     # ===== Powers =====
 

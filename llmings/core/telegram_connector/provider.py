@@ -153,12 +153,14 @@ class TelegramConnector(Llming, ConnectorBase):
             self.log.info("Telegram bot polling started (managed subprocess)")
         else:
             self.log.error("Failed to start Telegram subprocess")
+        self.vault.set("state", self.get_pulse())
 
     async def stop(self) -> None:
         if hasattr(self, "_managed") and self._managed:
             await self._managed.stop()
         if self._ai_chat:
             self._ai_chat.stop()
+        self.vault.set("state", self.get_pulse())
 
     async def detach(self) -> None:
         """Hot-reload: keep subprocess alive, disconnect IPC."""

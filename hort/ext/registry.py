@@ -170,8 +170,12 @@ class ExtensionRegistry:
         from hort.hort_config import hort_data_dir
         base_dir = hort_data_dir() / "plugins"
 
+        from hort.llming.handles import Vault, VaultHandleMap
+
         instance._instance_name = name
         instance._class_name = name
+        instance.vault = Vault(name)
+        instance.vaults = VaultHandleMap()
         instance._store = FilePluginStore(name, base_dir=base_dir)
         instance._files = LocalFileStore(name, base_dir=base_dir)
         instance._scheduler = PluginScheduler(name)

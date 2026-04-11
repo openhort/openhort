@@ -25,7 +25,7 @@
         this._lastDisks = data.partitions || [];
       });
       // Load initial data from vault
-      this.vault.get('latest').then(data => {
+      this.vault.get('state').then(data => {
         if (data && data.partitions) {
           this._lastDisks = data.partitions;
         }

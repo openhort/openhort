@@ -228,6 +228,7 @@ class HostedAppsPlugin(Llming):
             "icon": template.icon,
         }
         self._instances[safe_name] = instance
+        self.vault.set("state", self.get_pulse())
 
         self.log.info("created instance: %s (%s)", safe_name, app_type)
         return instance
@@ -264,6 +265,7 @@ class HostedAppsPlugin(Llming):
         _docker("volume", "rm", volume, check=False)
 
         del self._instances[name]
+        self.vault.set("state", self.get_pulse())
         self.log.info("destroyed instance: %s (volume %s removed)", name, volume)
         return True
 
@@ -374,6 +376,7 @@ class HostedAppsPlugin(Llming):
 
             for name, inst in self._instances.items():
                 inst["status"] = running.get(name, "stopped")
+            self.vault.set("state", self.get_pulse())
         except Exception as exc:
             self.log.debug("poll failed: %s", exc)
 

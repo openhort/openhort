@@ -3156,17 +3156,29 @@
         return state.terminals.filter(t => t.target_id === targetId);
       }
 
-      // Card thumbnail rendering — cards feed themselves via onConnect (pulse + vault)
+      // Card thumbnail rendering — refresh vault + render
       const pluginThumbs = reactive({});
-      function renderPluginThumbs() {
+      async function renderPluginThumbs() {
         if (typeof LlmingClient === 'undefined' || typeof HortPlugins === 'undefined') return;
+        // Refresh card data from vault
+        for (const [id] of LlmingClient.getRegistry()) {
+          const inst = LlmingClient.get(id);
+          if (!inst) continue;
+          try {
+            const data = await inst.vault.get('state');
+            if (data && Object.keys(data).length) {
+              if (inst._feedStore) inst._feedStore(data);
+              if (inst._statusData !== undefined) inst._statusData = data;
+            }
+          } catch {}
+        }
         HortPlugins.renderAllThumbnails();
         for (const [id] of LlmingClient.getRegistry()) {
           const url = HortPlugins.getThumbnailUrl(id);
           if (url) pluginThumbs[id] = url;
         }
       }
-      setInterval(renderPluginThumbs, 2000);
+      setInterval(renderPluginThumbs, 5000);
       setTimeout(renderPluginThumbs, 3000);
 
       // Interaction tracking + favorites — stored on server, synced to all clients

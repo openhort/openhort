@@ -100,6 +100,7 @@ class NetworkMonitor(Llming):
         # Keep last 60 entries (5 min at 5s interval)
         if len(self._history) > 60:
             self._history = self._history[-60:]
+        self.vault.set("state", {"latest": self._latest, "history": self._history[-60:]})
 
     # ===== Powers =====
 

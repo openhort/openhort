@@ -418,6 +418,7 @@ class LlmingLens(Llming):
                 "preview": desktop_b64,
                 "window_thumbs": window_thumbs,
             }
+            self.vault.set("state", self._preview)
         except Exception as exc:
             self.log.debug("preview capture failed: %s", exc)
 
