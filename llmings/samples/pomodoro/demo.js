@@ -1,6 +1,6 @@
 export default {
-  setup(ctx) {
-    // Pomodoro uses localStorage directly — seed it for demo
+  setup() {
+    // Seed localStorage so the pomodoro mounts with clean 25-minute state
     localStorage.setItem('pomodoro', JSON.stringify({
       remaining: 1500,
       duration: 25,

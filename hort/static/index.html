@@ -2382,7 +2382,7 @@
             <template v-for="item in unifiedGridItems" :key="item.key">
               <!-- Vue SFC card — live component rendered in the grid -->
               <div v-if="item.type === 'spirit' && spiritCardComponent(item.id)" class="grid-card-vue">
-                <component :is="spiritCardComponent(item.id)" />
+                <component :is="spiritCardComponent(item.id)" :key="item.id + '-' + demoEpoch" />
               </div>
               <!-- Classic spirit card with canvas/icon thumbnail -->
               <div v-else-if="item.type === 'spirit'" class="grid-card" :style="{borderColor: isFavorite(item.key) ? 'var(--el-accent)' : ''}"
@@ -2817,6 +2817,7 @@
     `,
     emits: ['select-window'],
     setup() {
+      const demoEpoch = Vue.inject('demoEpoch', ref(0));
       const groupsList = computed(() => loadGroups());
 
       function isInAnyGroup(win) {
@@ -3444,7 +3445,7 @@
       }
 
       return {
-        state, groupsList, targetGroups, currentTargetName,
+        state, demoEpoch, groupsList, targetGroups, currentTargetName,
         isInAnyGroup, onAppFilterChange, setNavMode,
         toggleGroup, editGroup, openNewGroup,
         toggleGroupMembership, doSwitchSpace, getThumbnailSrc, onThumbError,
@@ -3975,9 +3976,14 @@
 
       // ---- Demo mode ----
       const demoMode = ref(false);
+      const demoEpoch = ref(0);
       if (typeof HortDemo !== 'undefined') {
-        HortDemo._onToggle = (active) => { demoMode.value = active; };
+        HortDemo._onToggle = (active) => {
+          demoMode.value = active;
+          demoEpoch.value = HortDemo._epoch;
+        };
       }
+      Vue.provide('demoEpoch', demoEpoch);
       let _logoClicks = 0;
       let _logoTimer = null;
       function onLogoClick() {
@@ -4300,7 +4306,7 @@
         guideUrl, hortmapUrl, openHelp,
         floatWindows, floatClose, floatToggleMin, floatDragStart,
         toolbarViewerTitle, toolbarNavCounter, toolbarTerminalTitle,
-        demoMode, onLogoClick,
+        demoMode, demoEpoch, onLogoClick,
       };
     },
   };
@@ -4334,6 +4340,7 @@
   app.config.globalProperties.HortRouter = window.HortRouter;
   app.config.globalProperties.LlmingClient = window.LlmingClient;
   app.config.globalProperties.__hort = window.__hort;
+  app.config.globalProperties.HortDemo = window.HortDemo;
 
   // Activate any registered LlmingClients
   if (typeof LlmingClient !== 'undefined') {

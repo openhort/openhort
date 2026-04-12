@@ -223,6 +223,7 @@
       }
 
       _active = false;
+      root.HortDemo._epoch++;
       if (root.HortDemo._onToggle) root.HortDemo._onToggle(false);
       console.log('[demo] Demo mode OFF');
       return false;
@@ -259,6 +260,7 @@
     }
 
     _active = true;
+    root.HortDemo._epoch++;
     if (root.HortDemo._onToggle) root.HortDemo._onToggle(true);
     console.log('[demo] Demo mode ON —', _demos.size, 'llmings active');
     return true;
@@ -274,6 +276,8 @@
     getDemos: () => _demos,
     /** @internal Set by the Vue app to sync the reactive demoMode ref. */
     _onToggle: null,
+    /** @internal Incremented on each toggle — used as Vue key to force re-mount. */
+    _epoch: 0,
   };
 
 })(typeof globalThis !== 'undefined' ? globalThis : window);
