@@ -3443,34 +3443,6 @@
         });
       }
 
-      // ---- Demo mode (5 rapid clicks on logo, or POST /api/debug/demo) ----
-      const demoMode = ref(false);
-      if (typeof HortDemo !== 'undefined') {
-        HortDemo._onToggle = (active) => { demoMode.value = active; };
-      }
-      let _logoClicks = 0;
-      let _logoTimer = null;
-      async function onLogoClick() {
-        _logoClicks++;
-        clearTimeout(_logoTimer);
-        if (_logoClicks >= 5) {
-          _logoClicks = 0;
-          if (typeof HortDemo !== 'undefined') {
-            const active = await HortDemo.toggle();
-            demoMode.value = active;
-            Quasar.Notify.create({
-              message: active ? 'Demo mode ON' : 'Demo mode OFF',
-              color: active ? 'amber-8' : 'grey-8',
-              icon: active ? 'ph ph-flask' : 'ph ph-plugs',
-              position: 'top',
-              timeout: 2000,
-            });
-          }
-        } else {
-          _logoTimer = setTimeout(() => { _logoClicks = 0; }, 800);
-        }
-      }
-
       return {
         state, groupsList, targetGroups, currentTargetName,
         isInAnyGroup, onAppFilterChange, setNavMode,
@@ -3488,7 +3460,6 @@
         favorites, toggleFavorite, isFavorite,
         fullscreenSpirit, openSpiritFullscreen, closeSpiritFullscreen,
         activeTargetLabel, activeTargetIcon,
-        demoMode, onLogoClick,
       };
     },
   };
@@ -3796,8 +3767,12 @@
   // =============================================
   const HortApp = {
     template: `
+      <!-- ===== DEMO BANNER ===== -->
+      <div v-if="demoMode" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#b45309;color:#fff;text-align:center;font-size:11px;font-weight:700;letter-spacing:2px;padding:2px 0;cursor:pointer;text-transform:uppercase" @click="onLogoClick();onLogoClick();onLogoClick();onLogoClick();onLogoClick()">
+        DEMO MODE
+      </div>
       <!-- ===== UNIFIED TOOLBAR ===== -->
-      <div class="llming-toolbar unified-toolbar" :class="{ 'picker-mode': state.view === 'picker' }" v-if="!state.nativeApp" style="z-index:600">
+      <div class="llming-toolbar unified-toolbar" :class="{ 'picker-mode': state.view === 'picker' }" v-if="!state.nativeApp" :style="{ zIndex: 600, marginTop: demoMode ? '18px' : '0' }">
         <!-- LEFT: Back button (non-picker) or Logo + Hamburger (picker) -->
         <template v-if="state.view === 'picker'">
           <svg class="logo-svg" viewBox="0 0 220 32" xmlns="http://www.w3.org/2000/svg" @click="onLogoClick">
@@ -3806,7 +3781,6 @@
             <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic" fill="none" stroke="#fbbf24" stroke-width="0.8" opacity="0.9" letter-spacing="1" stroke-dasharray="6 594" stroke-linecap="round"><animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/>OpenHORT</text>
             <text x="2" y="24" font-family="'Roboto','Segoe UI',system-ui,sans-serif" font-size="26" font-weight="700" font-style="italic" fill="none" stroke="#d4a017" stroke-width="2" filter="url(#el-glow)" opacity="0" letter-spacing="1" stroke-dasharray="6 594" stroke-linecap="round"><animate attributeName="stroke-dashoffset" values="6;-594" dur="8s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.15;0.25;0.15" dur="2s" repeatCount="indefinite"/>OpenHORT</text>
           </svg>
-          <span v-if="demoMode" style="font-size:9px;font-weight:700;letter-spacing:1px;color:#fbbf24;background:rgba(251,191,36,0.15);padding:2px 6px;border-radius:4px;margin-left:4px">DEMO</span>
           <div class="header-btn" @click="state.sidebarOpen = !state.sidebarOpen"><i class="ph ph-list"></i></div>
           <svg viewBox="0 0 24 24" style="width:28px;height:28px;flex-shrink:0;opacity:0.5;margin-left:4px" fill="none" stroke="#d4a017" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 4c-2 0-3.5 1-4 2.5C7.5 8 7 9.5 7 11c0 2 .5 3.5 1 4.5l-.5 3c0 .5.3 1 .8 1.2l1.2.3c.3 0 .5-.2.5-.5v-2c.3.2.8.5 2 .5s1.7-.3 2-.5v2c0 .3.2.5.5.5l1.2-.3c.5-.2.8-.7.8-1.2l-.5-3c.5-1 1-2.5 1-4.5 0-1.5-.5-3-1-4.5C14.5 5 13 4 12 4z"/>
@@ -3997,6 +3971,26 @@
         function onUp() { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); }
         document.addEventListener('pointermove', onMove);
         document.addEventListener('pointerup', onUp);
+      }
+
+      // ---- Demo mode ----
+      const demoMode = ref(false);
+      if (typeof HortDemo !== 'undefined') {
+        HortDemo._onToggle = (active) => { demoMode.value = active; };
+      }
+      let _logoClicks = 0;
+      let _logoTimer = null;
+      function onLogoClick() {
+        _logoClicks++;
+        clearTimeout(_logoTimer);
+        if (_logoClicks >= 5) {
+          _logoClicks = 0;
+          if (typeof HortDemo !== 'undefined') {
+            HortDemo.toggle();
+          }
+        } else {
+          _logoTimer = setTimeout(() => { _logoClicks = 0; }, 800);
+        }
       }
 
       function openHelp() {
@@ -4306,6 +4300,7 @@
         guideUrl, hortmapUrl, openHelp,
         floatWindows, floatClose, floatToggleMin, floatDragStart,
         toolbarViewerTitle, toolbarNavCounter, toolbarTerminalTitle,
+        demoMode, onLogoClick,
       };
     },
   };
