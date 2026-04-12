@@ -148,14 +148,22 @@ const data = await this.vaultRead("latest", "system-monitor");
 
 ### Pulses
 - Push-only named channels. `await self.emit("channel", data)`
-- Main broadcasts to subscribed viewers via WS push
+- **Global**: every pulse reaches every subscriber, regardless of where it runs
+- Main process is the router — all pulses flow through it
+- Delivery to ALL subscriber locations:
+    - Other subprocesses → via IPC
+    - In-process llmings → direct call
+    - Browser cards → via WS push
+    - Container llmings → via envoy wire (future)
+    - Remote VMs → via H2H protocol (future)
 - Python llmings subscribe with `@on("channel")` decorator
 - JS cards subscribe with `this.subscribe("channel", handler)`
 - **Pulses can NEVER be read** — subscribe or miss them
+- Built-in tick pulses (`tick:10hz`, `tick:1hz`, `tick:slow`) are just regular pulses emitted by the main process — they reach all subscribers like any other pulse
 
 ### Vaults / Storage
-- Each llming has own storage (scrolls + crates)
-- `self.save("key", data)` / `self.load("key")` for own vault
+- Each llming has own vault (scrolls + crates)
+- `self.vault.set("key", data)` / `self.vault.get("key")` for own vault
 - `self.vaults["other"].read("key")` for cross-llming reads
 - JS: `this.vaultRead("key")` / `this.vaultWrite("key", data)`
 - Cross-group reads go through IPC, permissions from manifest
