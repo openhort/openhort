@@ -1,0 +1,11 @@
+{
+  "name": "pomodoro",
+  "description": "Pomodoro timer \u2014 works completely offline",
+  "icon": "ph ph-timer",
+  "author": "openhort",
+  "llming_type": "tool",
+  "execution": "client",
+  "ui_script": "static/cards.js",
+  "entry_point": "pomodoro:Pomodoro",
+  "provider": "samples"
+}

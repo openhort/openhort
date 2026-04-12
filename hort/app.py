@@ -108,10 +108,14 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     app.state.dev_mode = is_dev
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # Mount extension static directories
-    _ext_dir = Path(__file__).parent.parent / "llmings" / "core"
-    if _ext_dir.exists():
-        for ext_path in _ext_dir.iterdir():
+    # Mount extension static directories (all provider dirs under llmings/)
+    _llmings_root = Path(__file__).parent.parent / "llmings"
+    for _provider_dir in sorted(_llmings_root.iterdir()) if _llmings_root.is_dir() else []:
+        if not _provider_dir.is_dir() or _provider_dir.name.startswith((".","_")):
+            continue
+        for ext_path in _provider_dir.iterdir():
+            if not ext_path.is_dir():
+                continue
             static_dir = ext_path / "static"
             if static_dir.is_dir():
                 app.mount(

@@ -1,0 +1,14 @@
+{
+  "name": "dice-roller",
+  "description": "Roll dice with history \u2014 hybrid llming example",
+  "icon": "ph ph-dice-five",
+  "author": "openhort",
+  "llming_type": "tool",
+  "execution": "hybrid",
+  "entry_point": "dice_roller:DiceRoller",
+  "publishes": [
+    "dice_roll"
+  ],
+  "ui_script": "static/cards.js",
+  "provider": "samples"
+}

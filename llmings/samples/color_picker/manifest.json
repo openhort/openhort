@@ -1,0 +1,11 @@
+{
+  "name": "color-picker",
+  "description": "Pick and save colors \u2014 pure client-side",
+  "icon": "ph ph-palette",
+  "author": "openhort",
+  "llming_type": "tool",
+  "execution": "client",
+  "entry_point": "color_picker:ColorPicker",
+  "ui_script": "static/cards.js",
+  "provider": "samples"
+}
