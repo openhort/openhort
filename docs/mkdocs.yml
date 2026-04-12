@@ -107,6 +107,7 @@ nav:
     - UX Guidelines: develop/ux-guidelines.md
     - Screen Capture: develop/screen-capture.md
     - Memory Safety: develop/memory-safety.md
+    - Commands & Powers: develop/commands.md
     - Card API: develop/card-api.md
     - Docs Writing Guide: develop/docs-writing-guide.md
     - Core Llmings:
