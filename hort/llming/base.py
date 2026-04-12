@@ -311,9 +311,12 @@ class Llming:
 
             # Collect subs for this root
             subs = [m for _, m in handlers.values() if m.command and m.name == root and m.sub]
+            # Use root power's short description if available
+            root_meta = next((m for _, m in handlers.values() if m.name == root and not m.sub and m.command), None)
             if subs:
-                desc = " | ".join(f"{m.sub}" for m in subs)
-                desc = f"/{root} {desc}"
+                sub_list = " | ".join(m.sub for m in subs)
+                root_desc = root_meta.short if root_meta else ""
+                desc = f"{root_desc} ({sub_list})" if root_desc else f"/{root} {sub_list}"
             else:
                 desc = meta.short
 

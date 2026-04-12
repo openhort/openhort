@@ -73,6 +73,25 @@ class HortChief(Llming):
     def activate(self, config: dict[str, Any]) -> None:
         self.log.info("Hort Chief activated")
 
+    # ── Root /hort command ──
+
+    @power("hort", command=True, admin_only=True)
+    async def hort_root(self) -> str:
+        """Hort admin — manage containers, sessions, and workers."""
+        containers = self._get_containers()
+        lines = []
+        if containers:
+            for c in containers:
+                lines.append(f"  {c['name']}: {c['status']} ({c['image']})")
+        else:
+            lines.append("  No containers running")
+        # List available subcommands
+        handlers = getattr(self, "_power_handlers", {})
+        subs = sorted(m.sub for _, m in handlers.values() if m.name == "hort" and m.sub)
+        if subs:
+            lines.append(f"\nSubcommands: /hort {' | '.join(subs)}")
+        return "\n".join(lines)
+
     # ── MCP tools ──
 
     @power("hort_overview")
