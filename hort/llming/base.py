@@ -314,9 +314,8 @@ class Llming:
             # Use root power's short description if available
             root_meta = next((m for _, m in handlers.values() if m.name == root and not m.sub and m.command), None)
             if subs:
-                sub_list = " | ".join(m.sub for m in subs)
-                root_desc = root_meta.short if root_meta else ""
-                desc = f"{root_desc} ({sub_list})" if root_desc else f"/{root} {sub_list}"
+                # Just show root description — subcommands discoverable via /hort
+                desc = root_meta.short if root_meta else meta.short
             else:
                 desc = meta.short
 
