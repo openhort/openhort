@@ -87,9 +87,10 @@ const statusLabel = computed(() => {
 })
 
 // Persist to localStorage
-watch([remaining, duration], () => {
+watch([remaining, running, duration], () => {
   localStorage.setItem('pomodoro', JSON.stringify({
     remaining: remaining.value,
+    running: running.value,
     duration: duration.value,
   }))
 })
@@ -98,6 +99,7 @@ onMounted(() => {
   const saved = JSON.parse(localStorage.getItem('pomodoro') || '{}')
   if (saved.remaining != null) remaining.value = saved.remaining
   if (saved.duration) duration.value = saved.duration
+  if (saved.running) running.value = true
 })
 
 // Reset remaining when duration slider changes while paused
