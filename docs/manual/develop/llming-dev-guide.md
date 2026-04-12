@@ -253,16 +253,154 @@ Each llming's tracked files are hashed (SHA256) at startup.
 The hash is stored in the vault. On every file change detection
 or server restart, the hash is compared. Mismatch → reload.
 
-## Offline Cards
+## Connection Resilience & Offline Mode
 
-Cards can work even when the server is down. The browser caches:
+The browser app MUST continue working when the server connection
+drops (bad WiFi, 5G handover, server restart, VPN reconnect).
+This is not a fallback — it's a core design principle.
 
-- The card HTML/JS/CSS (service worker or localStorage)
-- Last known vault state
-- Pending vault writes (synced when server reconnects)
+### Execution Tiers
 
-The card shows stale data with a "disconnected" indicator until
-the server comes back.
+Every llming declares where it runs:
+
+```json
+{
+  "execution": "client"
+}
+```
+
+| Tier | Description | Offline behavior |
+|------|-------------|------------------|
+| `client` | Pure client-side (HTML/JS only, no Python) | **Fully functional** — vault, pulses, UI all work |
+| `hybrid` | Client UI + server backend | **Survives** — UI works, server powers unavailable, vault read-only from cache |
+| `server` | Server-only (no client UI, or UI depends on server) | **Unavailable** — card shows "reconnecting..." |
+
+Default: `hybrid` if Python file exists, `client` if HTML-only.
+
+### Client-side Vault (IndexedDB)
+
+The vault is **always local-first**:
+
+1. Every vault read → local IndexedDB (instant, no network)
+2. Every vault write → local IndexedDB + queue for server sync
+3. Server connection alive → writes sync immediately
+4. Server connection dead → writes queued, synced on reconnect
+5. Server reconnects → bidirectional sync (latest timestamp wins)
+
+```
+Browser (always works)          Server (when connected)
+┌─────────────┐                ┌──────────────┐
+│  IndexedDB  │ ──sync──────→  │  ScrollStore  │
+│  (vault)    │ ←──sync──────  │  (vault)     │
+│             │                │              │
+│  Write queue│ ──flush─────→  │              │
+└─────────────┘                └──────────────┘
+```
+
+Cards never notice the difference — `this.$llming.vault.get()`
+always returns instantly from IndexedDB.
+
+### Client-side Pulses
+
+Pulses also work client-side:
+
+- **Local pulses** (emitted by client-side code) → delivered
+  to all subscribers in the same browser tab immediately
+- **Server pulses** (emitted by Python llmings) → delivered
+  when connected, missed when disconnected
+- **Tick channels** (`tick:1hz`, `tick:slow`) → the browser
+  runs its own tick loop, independent of the server
+
+A client-side llming can emit pulses that other client-side
+llmings receive — no server roundtrip needed.
+
+### Navigation & Page Switching
+
+When disconnected:
+
+- Switching between Llmings/Spirits/Config tabs → works
+- Opening/closing llming cards and apps → works
+- Card thumbnails → show cached data (may be stale)
+- Commands (`/cpu`, `/hort info`) → fail gracefully with
+  "Server unavailable" message (not a crash)
+- New chat messages → queued, sent on reconnect
+
+### Connection State
+
+Every card and app gets the connection state:
+
+```javascript
+// In card.html / app.html
+export default {
+  computed: {
+    connected() { return this.$llming.connected; },
+    reconnecting() { return this.$llming.reconnecting; },
+  },
+  // Show indicator when disconnected
+  template: `
+    <div>
+      <q-banner v-if="!connected" dense class="bg-negative text-white">
+        Reconnecting...
+      </q-banner>
+      <!-- rest of card -->
+    </div>
+  `,
+};
+```
+
+### Example: Client-side Timer (works offline)
+
+```
+pomodoro/
+  card.html
+  manifest.json   ← {"execution": "client"}
+```
+
+```html
+<div class="q-pa-md text-center">
+  <div class="text-h2">{{ minutes }}:{{ seconds }}</div>
+  <q-btn :label="running ? 'Pause' : 'Start'" @click="toggle"
+    :color="running ? 'negative' : 'positive'" />
+</div>
+
+<script>
+export default {
+  data() {
+    return { remaining: 25 * 60, running: false, timer: null };
+  },
+  computed: {
+    minutes() { return String(Math.floor(this.remaining / 60)).padStart(2, '0'); },
+    seconds() { return String(this.remaining % 60).padStart(2, '0'); },
+  },
+  methods: {
+    toggle() {
+      this.running = !this.running;
+      if (this.running) {
+        this.timer = setInterval(() => {
+          if (this.remaining > 0) this.remaining--;
+          else { this.running = false; clearInterval(this.timer); }
+        }, 1000);
+      } else {
+        clearInterval(this.timer);
+      }
+      // Persist to vault (syncs to server when connected)
+      this.$llming.vault.set('state', {
+        remaining: this.remaining,
+        running: this.running,
+      });
+    },
+  },
+  async mounted() {
+    const state = await this.$llming.vault.get('state');
+    if (state.remaining) this.remaining = state.remaining;
+  },
+};
+</script>
+```
+
+This timer runs entirely in the browser. Vault writes persist
+to IndexedDB immediately (survives page reload) and sync to the
+server whenever it's available.
 
 ## Examples
 
