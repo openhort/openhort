@@ -48,10 +48,18 @@ class PowerMeta:
 
     name: str
     sub: str          # subcommand (e.g. "info" for /hort info). Empty = no sub.
-    description: str
+    short: str        # first line of docstring (for /help, MCP tool list)
+    long: str         # rest of docstring (for detailed help, API docs)
     mcp: bool         # expose as MCP tool
     command: bool     # expose as slash command (listed in /help)
     admin_only: bool
+
+    @property
+    def description(self) -> str:
+        """Full description (short + long)."""
+        if self.long:
+            return f"{self.short}\n\n{self.long}"
+        return self.short
     input_model: Type[BaseModel] | None
     output_model: Type[BaseModel] | None
 
@@ -74,28 +82,22 @@ def power(
     name: str,
     *,
     sub: str = "",
-    description: str = "",
     mcp: bool = True,
     command: bool = False,
     admin_only: bool = False,
 ) -> Callable:
     """Mark a method as a power handler.
 
+    Description comes from the docstring:
+    - First line = short description (shown in /help, MCP tool list)
+    - Rest (after blank line) = long description (detailed help, API docs)
+
     Args:
         name: Power name (e.g. "get_metrics", "hort").
-        sub: Subcommand (e.g. "info" for /hort info). Empty = no sub.
-        description: Human-readable description. Falls back to docstring.
+        sub: Subcommand (e.g. "info" for /hort info).
         mcp: Expose as MCP tool (default True).
         command: Expose as slash command in /help (default False).
         admin_only: Restrict to admin users.
-
-    A power with ``command=True`` is callable both ways:
-    - As power (structured): call("hort", {"sub": "info"})
-    - As command (positional): /hort info
-      → framework maps positional args to Pydantic fields in order.
-
-    Input/output models inferred from type hints.
-    Sync handlers auto-wrapped in asyncio.to_thread().
     """
 
     def decorator(fn: Callable) -> Callable:
@@ -114,10 +116,13 @@ def power(
         if ret and isinstance(ret, type) and issubclass(ret, BaseModel):
             output_model = ret
 
+        short, long = _parse_docstring(fn.__doc__)
+
         fn._power_meta = PowerMeta(  # type: ignore[attr-defined]
             name=name,
             sub=sub,
-            description=description or fn.__doc__ or "",
+            short=short,
+            long=long,
             mcp=mcp,
             command=command,
             admin_only=admin_only,
@@ -127,6 +132,25 @@ def power(
         return fn
 
     return decorator
+
+
+def _parse_docstring(doc: str | None) -> tuple[str, str]:
+    """Extract short and long description from a docstring.
+
+    First line = short. Everything after the first blank line = long.
+    """
+    if not doc:
+        return ("", "")
+    lines = doc.strip().splitlines()
+    short = lines[0].strip()
+    long = ""
+    if len(lines) > 2:
+        # Find first blank line, take everything after
+        for i, line in enumerate(lines[1:], 1):
+            if not line.strip():
+                long = "\n".join(l.strip() for l in lines[i + 1:]).strip()
+                break
+    return (short, long)
 
 
 def collect_powers(instance: object) -> dict[str, tuple[Callable, PowerMeta]]:

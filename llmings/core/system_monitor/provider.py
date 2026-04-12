@@ -68,8 +68,9 @@ class SystemMonitor(Llming):
 
     # ── Powers ──
 
-    @power("get_system_metrics", description="Get current CPU, memory, and disk usage metrics")
+    @power("get_system_metrics")
     async def get_system_metrics(self) -> MetricsResponse:
+        """Get current CPU, memory, and disk metrics."""
         if not self._latest:
             return MetricsResponse(code=404, message="No metrics available yet")
         d = self._latest
@@ -84,8 +85,9 @@ class SystemMonitor(Llming):
             disk_total_gb=d.get("disk_total_gb", 0),
         )
 
-    @power("get_system_history", description="Get recent system metrics history")
+    @power("get_system_history")
     async def get_system_history(self, req: HistoryRequest) -> PowerOutput:
+        """Get recent metrics history (CPU, memory, disk over time)."""
         entries = list(reversed(self._history[-req.limit:]))
         text = f"{len(entries)} entries:\n" + "\n".join(
             f"  CPU:{e.get('cpu_percent', '?')}% MEM:{e.get('mem_percent', '?')}% DISK:{e.get('disk_percent', '?')}%"
@@ -93,15 +95,17 @@ class SystemMonitor(Llming):
         )
         return PowerOutput(message=text)
 
-    @power("cpu", description="Current CPU, memory, disk usage", command=True)
+    @power("cpu", command=True)
     async def cpu_command(self) -> str:
+        """Current CPU, memory, and disk usage."""
         if not self._latest:
             return "No metrics available yet."
         d = self._latest
         return f"CPU: {d.get('cpu_percent', '?')}%  MEM: {d.get('mem_percent', '?')}%  DISK: {d.get('disk_percent', '?')}%"
 
-    @power("health", description="Full system health report", command=True)
+    @power("health", command=True)
     async def health_command(self) -> str:
+        """Detailed system health with CPU cores, memory, and disk totals."""
         if not self._latest:
             return "No system metrics available yet."
         d = self._latest

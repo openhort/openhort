@@ -43,15 +43,8 @@ def _is_internal_error(text: str) -> bool:
     return any(m in text for m in markers)
 
 
-SYSTEM_COMMANDS = [
-    ConnectorCommand(name="start", description="Welcome message", system=True),
-    ConnectorCommand(name="help", description="List all commands", system=True),
-    ConnectorCommand(name="link", description="Get a temporary access link", system=True),
-    ConnectorCommand(name="status", description="Server status", system=True),
-    ConnectorCommand(name="targets", description="List connected machines", system=True),
-    ConnectorCommand(name="spaces", description="List/switch virtual desktops", system=True),
-    ConnectorCommand(name="new", description="Start a new AI chat session", system=True),
-]
+# System commands imported from framework (hort/ext/connectors.py)
+# No local copy — single source of truth.
 
 
 class TelegramConnector(Llming, ConnectorBase):

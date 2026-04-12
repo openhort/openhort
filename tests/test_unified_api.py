@@ -41,24 +41,29 @@ class NewStyleMonitor(Llming):
     _cpu: float = 42.0
     _mem: float = 68.5
 
-    @power("get_metrics", description="Get system metrics")
+    @power("get_metrics")
     async def get_metrics(self) -> MetricsResponse:
+        """Get system metrics."""
         return MetricsResponse(cpu=self._cpu, memory=self._mem)
 
-    @power("get_history", description="Get metrics history")
+    @power("get_history")
     async def get_history(self, req: MetricsRequest) -> MetricsResponse:
+        """Get metrics history."""
         return MetricsResponse(cpu=self._cpu, memory=self._mem)
 
-    @power("cpu", description="CPU usage", command="/cpu")
+    @power("cpu", command=True)
     async def cpu_command(self) -> str:
+        """Current CPU usage."""
         return f"CPU: {self._cpu}%"
 
-    @power("internal_op", description="Internal", mcp=False)
+    @power("internal_op", mcp=False)
     async def internal(self) -> PowerOutput:
+        """Internal operation."""
         return PowerOutput(code=200, message="done")
 
-    @power("sync_power", description="Sync handler")
+    @power("sync_power")
     def sync_handler(self) -> str:
+        """Sync test handler."""
         return "sync result"
 
 

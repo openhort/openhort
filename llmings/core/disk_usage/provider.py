@@ -62,8 +62,9 @@ class DiskUsage(Llming):
         self.vault.set("state", self._latest)
         await self.emit("disk_usage", DiskUpdate(partitions=partitions, timestamp=now))
 
-    @power("get_disk_usage", description="Get disk usage for all partitions")
+    @power("get_disk_usage")
     async def get_disk_usage(self) -> DiskUsageResponse:
+        """Get disk usage for all partitions."""
         if not self._latest:
             return DiskUsageResponse(code=404, message="No disk data available yet")
         return DiskUsageResponse(
@@ -71,8 +72,9 @@ class DiskUsage(Llming):
             timestamp=self._latest.get("timestamp", 0),
         )
 
-    @power("get_partition_details", description="Get detailed disk usage for a specific mountpoint")
+    @power("get_partition_details")
     async def get_partition_details(self, req: PartitionRequest) -> PartitionInfo:
+        """Get detailed usage info for a specific partition by mountpoint."""
         if not self._latest:
             return PartitionInfo(code=404, message="No disk data available yet")
         for p in self._latest.get("partitions", []):
@@ -81,8 +83,9 @@ class DiskUsage(Llming):
         available = ", ".join(p["mountpoint"] for p in self._latest.get("partitions", []))
         return PartitionInfo(code=404, message=f"'{req.mountpoint}' not found. Available: {available}")
 
-    @power("disk", description="Disk partition usage", command=True)
+    @power("disk", command=True)
     async def disk_command(self) -> str:
+        """Show disk usage summary for all partitions."""
         if not self._latest:
             return "No disk data available yet."
         lines = []

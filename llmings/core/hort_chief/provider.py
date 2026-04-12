@@ -45,7 +45,7 @@ class ContainerInfo(PowerOutput):
 class HortInfoResponse(PowerOutput):
     """Hort system overview."""
     version: int = 1
-    containers: list[dict] = Field(default_factory=list, description="Running containers")
+    containers: list[dict] = Field(default_factory=list)
     llm_executor: str = ""
     sessions: int = 0
     mcp_alive: bool = False
@@ -75,26 +75,30 @@ class HortChief(Llming):
 
     # ── MCP tools ──
 
-    @power("hort_overview", description="Get hort topology: containers, llmings, groups, sessions")
+    @power("hort_overview")
     async def hort_overview(self) -> HortOverviewResponse:
+        """Get full hort topology overview including sub-horts and sessions."""
         return HortOverviewResponse(overview=self._build_overview())
 
-    @power("list_containers", description="List running sandbox containers with status")
+    @power("list_containers")
     async def list_containers(self) -> PowerOutput:
+        """List all running sandbox containers with status and image."""
         containers = self._get_containers()
         return PowerOutput(message="\n".join(
             f"{c['name']}: {c['status']} ({c['image']})" for c in containers
         ) or "No containers running")
 
-    @power("list_sessions", description="List active viewer/chat sessions")
+    @power("list_sessions")
     async def list_sessions_power(self) -> SessionListResponse:
+        """List active viewer sessions with connection type and IP."""
         sessions = self._get_sessions()
         return SessionListResponse(sessions=sessions, count=len(sessions))
 
     # ── Slash commands ──
 
-    @power("hort", sub="info", description="Container and LLM executor status", command=True, mcp=False)
+    @power("hort", sub="info", command=True, mcp=False)
     async def hort_info(self) -> str:
+        """Show container and LLM executor status."""
         containers = self._get_containers()
         lines = ["Hort Container Info"]
         for c in containers:
@@ -112,8 +116,9 @@ class HortChief(Llming):
             pass
         return "\n".join(lines)
 
-    @power("hort", sub="restart", description="Restart Claude container and clear sessions", command=True, mcp=False, admin_only=True)
+    @power("hort", sub="restart", command=True, mcp=False, admin_only=True)
     async def hort_restart(self) -> str:
+        """Restart all sandbox containers and clear chat sessions."""
         logger.info("Admin requested hort container restart")
         result = subprocess.run(
             ["docker", "ps", "--filter", "name=ohsb-", "-q"],
@@ -133,8 +138,9 @@ class HortChief(Llming):
         logger.info("Hort container restarted, sessions cleared")
         return "Container restarted. Sessions cleared."
 
-    @power("hort", sub="sessions", description="List active chat sessions", command=True, mcp=False, admin_only=True)
+    @power("hort", sub="sessions", command=True, mcp=False, admin_only=True)
     async def hort_sessions(self) -> str:
+        """List active chat backend sessions."""
         try:
             from hort.ext.chat_backend import _shared_manager
             if not _shared_manager:
@@ -150,16 +156,19 @@ class HortChief(Llming):
         except Exception:
             return "Could not read sessions."
 
-    @power("horts", description="Sub-hort overview", command=True, admin_only=True)
+    @power("horts", command=True, admin_only=True)
     async def horts_command(self) -> str:
+        """Show hort topology with sub-horts and session count."""
         return self._build_overview()
 
-    @power("hort", sub="detail", description="Details for a specific container", command=True, mcp=False, admin_only=True)
+    @power("hort", sub="detail", command=True, mcp=False, admin_only=True)
     async def hort_detail(self, req: HortDetailRequest) -> str:
+        """Show detailed info for a specific container (image, status, resources)."""
         return self._build_detail(req.container_id)
 
-    @power("workers", description="Show managed worker process status", command=True, admin_only=True)
+    @power("workers", command=True, admin_only=True)
     async def workers_command(self) -> str:
+        """List llming worker processes with PID and alive status."""
         return self._build_workers_status()
 
     # ── Internal helpers ──

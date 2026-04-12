@@ -315,7 +315,7 @@ class Llming:
                 desc = " | ".join(f"{m.sub}" for m in subs)
                 desc = f"/{root} {desc}"
             else:
-                desc = meta.description
+                desc = meta.short
 
             commands.append(ConnectorCommand(
                 name=root,
