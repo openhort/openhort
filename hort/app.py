@@ -125,13 +125,14 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     if _vue_routes:
         from hort.ext.vue_loader import compile_vue
 
-        @app.get("/ext/{llming_name}/static/cards.js")
-        async def serve_vue_card(llming_name: str) -> Response:
-            vue_path = _vue_routes.get(llming_name)
-            if vue_path and vue_path.exists():
-                js = compile_vue(vue_path, llming_name)
-                return Response(content=js, media_type="application/javascript")
-            return Response(status_code=404)
+        # Register a dedicated route per vue llming (not a catch-all)
+        for _vue_name, _vue_path in _vue_routes.items():
+            def _make_handler(vp: Path, vn: str) -> Any:
+                async def handler() -> Response:
+                    js = compile_vue(vp, vn)
+                    return Response(content=js, media_type="application/javascript")
+                return handler
+            app.get(f"/ext/{_vue_name}/static/cards.js")(_make_handler(_vue_path, _vue_name))
 
     # Mount extension static directories (all provider dirs under llmings/)
     for _provider_dir in sorted(_llmings_root.iterdir()) if _llmings_root.is_dir() else []:
