@@ -1,7 +1,7 @@
-"""Hort Chief — topology, sub-hort status, container overview, session management.
+"""Hort Chief — admin commands for container management, sessions, workers.
 
-Core llming that provides /horts command across all connectors (Telegram, Wire, etc.)
-and MCP tools for programmatic access. Admin-only — requires allow_admin in user's group.
+Reference implementation of @power with subcommands and Pydantic models.
+All commands are cleanly declared — no manual string parsing or if/elif dispatch.
 """
 
 from __future__ import annotations
@@ -10,434 +10,161 @@ import logging
 import subprocess
 from typing import Any
 
-from hort.llming import Llming, Power, PowerType
+from pydantic import Field
+
+from hort.llming import Llming, power, PowerInput, PowerOutput
 
 logger = logging.getLogger(__name__)
 
 
+# ── Input models ──
+
+
+class HortDetailRequest(PowerInput):
+    """Request details for a specific container."""
+    version: int = 1
+    container_id: str = Field(description="Container ID or short name")
+
+
+class WorkerListRequest(PowerInput):
+    """No parameters needed."""
+    version: int = 1
+
+
+# ── Output models ──
+
+
+class ContainerInfo(PowerOutput):
+    """Container status information."""
+    version: int = 1
+    name: str = ""
+    image: str = ""
+    status: str = ""
+
+
+class HortInfoResponse(PowerOutput):
+    """Hort system overview."""
+    version: int = 1
+    containers: list[dict] = Field(default_factory=list, description="Running containers")
+    llm_executor: str = ""
+    sessions: int = 0
+    mcp_alive: bool = False
+
+
+class SessionListResponse(PowerOutput):
+    """Active chat sessions."""
+    version: int = 1
+    sessions: list[dict] = Field(default_factory=list)
+    count: int = 0
+
+
+class HortOverviewResponse(PowerOutput):
+    """Full topology overview."""
+    version: int = 1
+    overview: str = ""
+
+
+# ── Llming ──
+
+
 class HortChief(Llming):
-    """Hort topology and admin overview."""
+    """Hort admin — topology, containers, sessions, workers."""
 
     def activate(self, config: dict[str, Any]) -> None:
         self.log.info("Hort Chief activated")
 
-    # ===== Powers =====
+    # ── MCP tools ──
 
-    def get_powers(self) -> list[Power]:
-        return [
-            # MCP tools
-            Power(
-                name="hort_overview",
-                type=PowerType.MCP,
-                description="Get hort topology: containers, llmings, groups, sessions",
-                input_schema={"type": "object", "properties": {}},
-            ),
-            Power(
-                name="list_containers",
-                type=PowerType.MCP,
-                description="List running sandbox containers with status",
-                input_schema={"type": "object", "properties": {}},
-            ),
-            Power(
-                name="list_sessions",
-                type=PowerType.MCP,
-                description="List active viewer/chat sessions with connection type",
-                input_schema={"type": "object", "properties": {}},
-            ),
-            # Slash commands
-            Power(
-                name="horts",
-                type=PowerType.COMMAND,
-                description="Sub-hort overview. Use /horts <name> for details.",
-            ),
-            Power(
-                name="workers",
-                type=PowerType.COMMAND,
-                description="Show managed subprocess status (admin only).",
-            ),
-            Power(
-                name="hort",
-                type=PowerType.COMMAND,
-                description="Admin: /hort info | restart | sessions",
-                admin_only=True,
-            ),
-        ]
+    @power("hort_overview", description="Get hort topology: containers, llmings, groups, sessions")
+    async def hort_overview(self) -> HortOverviewResponse:
+        return HortOverviewResponse(overview=self._build_overview())
 
-    async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
-        from hort.ext.connectors import ConnectorResponse, ResponseButton
-
-        # MCP tools
-        if name == "hort_overview":
-            return {"content": [{"type": "text", "text": self._build_overview()}]}
-        if name == "list_containers":
-            import json
-            return {"content": [{"type": "text", "text": json.dumps(self._get_containers())}]}
-        if name == "list_sessions":
-            import json
-            return {"content": [{"type": "text", "text": json.dumps(self._get_sessions())}]}
-
-        # Slash command: /hort info | restart | sessions
-        if name == "hort":
-            message = args.get("_message")
-            if not self._is_admin(message):
-                return ConnectorResponse.simple("Permission denied.")
-            sub = (args.get("args", "") or "info").strip()
-            return self._cmd_hort(sub)
-
-        # Slash command: /workers
-        if name == "workers":
-            message = args.get("_message")
-            if not self._is_admin(message):
-                return ConnectorResponse.simple("Permission denied. Admin access required.")
-            return ConnectorResponse.simple(self._build_workers_status())
-
-        # Slash command: /horts
-        if name == "horts":
-            message = args.get("_message")
-            if not self._is_admin(message):
-                return ConnectorResponse.simple("Permission denied. Admin access required.")
-            try:
-                cmd_args = args.get("args", "")
-                if cmd_args.strip():
-                    result = self._build_detail(cmd_args.strip())
-                    if isinstance(result, ConnectorResponse):
-                        return result
-                    return ConnectorResponse.simple(result)
-
-                # Overview with clickable buttons
-                containers = self._get_containers()
-                sessions = self._get_sessions()
-
-                from hort.hort_config import get_hort_config
-                hort_cfg = get_hort_config()
-                hort_name = hort_cfg.name or "openhort"
-
-                # Plain text fallback
-                text_lines = [hort_name, ""]
-                # HTML version
-                html_lines = [f"<b>{hort_name}</b>", ""]
-
-                if not containers:
-                    text_lines.append("No sub-horts running.")
-                    html_lines.append("No sub-horts running.")
-                else:
-                    for c in containers:
-                        short_id = c["name"].replace("ohsb-", "")[:12]
-                        image = c["image"].replace("openhort-", "")
-                        status = (c["status"]
-                                  .replace(" minutes", "m")
-                                  .replace(" hours", "h")
-                                  .replace(" seconds", "s")
-                                  .replace("About a ", "~")
-                                  .replace("About an ", "~"))
-                        text_lines.append(f"  {short_id}  {image}  {status}")
-                        html_lines.append(
-                            f"\n<code>{short_id}</code>\n"
-                            f"  Image: {image}\n"
-                            f"  Status: {status}"
-                        )
-
-                if sessions:
-                    text_lines.append("")
-                    html_lines.append("")
-                    count_by_type: dict[str, int] = {}
-                    for s in sessions:
-                        count_by_type[s["type"]] = count_by_type.get(s["type"], 0) + 1
-                    parts = [f"{v} {k}" for k, v in count_by_type.items()]
-                    text_lines.append(f"Sessions: {', '.join(parts)}")
-                    html_lines.append(f"Sessions: {', '.join(parts)}")
-
-                # Buttons for each container (clickable detail view)
-                buttons = []
-                for c in containers:
-                    short_id = c["name"].replace("ohsb-", "")[:12]
-                    buttons.append([ResponseButton(
-                        label=f"{short_id} ({c['image']})",
-                        callback_data=f"hort-chief:detail:{short_id}",
-                    )])
-
-                return ConnectorResponse(
-                    text="\n".join(text_lines),
-                    html="\n".join(html_lines),
-                    buttons=buttons if buttons else None,
-                )
-            except Exception:
-                logger.exception("Failed to build hort overview")
-                return ConnectorResponse.simple("Something went wrong.")
-
-        # Handle button callbacks (callback_data: "hort-chief:detail:<id>")
-        if name == "_callback":
-            message = args.get("_message")
-            data = getattr(message, "callback_data", "") or ""
-            # Strip plugin prefix if present
-            if ":" in data:
-                parts = data.split(":")
-                # "hort-chief:detail:abc123" → action="detail", arg="abc123"
-                if len(parts) >= 3 and parts[0] == "hort-chief":
-                    action, arg = parts[1], ":".join(parts[2:])
-                elif len(parts) >= 2:
-                    action, arg = parts[0], ":".join(parts[1:])
-                else:
-                    action, arg = data, ""
-
-                if action == "detail":
-                    try:
-                        result = self._build_detail(arg)
-                        if isinstance(result, ConnectorResponse):
-                            return result
-                        return ConnectorResponse.simple(result)
-                    except Exception:
-                        logger.exception("Failed to build detail")
-                        return ConnectorResponse.simple("Something went wrong.")
-
-        return None
-
-    # ===== Compat: pass full message to execute_power =====
-
-    async def handle_connector_command(
-        self, command: str, message: Any, capabilities: Any,
-    ) -> Any:
-        """Override compat bridge to pass the full message object."""
-        from hort.ext.connectors import ConnectorResponse
-
-        cmd_args = getattr(message, "command_args", "") or ""
-        result = await self.execute_power(command, {
-            "args": cmd_args,
-            "_message": message,
-            "_capabilities": capabilities,
-        })
-        if result is None:
-            return None
-        if isinstance(result, ConnectorResponse):
-            return result
-        if isinstance(result, str):
-            return ConnectorResponse.simple(result)
-        if isinstance(result, dict) and "error" in result:
-            return ConnectorResponse.simple(f"Error: {result['error']}")
-        return result
-
-    # ===== Internal =====
-
-    def _is_admin(self, message: Any) -> bool:
-        """Check if the message sender has admin privileges.
-
-        Local Wire users (connector_id=llming-wire, user_id=local)
-        are always admin — they're on the machine.
-        """
-        try:
-            connector = getattr(message, "connector_id", "")
-            user_id = getattr(message, "user_id", "")
-            # Local access = admin
-            if connector == "llming-wire" and user_id == "local":
-                return True
-
-            from hort.hort_config import get_hort_config
-            hort_cfg = get_hort_config()
-            username = getattr(message, "username", "") or ""
-            user_cfg = (
-                hort_cfg.get_user_by_match("telegram", username)
-                or hort_cfg.get_user_by_match("wire", username)
-            )
-            if not user_cfg:
-                return False
-            groups = hort_cfg.get_user_groups(user_cfg)
-            return any(g.wire.get("allow_admin") for g in groups)
-        except Exception:
-            return False
-
-    def _cmd_hort(self, sub: str) -> Any:
-        """Handle /hort subcommands."""
-        from hort.ext.connectors import ConnectorResponse
-
-        if sub == "info":
-            containers = self._get_containers()
-            lines = ["Hort Container Info"]
-            for c in containers:
-                lines.append(f"  {c['name']}: {c['status']} ({c['image']})")
-            if not containers:
-                lines.append("  No Claude containers running")
-
-            # Chat backend status
-            try:
-                from hort.ext.chat_backend import get_llm_executor
-                executor = get_llm_executor()
-                if executor:
-                    state = executor.vault.get("state") if hasattr(executor, "vault") else {}
-                    lines.append(f"\nLLM executor: {type(executor).__name__}")
-                    lines.append(f"  started: {state.get('started', '?')}")
-                    lines.append(f"  sessions: {state.get('active_sessions', '?')}")
-            except Exception:
-                pass
-
-            return ConnectorResponse.simple("\n".join(lines))
-
-        elif sub == "restart":
-            logger.info("Admin requested hort container restart")
-            try:
-                result = subprocess.run(
-                    ["docker", "ps", "--filter", "name=ohsb-", "-q"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if not result.stdout.strip():
-                    return ConnectorResponse.simple("No containers to restart.")
-                for cid in result.stdout.strip().splitlines():
-                    subprocess.run(["docker", "restart", cid], capture_output=True, timeout=30)
-                    logger.info("Container %s restarted by admin", cid.strip())
-
-                # Clear chat sessions so new ones use fresh MCP
-                try:
-                    from hort.ext.chat_backend import _shared_manager
-                    if _shared_manager:
-                        _shared_manager._sessions.clear()
-                except Exception:
-                    pass
-
-                logger.info("Hort container restarted, sessions cleared")
-                return ConnectorResponse.simple("Container restarted. Sessions cleared.")
-            except Exception as e:
-                return ConnectorResponse.simple(f"Restart failed: {e}")
-
-        elif sub == "sessions":
-            try:
-                from hort.ext.chat_backend import _shared_manager
-                if not _shared_manager:
-                    return ConnectorResponse.simple("No chat backend.")
-                sessions = _shared_manager._sessions
-                if not sessions:
-                    return ConnectorResponse.simple("No active sessions.")
-                lines = [f"{len(sessions)} active sessions:"]
-                for key, session in sessions.items():
-                    sid = getattr(session, "_session_id", "?") or "new"
-                    lines.append(f"  {key}: session={sid[:12]}")
-                return ConnectorResponse.simple("\n".join(lines))
-            except Exception:
-                return ConnectorResponse.simple("Could not read sessions.")
-
-        return ConnectorResponse.simple("Usage: /hort info | restart | sessions")
-
-    def _build_overview(self) -> str:
-        """Compact sub-hort overview table."""
-        from hort.hort_config import get_hort_config
-        hort_cfg = get_hort_config()
-
+    @power("list_containers", description="List running sandbox containers with status")
+    async def list_containers(self) -> PowerOutput:
         containers = self._get_containers()
+        return PowerOutput(message="\n".join(
+            f"{c['name']}: {c['status']} ({c['image']})" for c in containers
+        ) or "No containers running")
+
+    @power("list_sessions", description="List active viewer/chat sessions")
+    async def list_sessions_power(self) -> SessionListResponse:
         sessions = self._get_sessions()
+        return SessionListResponse(sessions=sessions, count=len(sessions))
 
-        lines = [f"{hort_cfg.name or 'openhort'}"]
-        lines.append("")
+    # ── Slash commands ──
 
-        if not containers:
-            lines.append("No sub-horts running.")
-            lines.append("")
-        else:
-            # Table header
-            lines.append("Sub-horts:")
-            lines.append(f"{'Name':<22} {'Image':<20} {'Status':<15}")
-            lines.append("-" * 57)
-            for c in containers:
-                name = c["name"].replace("ohsb-", "")[:12]
-                image = c["image"][:20]
-                status = c["status"]
-                # Shorten "Up X minutes" → "Up Xm"
-                status = (status
-                          .replace(" minutes", "m")
-                          .replace(" hours", "h")
-                          .replace(" seconds", "s")
-                          .replace("About a ", "~")
-                          .replace("About an ", "~"))
-                lines.append(f"{name:<22} {image:<20} {status:<15}")
-            lines.append("")
-
-        # Active connections
-        if sessions:
-            lines.append(f"Sessions ({len(sessions)}):")
-            for s in sessions:
-                lines.append(f"  {s['type']:<6} {s['ip']:<15} {s['id']}")
-            lines.append("")
-
-        lines.append("Use /horts <container-id> for details.")
-        return "\n".join(lines)
-
-    def _build_detail(self, name: str) -> str:
-        """Detailed view of a specific sub-hort."""
+    @power("hort info", description="Container and LLM executor status", command="/hort info", mcp=False)
+    async def hort_info(self) -> str:
         containers = self._get_containers()
-
-        # Match by full name or short ID
-        match = None
+        lines = ["Hort Container Info"]
         for c in containers:
-            short = c["name"].replace("ohsb-", "")[:12]
-            if name in c["name"] or name == short:
-                match = c
-                break
-
-        if not match:
-            return f"Sub-hort '{name}' not found. Use /horts to list."
-
-        # Build as ConnectorResponse with HTML to avoid /path being parsed as commands
-        from hort.ext.connectors import ConnectorResponse
-
-        text_lines = [f"Sub-hort: {match['name']}", ""]
-        html_lines = [f"<b>Sub-hort: {match['name']}</b>", ""]
-
-        text_lines.append(f"Image:   {match['image']}")
-        html_lines.append(f"Image:   <code>{match['image']}</code>")
-        text_lines.append(f"Status:  {match['status']}")
-        html_lines.append(f"Status:  {match['status']}")
-
+            lines.append(f"  {c['name']}: {c['status']} ({c['image']})")
+        if not containers:
+            lines.append("  No containers running")
         try:
-            result = subprocess.run(
-                ["docker", "inspect", "--format",
-                 '{{.Config.Image}}\t{{.State.StartedAt}}\t'
-                 '{{.HostConfig.Memory}}\t{{.HostConfig.NanoCpus}}\t'
-                 '{{range .Mounts}}{{.Name}}:{{.Destination}} {{end}}',
-                 match["name"]],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode == 0:
-                parts = result.stdout.strip().split("\t")
-                if len(parts) >= 4:
-                    started = parts[1][:19].replace("T", " ") if parts[1] else "?"
-                    mem_bytes = int(parts[2]) if parts[2].isdigit() else 0
-                    mem_mb = mem_bytes // (1024 * 1024) if mem_bytes else 0
-                    cpus_nano = int(parts[3]) if parts[3].isdigit() else 0
-                    cpus = cpus_nano / 1e9 if cpus_nano else 0
-                    mounts = parts[4].strip() if len(parts) > 4 else ""
-
-                    text_lines.append(f"Started: {started}")
-                    html_lines.append(f"Started: {started}")
-                    if mem_mb:
-                        text_lines.append(f"Memory:  {mem_mb}MB")
-                        html_lines.append(f"Memory:  {mem_mb}MB")
-                    if cpus:
-                        text_lines.append(f"CPUs:    {cpus:.1f}")
-                        html_lines.append(f"CPUs:    {cpus:.1f}")
-                    if mounts:
-                        text_lines.append(f"Volumes: {mounts}")
-                        html_lines.append(f"Volumes: <code>{mounts}</code>")
+            from hort.ext.chat_backend import get_llm_executor
+            executor = get_llm_executor()
+            if executor:
+                state = executor.vault.get("state") if hasattr(executor, "vault") else {}
+                lines.append(f"\nLLM: {type(executor).__name__}")
+                lines.append(f"  started: {state.get('started', '?')}")
         except Exception:
             pass
+        return "\n".join(lines)
 
-        try:
-            result = subprocess.run(
-                ["docker", "exec", match["name"], "echo", "ok"],
-                capture_output=True, text=True, timeout=5,
-            )
-            healthy = result.returncode == 0
-            status = "ok" if healthy else "unhealthy"
-        except Exception:
-            status = "unknown"
-        text_lines.append(f"Health:  {status}")
-        html_lines.append(f"Health:  {status}")
-
-        # Return as ConnectorResponse so HTML is used when available
-        self._last_detail_response = ConnectorResponse(
-            text="\n".join(text_lines),
-            html="\n".join(html_lines),
+    @power("hort restart", description="Restart Claude container and clear sessions", command="/hort restart", mcp=False, admin_only=True)
+    async def hort_restart(self) -> str:
+        logger.info("Admin requested hort container restart")
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=ohsb-", "-q"],
+            capture_output=True, text=True, timeout=5,
         )
-        return self._last_detail_response
+        if not result.stdout.strip():
+            return "No containers to restart."
+        for cid in result.stdout.strip().splitlines():
+            subprocess.run(["docker", "restart", cid], capture_output=True, timeout=30)
+            logger.info("Container %s restarted by admin", cid.strip())
+        try:
+            from hort.ext.chat_backend import _shared_manager
+            if _shared_manager:
+                _shared_manager._sessions.clear()
+        except Exception:
+            pass
+        logger.info("Hort container restarted, sessions cleared")
+        return "Container restarted. Sessions cleared."
+
+    @power("hort sessions", description="List active chat sessions", command="/hort sessions", mcp=False, admin_only=True)
+    async def hort_sessions(self) -> str:
+        try:
+            from hort.ext.chat_backend import _shared_manager
+            if not _shared_manager:
+                return "No chat backend."
+            sessions = _shared_manager._sessions
+            if not sessions:
+                return "No active sessions."
+            lines = [f"{len(sessions)} active sessions:"]
+            for key, session in sessions.items():
+                sid = getattr(session, "_session_id", "?") or "new"
+                lines.append(f"  {key}: session={sid[:12]}")
+            return "\n".join(lines)
+        except Exception:
+            return "Could not read sessions."
+
+    @power("horts", description="Sub-hort overview", command="/horts", admin_only=True)
+    async def horts_command(self) -> str:
+        return self._build_overview()
+
+    @power("hort detail", description="Details for a specific container", command="/hort detail", mcp=False, admin_only=True)
+    async def hort_detail(self, req: HortDetailRequest) -> str:
+        return self._build_detail(req.container_id)
+
+    @power("workers", description="Show managed worker process status", command="/workers", admin_only=True)
+    async def workers_command(self) -> str:
+        return self._build_workers_status()
+
+    # ── Internal helpers ──
 
     def _get_containers(self) -> list[dict[str, str]]:
-        """Get running sandbox containers."""
         try:
             result = subprocess.run(
                 ["docker", "ps", "--filter", "name=ohsb-", "--format",
@@ -459,7 +186,6 @@ class HortChief(Llming):
             return []
 
     def _get_sessions(self) -> list[dict[str, str]]:
-        """Get active sessions from SessionManager."""
         try:
             from hort.session import HortSessionManager
             mgr = HortSessionManager.get()
@@ -474,61 +200,80 @@ class HortChief(Llming):
         except Exception:
             return []
 
+    def _build_overview(self) -> str:
+        from hort.hort_config import get_hort_config
+        hort_cfg = get_hort_config()
+        containers = self._get_containers()
+        sessions = self._get_sessions()
+
+        lines = [hort_cfg.name or "openhort", ""]
+        if not containers:
+            lines.append("No sub-horts running.")
+        else:
+            lines.append("Sub-horts:")
+            for c in containers:
+                name = c["name"].replace("ohsb-", "")[:12]
+                lines.append(f"  {name}: {c['image']} ({c['status']})")
+        if sessions:
+            lines.append(f"\nSessions: {len(sessions)}")
+        return "\n".join(lines)
+
+    def _build_detail(self, name: str) -> str:
+        containers = self._get_containers()
+        match = None
+        for c in containers:
+            short = c["name"].replace("ohsb-", "")[:12]
+            if name in c["name"] or name == short:
+                match = c
+                break
+        if not match:
+            return f"Container '{name}' not found. Use /horts to list."
+        lines = [f"Container: {match['name']}", f"Image: {match['image']}", f"Status: {match['status']}"]
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "--format",
+                 "{{.State.StartedAt}}\t{{.HostConfig.Memory}}\t{{.HostConfig.NanoCpus}}",
+                 match["name"]],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                parts = result.stdout.strip().split("\t")
+                if parts[0]:
+                    lines.append(f"Started: {parts[0][:19].replace('T', ' ')}")
+                mem = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+                if mem:
+                    lines.append(f"Memory: {mem // (1024*1024)}MB")
+        except Exception:
+            pass
+        return "\n".join(lines)
+
     def _build_workers_status(self) -> str:
-        """Build a status report of all managed subprocesses."""
-        import time as _time
+        import os
         from pathlib import Path
 
         pid_dir = Path.home() / ".hort" / "pids"
         if not pid_dir.exists():
-            return "No managed subprocesses."
+            pid_dir = Path.home() / ".hort" / "instances" / os.environ.get("HORT_INSTANCE_NAME", "michaels-desktop") / "pids"
+        if not pid_dir.exists():
+            return "No workers."
 
         pid_files = list(pid_dir.glob("*.pid"))
         if not pid_files:
-            return "No managed subprocesses."
+            return "No workers."
 
-        lines = ["Managed Workers:", ""]
+        lines = ["Workers:"]
         for pf in sorted(pid_files):
             name = pf.stem
             try:
                 pid = int(pf.read_text().strip())
             except (ValueError, OSError):
-                lines.append(f"  {name}: invalid PID file")
+                lines.append(f"  {name}: invalid PID")
                 continue
-
-            # Check if alive
             try:
-                import os
                 os.kill(pid, 0)
                 alive = True
             except (OSError, ProcessLookupError):
                 alive = False
-
-            # Get process info
             status = "running" if alive else "DEAD"
-            age = ""
-            rss = ""
-            if alive:
-                try:
-                    import subprocess
-                    result = subprocess.run(
-                        ["ps", "-p", str(pid), "-o", "etime=,rss="],
-                        capture_output=True, text=True, timeout=3,
-                    )
-                    parts = result.stdout.strip().split()
-                    if len(parts) >= 1:
-                        age = parts[0]
-                    if len(parts) >= 2:
-                        rss_kb = int(parts[1])
-                        rss = f"{rss_kb // 1024}MB" if rss_kb > 1024 else f"{rss_kb}KB"
-                except Exception:
-                    pass
-
-            info = f"  {name} (PID {pid}): {status}"
-            if age:
-                info += f", uptime {age}"
-            if rss:
-                info += f", {rss}"
-            lines.append(info)
-
+            lines.append(f"  {name} (PID {pid}): {status}")
         return "\n".join(lines)

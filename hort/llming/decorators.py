@@ -128,16 +128,25 @@ def collect_powers(instance: object) -> dict[str, tuple[Callable, PowerMeta]]:
 async def invoke_handler(handler: Callable, meta: PowerMeta, args: dict[str, Any]) -> Any:
     """Invoke a power handler with proper input parsing and async wrapping.
 
-    - Pydantic input model: parsed from args dict
+    - Pydantic input model: parsed from args dict OR positional args string
     - No parameters: called with no args
     - Dict args: passed as kwargs
     - Sync handlers: wrapped in asyncio.to_thread()
+
+    Positional argument mapping (for slash commands):
+        If args contains only {"args": "value1 value2"} and the handler
+        takes a Pydantic model, the space-separated values are mapped to
+        the model's fields in declaration order.
     """
     is_async = asyncio.iscoroutinefunction(handler)
 
-    # Pydantic model input — parse and pass as single arg
+    # Pydantic model input
     if meta.input_model is not None:
-        parsed = meta.input_model(**args)
+        # Try positional args: {"args": "val1 val2"} → map to fields in order
+        if list(args.keys()) == ["args"] and isinstance(args.get("args"), str):
+            parsed = _parse_positional(meta.input_model, args["args"])
+        else:
+            parsed = meta.input_model(**args)
         if is_async:
             return await handler(parsed)
         return await asyncio.to_thread(handler, parsed)
@@ -154,6 +163,36 @@ async def invoke_handler(handler: Callable, meta: PowerMeta, args: dict[str, Any
     if is_async:
         return await handler(**args)
     return await asyncio.to_thread(handler, **args)
+
+
+def _parse_positional(model: type[BaseModel], args_str: str) -> BaseModel:
+    """Parse positional args string into a Pydantic model.
+
+    Maps space-separated values to model fields in declaration order.
+    Handles type coercion via Pydantic validation.
+
+    Example:
+        class LightControl(PowerInput):
+            light_id: str
+            brightness: int = 255
+
+        _parse_positional(LightControl, "1 200")
+        → LightControl(light_id="1", brightness=200)
+
+        _parse_positional(LightControl, "1")
+        → LightControl(light_id="1", brightness=255)  # default
+    """
+    parts = args_str.split() if args_str.strip() else []
+    fields = list(model.model_fields.keys())
+    # Skip 'version' field (from PowerInput base)
+    fields = [f for f in fields if f != "version"]
+
+    kwargs: dict[str, Any] = {}
+    for i, field_name in enumerate(fields):
+        if i < len(parts):
+            kwargs[field_name] = parts[i]
+
+    return model(**kwargs)
 
 
 def _safe_get_hints(fn: Callable) -> dict[str, Any]:

@@ -86,29 +86,39 @@ class Llming:
         """The class name from manifest (e.g. 'office365')."""
         return self._class_name
 
+    # ── State ──
+
+    _host_connected: bool = False
+
+    @property
+    def connected(self) -> bool:
+        """True when this llming's host process (main) is connected."""
+        return self._host_connected
+
     # ── Lifecycle ──
 
     def activate(self, config: dict[str, Any]) -> None:
-        """Called once when the instance is loaded.
-
-        Override to initialize instance state. All services (store,
-        scheduler, credentials, etc.) are available at this point.
-        """
+        """Called once when the instance is loaded."""
 
     def deactivate(self) -> None:
-        """Called when the instance is unloaded (shutdown / hot-reload).
+        """Called when the instance is unloaded (shutdown / hot-reload)."""
 
-        Override to clean up resources. The framework automatically
-        stops the scheduler and clears pulse subscriptions.
+    def on_host_connect(self) -> None:
+        """Called when the host (main process) connects or reconnects.
+
+        The framework auto-re-registers powers. Override to resume
+        background work, flush caches, or sync state.
+        """
+
+    def on_host_disconnect(self) -> None:
+        """Called when the host disconnects (reload, crash).
+
+        Override to pause work, buffer events, or enter standby.
+        The llming stays alive — it will reconnect.
         """
 
     async def on_viewer_connect(self, session_id: str, controller: Any) -> None:
-        """Called when a viewer's WebSocket connects.
-
-        Override to prepare data, push initial state, or start
-        viewer-specific resources. Called for every llming on every
-        viewer connect.
-        """
+        """Called when a browser viewer connects."""
 
     async def on_viewer_disconnect(self, session_id: str) -> None:
         """Called when a viewer's WebSocket disconnects.
@@ -279,30 +289,70 @@ class Llming:
         return MCPToolResult(content=[{"type": "text", "text": str(result)}])
 
     def get_connector_commands(self) -> list[Any]:
-        """v1 compat: Return connector command definitions."""
+        """Return connector command definitions from powers.
+
+        Groups subcommands under their root command. E.g. powers
+        "hort info", "hort restart" register as one "/hort" command.
+        """
         from hort.ext.connectors import ConnectorCommand
 
-        return [
-            ConnectorCommand(
-                name=p.name,
-                description=p.description,
+        seen_roots: set[str] = set()
+        commands: list[Any] = []
+        for p in self.get_powers():
+            if p.type != PowerType.COMMAND:
+                continue
+            # Extract root command: "hort info" → "hort"
+            root = p.name.split()[0]
+            if root in seen_roots:
+                continue
+            seen_roots.add(root)
+            # Collect subcommand descriptions for the root
+            subs = [sp for sp in self.get_powers() if sp.type == PowerType.COMMAND and sp.name.startswith(root + " ")]
+            if subs:
+                desc = " | ".join(f"/{sp.name}" for sp in subs)
+            else:
+                desc = p.description
+            commands.append(ConnectorCommand(
+                name=root,
+                description=desc,
                 plugin_id=self._instance_name or self._class_name,
-            )
-            for p in self.get_powers()
-            if p.type == PowerType.COMMAND
-        ]
+                admin_only=p.admin_only,
+            ))
+        return commands
 
     async def handle_connector_command(
         self, command: str, message: Any, capabilities: Any
     ) -> Any:
-        """v1 compat: Handle a connector command by routing to execute_power().
+        """Handle a connector command — supports subcommands.
 
-        The connector framework calls this with (command, IncomingMessage, ConnectorCapabilities).
-        We route to execute_power() and wrap the result in a ConnectorResponse.
+        "/hort info" → tries "hort info" power first, falls back to "hort".
+        Positional args mapped to Pydantic model fields.
         """
         from hort.ext.connectors import ConnectorResponse
 
-        result = await self.execute_power(command, {"args": message.command_args if message else ""})
+        cmd_args = message.command_args if message else ""
+
+        # Try subcommand: "hort" + "info ..." → power "hort info"
+        if cmd_args:
+            parts = cmd_args.strip().split(None, 1)
+            sub = parts[0]
+            rest = parts[1] if len(parts) > 1 else ""
+            subcommand = f"{command} {sub}"
+            handlers = getattr(self, "_power_handlers", {})
+            if subcommand in handlers:
+                result = await self.execute_power(subcommand, {"args": rest})
+                if result is None:
+                    return None
+                if isinstance(result, str):
+                    return ConnectorResponse.simple(result)
+                if hasattr(result, "text"):
+                    return result
+                if isinstance(result, dict) and "error" in result:
+                    return ConnectorResponse.simple(f"Error: {result['error']}")
+                return ConnectorResponse.simple(str(result))
+
+        # Fall back to root command
+        result = await self.execute_power(command, {"args": cmd_args})
         if result is None:
             return None
         if isinstance(result, str):
