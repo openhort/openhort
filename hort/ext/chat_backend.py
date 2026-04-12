@@ -351,7 +351,7 @@ class ChatSession:
         """Send a message and return the response text.
 
         On auth errors, silently refreshes credentials and retries once.
-        The user never sees credential errors.
+        If CC_AUTO_RECOVER is set (default), restarts the container on failure.
         """
         async with self._lock:
             result = await self._run(message, on_progress)
@@ -366,8 +366,29 @@ class ChatSession:
                         pass
                 result = await self._run(message, on_progress)
                 if is_auth_error(result):
+                    # Auto-recover: restart container and retry
+                    if os.environ.get("CC_AUTO_RECOVER", "1") == "1" and self._container_session:
+                        logger.warning("Auto-recovering: restarting Claude container")
+                        await self._restart_container()
+                        result = await self._run(message, on_progress)
+                        if not is_auth_error(result):
+                            logger.info("Auto-recovery successful")
+                            return result
                     return "Something went wrong. Try again."
             return result
+
+    async def _restart_container(self) -> None:
+        """Restart the Claude container — clears stale MCP sessions."""
+        if not self._container_session:
+            return
+        try:
+            import subprocess
+            container_id = getattr(self._container_session, "_container_id", None)
+            if container_id:
+                subprocess.run(["docker", "restart", container_id], capture_output=True, timeout=30)
+                logger.info("Container %s restarted", container_id)
+        except Exception as exc:
+            logger.error("Container restart failed: %s", exc)
 
     async def _run(
         self,
@@ -391,7 +412,7 @@ class ChatSession:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
                 limit=10 * 1024 * 1024,
             )
         assert proc.stdout is not None
@@ -455,7 +476,14 @@ class ChatSession:
 
         exit_code = await proc.wait()
         if exit_code != 0:
-            logger.warning("Claude process exited with code %d", exit_code)
+            stderr_text = ""
+            if proc.stderr:
+                try:
+                    stderr_bytes = await proc.stderr.read()
+                    stderr_text = stderr_bytes.decode(errors="replace")[:500]
+                except Exception:
+                    pass
+            logger.warning("Claude process exited with code %d: %s", exit_code, stderr_text or "(no stderr)")
         text = result_text.strip()
         # Strip any base64 data blobs that leak into the response text
         text = re.sub(r'(?:/9j/|iVBOR)[A-Za-z0-9+/=\n]{200,}', '[image data removed]', text)
@@ -489,7 +517,7 @@ class ChatSession:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
                 limit=10 * 1024 * 1024,
             )
         assert proc.stdout is not None

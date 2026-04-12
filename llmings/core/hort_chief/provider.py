@@ -55,6 +55,12 @@ class HortChief(Llming):
                 type=PowerType.COMMAND,
                 description="Show managed subprocess status (admin only).",
             ),
+            Power(
+                name="hort",
+                type=PowerType.COMMAND,
+                description="Admin: /hort info | restart | sessions",
+                admin_only=True,
+            ),
         ]
 
     async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
@@ -69,6 +75,14 @@ class HortChief(Llming):
         if name == "list_sessions":
             import json
             return {"content": [{"type": "text", "text": json.dumps(self._get_sessions())}]}
+
+        # Slash command: /hort info | restart | sessions
+        if name == "hort":
+            message = args.get("_message")
+            if not self._is_admin(message):
+                return ConnectorResponse.simple("Permission denied.")
+            sub = (args.get("args", "") or "info").strip()
+            return self._cmd_hort(sub)
 
         # Slash command: /workers
         if name == "workers":
@@ -230,6 +244,76 @@ class HortChief(Llming):
             return any(g.wire.get("allow_admin") for g in groups)
         except Exception:
             return False
+
+    def _cmd_hort(self, sub: str) -> Any:
+        """Handle /hort subcommands."""
+        from hort.ext.connectors import ConnectorResponse
+
+        if sub == "info":
+            containers = self._get_containers()
+            lines = ["Hort Container Info"]
+            for c in containers:
+                lines.append(f"  {c['name']}: {c['status']} ({c['image']})")
+            if not containers:
+                lines.append("  No Claude containers running")
+
+            # Chat backend status
+            try:
+                from hort.ext.chat_backend import get_llm_executor
+                executor = get_llm_executor()
+                if executor:
+                    state = executor.vault.get("state") if hasattr(executor, "vault") else {}
+                    lines.append(f"\nLLM executor: {type(executor).__name__}")
+                    lines.append(f"  started: {state.get('started', '?')}")
+                    lines.append(f"  sessions: {state.get('active_sessions', '?')}")
+            except Exception:
+                pass
+
+            return ConnectorResponse.simple("\n".join(lines))
+
+        elif sub == "restart":
+            logger.info("Admin requested hort container restart")
+            try:
+                result = subprocess.run(
+                    ["docker", "ps", "--filter", "name=ohsb-", "-q"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if not result.stdout.strip():
+                    return ConnectorResponse.simple("No containers to restart.")
+                for cid in result.stdout.strip().splitlines():
+                    subprocess.run(["docker", "restart", cid], capture_output=True, timeout=30)
+                    logger.info("Container %s restarted by admin", cid.strip())
+
+                # Clear chat sessions so new ones use fresh MCP
+                try:
+                    from hort.ext.chat_backend import _shared_manager
+                    if _shared_manager:
+                        _shared_manager._sessions.clear()
+                except Exception:
+                    pass
+
+                logger.info("Hort container restarted, sessions cleared")
+                return ConnectorResponse.simple("Container restarted. Sessions cleared.")
+            except Exception as e:
+                return ConnectorResponse.simple(f"Restart failed: {e}")
+
+        elif sub == "sessions":
+            try:
+                from hort.ext.chat_backend import _shared_manager
+                if not _shared_manager:
+                    return ConnectorResponse.simple("No chat backend.")
+                sessions = _shared_manager._sessions
+                if not sessions:
+                    return ConnectorResponse.simple("No active sessions.")
+                lines = [f"{len(sessions)} active sessions:"]
+                for key, session in sessions.items():
+                    sid = getattr(session, "_session_id", "?") or "new"
+                    lines.append(f"  {key}: session={sid[:12]}")
+                return ConnectorResponse.simple("\n".join(lines))
+            except Exception:
+                return ConnectorResponse.simple("Could not read sessions.")
+
+        return ConnectorResponse.simple("Usage: /hort info | restart | sessions")
 
     def _build_overview(self) -> str:
         """Compact sub-hort overview table."""
