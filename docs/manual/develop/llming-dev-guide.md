@@ -3,25 +3,93 @@
 Build llmings with minimal boilerplate. A llming can be as simple as
 a single `.vue` file or as complex as a full Python + Vue application.
 
-## Quick Start: card.vue
+## Quick Start
 
-The simplest llming: a directory with one Vue file.
+The simplest llming: a directory with one Vue file named after the llming.
 
 ```
 llmings/samples/my_widget/
-  card.vue
+  my_widget.vue
 ```
 
 That's it. No manifest, no Python, no build step. The framework:
 
-- Names it `my-widget` (from directory name)
+- Names it `my-widget` (from directory name, underscores → hyphens)
 - Compiles the Vue SFC at serve time
 - Renders it live in the grid as an interactive card
 - Makes it appear in the Llmings tab automatically
 
-### Standard Vue
+## File Naming
 
-Card files are **standard Vue Single File Components**. Write them
+| File | Purpose | Discovery |
+|------|---------|-----------|
+| `{name}.vue` | Card — renders in the grid | Default: matches directory name |
+| `app.vue` | Full app — opens on card click | Or `app/index.vue` for multi-page |
+| `{name}.py` | Python backend | `@power`, `@pulse` decorators |
+| `manifest.json` | Metadata | Icon, description, execution tier |
+| `demo.js` | Demo simulation | Fake data for demo mode |
+| `SOUL.md` | AI prompt | Injected into LLM system prompt |
+
+Override the card file name in manifest: `"card": "custom_name.vue"`.
+
+## File Structure
+
+### Minimal (Vue only)
+
+```
+my_widget/
+  my_widget.vue       ← card (renders in grid)
+```
+
+### Card + App
+
+```
+my_widget/
+  my_widget.vue       ← card (grid, glanceable)
+  app.vue             ← full app (opens on card click)
+  manifest.json
+```
+
+### With Python backend
+
+```
+my_widget/
+  my_widget.vue       ← card
+  my_widget.py        ← Llming class with @power, @pulse
+  manifest.json
+  SOUL.md
+```
+
+### Full llming with demo
+
+```
+my_widget/
+  my_widget.vue       ← card
+  app.vue             ← full app
+  my_widget.py        ← Python backend
+  demo.js             ← demo mode simulation
+  manifest.json
+  static/
+    demo/             ← demo data files
+      sample.json
+  SOUL.md
+```
+
+### Multi-page app
+
+```
+my_widget/
+  my_widget.vue       ← card
+  app/
+    index.vue         ← main app entry
+    settings.vue      ← sub-page
+    history.vue       ← sub-page
+  manifest.json
+```
+
+## Standard Vue
+
+Card and app files are **standard Vue Single File Components**. Write them
 exactly as you would in any Vue + Quasar project:
 
 ```vue
@@ -41,186 +109,101 @@ const count = ref(0)
 </script>
 ```
 
-This is 100% standard Vue. No openhort-specific syntax, no custom APIs.
-You can develop and test card.vue files with any Vue tooling.
-
-### What the framework handles
-
-The SFC loader compiles your `.vue` file at serve time. Behind the scenes:
-
-- `import { ref, computed, watch } from 'vue'` → rewritten to use the global Vue UMD object
-- `import { useQuasar } from 'quasar'` → rewritten to use the global Quasar object
-- Top-level `const`, `let`, and `function` declarations → auto-collected and returned from `setup()`
-- `<style scoped>` → injected as a `<style>` element in the document head
-- The component is registered as a Vue component and mounted live in the grid
-
-You write standard Vue. The framework adapts it to the browser environment.
-
-## Composition API (`<script setup>`)
-
-The recommended way to write card.vue files. Supports the full Vue 3
-Composition API:
-
-| Feature | Support |
-|---------|---------|
-| `ref()`, `reactive()` | Full |
-| `computed()` | Full |
-| `watch()`, `watchEffect()` | Full |
-| `onMounted()`, `onUnmounted()` | Full |
-| `provide()`, `inject()` | Full |
-| `defineProps()`, `defineEmits()` | Not yet |
-| `<script setup>` auto-returns | Full |
+100% standard Vue. No openhort-specific syntax needed.
 
 ### Import rewriting
 
 The SFC loader rewrites standard imports to work without a bundler:
 
-```javascript
-// What you write (standard Vue):
-import { ref, computed, watch, onMounted } from 'vue'
-import { useQuasar } from 'quasar'
+| What you write | What runs (automatic) |
+|---|---|
+| `import { ref, computed } from 'vue'` | `const { ref, computed } = Vue` |
+| `import { useQuasar } from 'quasar'` | Quasar UMD shim |
+| `import { vaultRef } from 'llming'` | Provided in scope |
+| `import { useLlming } from 'llming'` | Provided in scope |
 
-// What runs in the browser (automatic):
-const { ref, computed, watch, onMounted } = Vue;
-const useQuasar = () => ({ notify, dialog, ... });
-```
+!!! warning "No bundler"
+    Only `'vue'`, `'quasar'`, and `'llming'` imports are supported.
+    Other imports (`from './utils.js'`) won't work — put everything
+    in one file or use the `static/` directory for separate scripts.
 
-!!! info "Supported imports"
-    - `from 'vue'` — all Vue Composition API functions
-    - `from 'quasar'` — `useQuasar` composable (shim for UMD)
-    - `from 'llming'` — `useLlming` composable (see [Llming API](#llming-api-optional))
-    - Other imports are not supported (no bundler) and will log a warning
+## vaultRef — Reactive Data Binding
 
-### Example: Pomodoro Timer
-
-A fully functional pomodoro timer — standard Vue, no framework dependencies:
+`vaultRef` binds a Vue ref directly to a vault value. **Zero subscription
+code, zero handlers.** The server pushes updates when the vault changes.
 
 ```vue
-<template>
-  <q-card flat bordered class="pomodoro-card q-pa-lg">
-    <q-card-section class="text-center">
-      <div class="text-overline text-grey-6 q-mb-sm">POMODORO</div>
-
-      <q-circular-progress
-        :value="progress" size="200px" :thickness="0.08"
-        :color="running ? 'green-5' : 'blue-5'"
-        track-color="grey-9" center-color="dark" rounded
-      >
-        <span class="text-h3 text-weight-bold"
-              :class="{ 'text-green-5': running }">
-          {{ mins }}:{{ secs }}
-        </span>
-      </q-circular-progress>
-    </q-card-section>
-
-    <q-card-section class="text-center q-pt-none">
-      <q-btn :label="running ? 'Pause' : 'Start'"
-             :color="running ? 'red-5' : 'green-6'"
-             :icon="running ? 'pause' : 'play_arrow'"
-             unelevated rounded @click="toggle" />
-      <q-btn label="Reset" icon="restart_alt" flat rounded
-             color="grey-5" @click="reset" />
-    </q-card-section>
-
-    <q-card-section class="q-pt-sm">
-      <div class="text-caption text-grey-6 q-mb-xs">Duration</div>
-      <q-slider v-model="duration" :min="5" :max="60" :step="5"
-                :disable="running" label :label-value="duration + ' min'"
-                color="blue-5" label-always switch-label-side />
-    </q-card-section>
-  </q-card>
-</template>
-
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
+import { vaultRef } from 'llming'
 
-const duration = ref(25)
-const remaining = ref(25 * 60)
-const running = ref(false)
-
-const mins = computed(() => String(Math.floor(remaining.value / 60)).padStart(2, '0'))
-const secs = computed(() => String(remaining.value % 60).padStart(2, '0'))
-const progress = computed(() => {
-  const total = duration.value * 60
-  return total > 0 ? ((total - remaining.value) / total) * 100 : 0
-})
-
-// Persist to localStorage
-watch([remaining, duration], () => {
-  localStorage.setItem('pomodoro', JSON.stringify({
-    remaining: remaining.value, duration: duration.value,
-  }))
-})
-
-onMounted(() => {
-  const saved = JSON.parse(localStorage.getItem('pomodoro') || '{}')
-  if (saved.remaining != null) remaining.value = saved.remaining
-  if (saved.duration) duration.value = saved.duration
-})
-
-watch(duration, (val) => {
-  if (!running.value) remaining.value = val * 60
-})
-
-// Standard setInterval — no framework dependency
-let timer
-watch(running, (on) => {
-  clearInterval(timer)
-  if (on) {
-    timer = setInterval(() => {
-      if (remaining.value > 0) remaining.value--
-      else running.value = false
-    }, 1000)
-  }
-})
-onUnmounted(() => clearInterval(timer))
-
-function toggle() { running.value = !running.value }
-function reset() { running.value = false; remaining.value = duration.value * 60 }
+const cpu  = vaultRef('system-monitor', 'state.cpu_percent', 0)
+const mem  = vaultRef('system-monitor', 'state.mem_percent', 0)
+const disk = vaultRef('system-monitor', 'state.disk_percent', 0)
 </script>
 
-<style scoped>
-.pomodoro-card { max-width: 380px; margin: 0 auto; }
-</style>
-```
-
-This is pure Vue + Quasar. It works offline, persists state to localStorage,
-and runs entirely in the browser.
-
-## Options API (`<script>`)
-
-Also supported for simpler cases or migration from older cards:
-
-```vue
 <template>
-  <q-card flat bordered class="q-pa-md">
-    <div class="text-h4">{{ temp }}°</div>
-    <div class="text-caption">{{ city }}</div>
-  </q-card>
+  <div>CPU: {{ cpu }}% | MEM: {{ mem }}% | DISK: {{ disk }}%</div>
 </template>
-
-<script>
-export default {
-  data() {
-    return { temp: '--', city: 'Loading...' };
-  },
-  async mounted() {
-    const data = await this.$llming.vault.get('state');
-    this.temp = data.temp || '--';
-    this.city = data.city || 'Unknown';
-  },
-};
-</script>
 ```
 
-In Options API, the llming API is available as `this.$llming`.
+That's the **entire llming**. No `onMounted`, no `subscribe`, no watchers.
+
+### API
+
+```javascript
+vaultRef(owner, path, defaultValue, options?)
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `owner` | Source llming name, or `'self'` for own vault |
+| `path` | Dot-separated path: `'state.cpu_percent'` |
+| `defaultValue` | Value before first update |
+| `options.onChange` | `(newVal, oldVal) => void` callback |
+
+### How it works
+
+```mermaid
+sequenceDiagram
+    participant Card as card.vue
+    participant Server as openhort server
+    participant Llming as Python llming
+
+    Card->>Server: card.vault.watch(owner, key)
+    Llming->>Server: vault.set("state", data)
+    Server->>Card: vault.update push (throttled 5Hz)
+    Card->>Card: ref.value = newData
+```
+
+1. `vaultRef` sends `card.vault.watch` to the server
+2. When `vault.set()` is called by any llming, the server pushes the update
+3. The Vue ref updates, template re-renders automatically
+4. Throttled to 5Hz max per (owner, key) — burst writes coalesce to latest value
+5. On WS reconnect, watches are automatically re-registered
+
+### Python vault_ref
+
+The same concept works in Python llmings:
+
+```python
+from hort.llming import Llming, vault_ref
+
+class AlertManager(Llming):
+    cpu = vault_ref('system-monitor', 'state.cpu_percent', default=0)
+    mem = vault_ref('system-monitor', 'state.mem_percent', default=0)
+
+    @cpu.on_change
+    async def on_cpu_spike(self, value, old):
+        if value > 90:
+            await self.emit('cpu_alert', {'cpu': value})
+```
+
+Descriptors update immediately when the source vault changes (no polling).
 
 ## Llming API (optional)
 
-Card.vue files are standard Vue by default — no llming API needed.
-When you want to interact with the openhort framework (read vaults,
-subscribe to pulses, call powers), the API is available via three
-patterns:
+When you need to interact with the openhort framework beyond `vaultRef`:
 
 ### In `<script setup>`
 
@@ -228,17 +211,15 @@ patterns:
 
     ```javascript
     import { inject } from 'vue'
-
     const llming = inject('llming')
-    const data = await llming.vault.get('state')
-    llming.subscribe('cpu_spike', (d) => { /* ... */ })
+    await llming.vault.get('state')
+    llming.subscribe('cpu_spike', handler)
     ```
 
 === "useLlming composable"
 
     ```javascript
     import { useLlming } from 'llming'
-
     const llming = useLlming()
     await llming.call('get_metrics')
     ```
@@ -246,21 +227,9 @@ patterns:
 === "$llming (closure variable)"
 
     ```javascript
-    // $llming is available in scope — no import needed
     const data = await $llming.vault.get('state')
     $llming.subscribe('tick:1hz', handler)
     ```
-
-### In `<script>` (Options API)
-
-```javascript
-export default {
-  async mounted() {
-    const data = await this.$llming.vault.get('state');
-    this.$llming.subscribe('cpu_spike', this.onSpike);
-  },
-};
-```
 
 ### API reference
 
@@ -272,18 +241,233 @@ export default {
 | `call(power, args)` | Execute own power |
 | `callOn(llming, power, args)` | Execute another llming's power |
 | `name` | This llming's name |
-| `connected` | Whether the server connection is active |
+| `connected` | Server connection active? |
 
 ### When to use what
 
 | Need | Solution |
 |------|----------|
-| Local state (timer, form data) | `ref()` + `localStorage` |
-| State synced to server | `$llming.vault.set/get` |
+| Bind to server data | `vaultRef('owner', 'key.path', default)` |
+| Local-only state | `ref()` + `localStorage` |
+| Read/write own vault | `$llming.vault.get/set` |
 | React to server events | `$llming.subscribe(channel, handler)` |
 | Trigger server action | `$llming.call(power, args)` |
 | Pure client-side timer | `setInterval` / `watch` |
-| React to system tick | `$llming.subscribe('tick:1hz', handler)` |
+
+## Cards and Apps
+
+### Card (`{name}.vue`)
+
+Renders **live in the grid** as an interactive Vue component. Small,
+glanceable, always visible. The component IS the card — no canvas
+thumbnails.
+
+### App (`app.vue` or `app/index.vue`)
+
+Opens when the user clicks the card. Full-page on mobile, floating
+panel on desktop. Same API as cards — `vaultRef`, `$llming`, everything
+works identically.
+
+```
+Card (grid)           App (click to open)
+┌──────────┐         ┌────────────────────┐
+│  CPU 22% │  click  │  Detailed metrics  │
+│  MEM 77% │ ──────→ │  History graphs    │
+│  DSK 53% │         │  Settings panel    │
+└──────────┘         └────────────────────┘
+```
+
+## Python Backend
+
+### Powers
+
+```python
+from hort.llming import Llming, power, pulse
+
+class MyLlming(Llming):
+    @power("get_metrics")
+    async def get_metrics(self) -> MetricsResponse:
+        """Get current system metrics."""
+        return MetricsResponse(cpu=42.0)
+
+    @power("cpu", command=True)
+    async def cpu_command(self) -> str:
+        """Current CPU usage."""
+        return f"CPU: {self._cpu}%"
+```
+
+### Pulse subscriptions
+
+```python
+@pulse("tick:1hz")
+async def poll(self, data):
+    """Runs every second."""
+    self.vault.set("state", {"cpu": get_cpu()})
+    await self.emit("cpu_update", {"cpu": get_cpu()})
+
+@pulse("cpu_spike")
+async def on_spike(self, data):
+    """Fires when another llming emits cpu_spike."""
+    self.log.warning("CPU spike: %s%%", data["cpu"])
+```
+
+Built-in tick channels: `tick:10hz`, `tick:1hz`, `tick:5s`.
+
+### Vault bindings (vault_ref)
+
+```python
+class Dashboard(Llming):
+    cpu = vault_ref('system-monitor', 'state.cpu_percent', default=0)
+
+    @cpu.on_change
+    async def on_cpu_change(self, value, old):
+        if value > 90:
+            await self.emit('cpu_alert', {'cpu': value})
+```
+
+## Manifest
+
+```json
+{
+  "name": "my-widget",
+  "description": "A custom widget",
+  "icon": "ph ph-chart-bar",
+  "version": "0.1.0",
+  "execution": "client",
+  "card": "my_widget.vue"
+}
+```
+
+| Field | Default |
+|-------|---------|
+| `name` | Directory name (underscores → hyphens) |
+| `description` | Empty |
+| `icon` | `ph ph-puzzle-piece` |
+| `version` | `0.0.0` |
+| `execution` | `client` if no Python, `hybrid` if Python exists |
+| `card` | `{dir_name}.vue` |
+| `entry_point` | `<dir_name>:<ClassName>` (if `.py` exists) |
+
+## Demo Mode
+
+Demo mode replaces the server with an in-memory mock — vault, pulses,
+and power calls all run locally in the browser. Cards and apps work
+**unchanged**. Each llming can provide a `demo.js` that seeds data
+and runs simulations.
+
+### Activating demo mode
+
+| Method | Use case |
+|--------|----------|
+| `POST /api/debug/demo/{on\|off\|toggle}` | From CLI, Playwright, scripts |
+| 5 rapid clicks on the OpenHORT logo | In the browser |
+| `HortDemo.toggle()` | Browser console |
+
+When active, an amber **DEMO MODE** banner appears at the top of the screen.
+All card components re-mount with fresh demo state.
+
+### demo.js
+
+```javascript
+// system_monitor/demo.js
+export default {
+  // Seed vault data before components mount
+  vault: {
+    'state': { cpu_percent: 22, mem_percent: 77, disk_percent: 53 }
+  },
+
+  // Called once when demo activates
+  async setup(ctx) {
+    // Load data from this llming's static/ directory
+    const history = await ctx.load('demo/history.json');
+    ctx.vault.set('history', history);
+
+    // Load from shared sample-data/ directory
+    const avatars = await ctx.shared('avatars.json');
+    ctx.vault.set('contacts', avatars);
+  },
+
+  // Called once when demo deactivates
+  teardown(ctx) {
+    // Optional cleanup
+  },
+
+  // Ongoing simulation — intervals auto-cleaned on teardown
+  simulate(ctx) {
+    ctx.interval(() => {
+      ctx.vault.set('state', {
+        cpu_percent: 15 + Math.random() * 40 | 0,
+        mem_percent: 70 + Math.random() * 15 | 0,
+        disk_percent: 53,
+      });
+      ctx.emit('system_metrics', { cpu_percent: 42 });
+    }, 1000);
+  },
+
+  // Mock power responses
+  powers: {
+    get_metrics: () => ({ code: 200, cpu: 42, memory: 77 }),
+    restart: () => ({ code: 200, message: 'Restarted (demo)' }),
+  }
+}
+```
+
+### Demo context (ctx)
+
+| Method | Description |
+|--------|-------------|
+| `vault.get(key)` | Read from this llming's mock vault |
+| `vault.set(key, data)` | Write to mock vault (triggers vaultRef push) |
+| `emit(channel, data)` | Emit a pulse to all subscribers |
+| `load(path)` | Fetch from this llming's `static/` dir (JSON or text) |
+| `shared(path)` | Fetch from `sample-data/` shared dir |
+| `interval(fn, ms)` | setInterval with auto-cleanup on teardown |
+| `timeout(fn, ms)` | setTimeout with auto-cleanup on teardown |
+
+### How it works
+
+```mermaid
+flowchart TD
+    A[demo.js] -->|vault seed| B[In-memory vault]
+    A -->|simulate| C[ctx.vault.set / ctx.emit]
+    C --> B
+    B -->|push notification| D[vaultRef updates]
+    D --> E[Vue re-renders]
+    F[card.vue / app.vue] -->|unchanged code| D
+```
+
+1. `demo.js` seeds the in-memory vault and starts simulation
+2. `window.hortWS` is replaced with a mock that routes `card.vault.read/write/watch` to the in-memory store
+3. `vault.set()` in the mock triggers `LlmingClient._notifyVaultUpdate()` — same push mechanism as the real server
+4. `vaultRef` refs update automatically, templates re-render
+5. Card and app components work **unchanged** — they don't know they're in demo mode
+
+### Shared data
+
+All demo llmings share one in-memory vault store. Cross-llming reads work
+naturally — if system-monitor's demo writes `state.cpu_percent`, any card
+using `vaultRef('system-monitor', 'state.cpu_percent')` sees the updates.
+
+Shared sample data files go in `sample-data/` at the project root,
+accessible via `ctx.shared('path')`.
+
+### Realistic simulation
+
+Use random walks instead of random noise for realistic-looking data:
+
+```javascript
+simulate(ctx) {
+  let cpu = 22, mem = 77;
+  ctx.interval(() => {
+    cpu += (Math.random() - 0.52) * 6;         // drift
+    cpu += (25 - cpu) * 0.02;                   // mean reversion
+    if (Math.random() < 0.03) cpu += 20;        // rare spike
+    cpu = Math.max(3, Math.min(98, cpu));
+    mem += (Math.random() - 0.5) * 0.3;         // very slow
+    ctx.vault.set('state', { cpu_percent: Math.round(cpu), mem_percent: Math.round(mem) });
+  }, 1000);
+}
+```
 
 ## Available Libraries
 
@@ -294,273 +478,43 @@ Always available globally — no imports needed:
 | Vue 3 | `Vue` | Reactivity, components |
 | Quasar | `Quasar` | UI components, dialogs, notifications |
 | Plotly.js | `Plotly` | Charts, graphs |
-| Three.js | `THREE` | 3D scenes |
 | ECharts | `echarts` | Advanced charts |
 
-### Quasar in `<script setup>`
-
-In a standard Vue + Quasar app, you'd use `useQuasar()`. The SFC
-loader provides a shim:
-
-```javascript
-import { useQuasar } from 'quasar'
-
-const $q = useQuasar()
-$q.notify({ message: 'Timer complete!', color: 'positive' })
-$q.dialog({ title: 'Confirm', message: 'Are you sure?' })
-```
-
-You can also use the global `Quasar` object directly:
-
-```javascript
-Quasar.Notify.create({ message: 'Done!' })
-Quasar.Dialog.create({ title: 'Confirm', message: 'Sure?' })
-```
-
-## Manifest (optional)
-
-Add a `manifest.json` for metadata beyond defaults:
-
-```json
-{
-  "name": "my-widget",
-  "description": "A custom widget",
-  "icon": "ph ph-chart-bar",
-  "version": "0.1.0",
-  "execution": "client"
-}
-```
-
-Everything is optional. Missing fields use defaults:
-
-| Field | Default |
-|-------|---------|
-| `name` | Directory name (underscores → hyphens) |
-| `description` | Empty |
-| `icon` | `ph ph-puzzle-piece` |
-| `version` | `0.0.0` |
-| `execution` | `client` if no Python, `hybrid` if Python exists |
-| `entry_point` | `<dir_name>:<ClassName>` (if `.py` exists) |
-| `group` | Empty (own process) |
-| `publishes` | `[]` |
-| `reads_vaults` | `[]` |
-
-## File Structure
-
-### Minimal (Vue only — client-side)
-
-```
-my_widget/
-  card.vue          ← Vue SFC, renders live in the grid
-```
-
-### With manifest
-
-```
-my_widget/
-  card.vue
-  manifest.json     ← icon, description, execution tier
-```
-
-### With Python backend (hybrid)
-
-```
-my_widget/
-  manifest.json
-  my_widget.py      ← Llming class with @power, @on
-  card.vue           ← Vue SFC card
-  SOUL.md            ← AI prompt (optional)
-```
-
-### Full llming
-
-```
-my_widget/
-  manifest.json
-  my_widget.py      ← main llming class
-  card.vue           ← grid card
-  models.py          ← Pydantic models
-  static/
-    custom.css
-  SOUL.md
-```
-
-## Grid Rendering
-
-Cards with `card.vue` render as **live Vue components** directly in
-the grid — not as canvas thumbnails. The component IS the card.
-
-```mermaid
-flowchart LR
-    A[card.vue] -->|SFC loader| B[JS module]
-    B -->|LlmingClient.register| C[Vue component]
-    C -->|Grid renders| D[Live card in grid]
-```
-
-Classic llmings (with `cards.js` and `renderThumbnail`) continue to
-render as canvas thumbnail images. The two modes coexist in the same grid.
-
-## Execution Tiers
-
-Every llming declares where it runs:
-
-| Tier | Description | Offline behavior |
-|------|-------------|------------------|
-| `client` | Pure client-side (Vue only, no Python) | **Fully functional** |
-| `hybrid` | Client UI + server backend | **UI works**, server powers unavailable |
-| `server` | Server-only (or UI depends on server) | **Unavailable** |
-
-Default: `client` if no Python file, `hybrid` if Python exists.
-
-### Client-side storage
-
-For `client` llmings, use standard browser APIs:
-
-```javascript
-// localStorage — simple key/value, synchronous
-localStorage.setItem('key', JSON.stringify(data))
-const data = JSON.parse(localStorage.getItem('key') || '{}')
-
-// Or use the llming vault (IndexedDB, async, syncs to server)
-await $llming.vault.set('state', data)
-const data = await $llming.vault.get('state')
-```
-
-## Python Backend
-
-When a llming needs server-side logic, add a Python file alongside
-card.vue:
-
-```python
-# cpu_monitor.py
-from hort.llming import Llming, power, pulse
-
-class CpuMonitor(Llming):
-    @pulse("tick:1hz")
-    async def poll(self, _data):
-        """Poll CPU every second."""
-        import psutil
-        cpu = psutil.cpu_percent()
-        self.vault.set("state", {"cpu": cpu})
-        await self.emit("cpu_update", {"cpu": cpu})
-
-    @power("get_cpu", command=True)
-    async def get_cpu(self) -> str:
-        """Current CPU usage."""
-        state = self.vault.get("state")
-        return f"CPU: {state.get('cpu', '?')}%"
-```
-
-The card.vue subscribes to the Python llming's pulses and reads
-its vault:
-
-```vue
-<template>
-  <q-card flat bordered class="q-pa-md">
-    <div class="text-overline">CPU</div>
-    <div class="text-h3 text-primary">{{ cpu }}%</div>
-    <q-linear-progress :value="cpu / 100" color="primary" />
-  </q-card>
-</template>
-
-<script setup>
-import { ref, onMounted } from 'vue'
-
-const cpu = ref(0)
-
-onMounted(async () => {
-  const state = await $llming.vault.get('state')
-  cpu.value = state?.cpu || 0
-
-  $llming.subscribe('cpu_update', (d) => {
-    cpu.value = d.cpu
-  })
-})
-</script>
-```
-
-## Hot Reload
-
-The framework watches all llming directories for changes.
-When a tracked file changes while the server is running:
-
-1. Llming is deactivated (clean shutdown)
-2. Commands unregistered from CommandRegistry
-3. Cards disconnected from viewers
-4. Llming reloaded from disk
-5. New code activated
-6. Cards reconnected, commands re-registered
-
-### Tracked files
-
-By default: `.py`, `.js`, `.css`, `.html`, `.vue`, `.json`, `.md`
-
-Override in manifest:
-
-```json
-{
-  "watch": ["*.py", "*.vue", "templates/*.jinja"]
-}
-```
-
-### Subprocess handling
-
-- If the llming runs in a subprocess: killed and restarted with fresh code
-- File hashes (SHA256) are compared at startup — mismatch triggers reload
-
-## SFC Loader Details
+## SFC Loader
 
 The SFC loader (`hort/ext/vue_loader.py`) compiles `.vue` files at
 serve time. No build step, no Node.js, no webpack/vite.
 
 ### What it does
 
-1. Parses `<template>`, `<script setup>`, and `<style scoped>` blocks
-2. Detects `<script setup>` vs `<script>` (Options API)
-3. Rewrites `import { ... } from 'vue'` → `const { ... } = Vue`
-4. Rewrites `import { useQuasar } from 'quasar'` → Quasar UMD shim
-5. Strips `import { useLlming } from 'llming'` (provided in scope)
-6. Collects top-level `const`, `let`, `function` bindings
-7. Wraps everything in a `setup()` function with auto-return
-8. Generates a `LlmingClient` class that registers the Vue component
-9. Caches the compiled JS by file content hash
+1. Parses `<template>`, `<script setup>`, `<style scoped>` blocks
+2. Rewrites vue/quasar/llming imports for UMD environment
+3. Collects top-level bindings, wraps in `setup()` with auto-return
+4. Generates `LlmingClient` class (card) or component registration (app)
+5. Injects `$llming`, `useLlming()`, `vaultRef()` into scope
+6. Caches compiled JS by content hash
 
-### What it doesn't do
+### Limitations
 
-- **No TypeScript** — write plain JavaScript
-- **No `defineProps` / `defineEmits`** — these are compile-time macros
-  that need the official Vue compiler
-- **No multi-file imports** — `import { helper } from './utils.js'`
-  doesn't work (no bundler). Put everything in one file, or use
-  the `static/` directory for separate scripts
-- **No JSX** — use Vue templates
-
-### Caching
-
-Compiled JS is cached in-memory by file content hash (SHA256).
-Editing card.vue clears the cache automatically. In dev mode with
-`--reload`, the server restarts on Python changes — the cache
-rebuilds on next request.
+- No TypeScript
+- No `defineProps` / `defineEmits` (compile-time macros)
+- No multi-file imports (no bundler)
+- No JSX
 
 ## Migration from Legacy Cards
 
-Old-style cards (canvas-based `renderThumbnail` in `cards.js`) continue
-to work. To migrate to card.vue:
+Old-style cards (`cards.js` + `renderThumbnail`) continue to work.
+To migrate:
 
-1. Create `card.vue` in the llming directory
-2. Move rendering logic from `renderThumbnail()` to a Vue template
-3. Replace `_feedStore(data)` with `ref()` + `$llming.vault.get('state')`
-4. Replace polling with `watch()` or `$llming.subscribe(channel, handler)`
-5. Delete `cards.js`
-
-The framework prefers `card.vue` over `cards.js` if both exist.
+1. Create `{name}.vue` in the llming directory
+2. Move rendering logic to a Vue template
+3. Replace `_feedStore(data)` with `vaultRef()` or `$llming.vault.get()`
+4. Delete `cards.js`
 
 ## Examples
 
-See `llmings/samples/` for working examples:
-
 | Sample | Type | Features |
 |--------|------|----------|
-| `pomodoro/` | Client (Vue only) | `<script setup>`, `ref`, `watch`, `localStorage`, `q-circular-progress` |
-| `dice_roller/` | Hybrid (Python + JS) | `@power`, `@pulse`, positional args, Pydantic models |
-| `color_picker/` | Hybrid (Python + JS) | Vault storage, pulse events |
+| `pomodoro/` | Client | `<script setup>`, `ref`, `watch`, `localStorage`, auto-start in demo |
+| `system_monitor/` | Hybrid | `vaultRef`, push-based gauges, 1Hz updates, realistic demo simulation |
+| `dice_roller/` | Hybrid | `@power`, `@pulse`, positional args, Pydantic models |

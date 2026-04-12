@@ -642,13 +642,15 @@ def _register_routes(app: FastAPI) -> None:
             "observers": registry.observer_count(),
         }
 
-    @app.post("/api/debug/demo")
-    async def debug_demo_toggle() -> dict[str, Any]:
-        """Toggle demo mode on all connected viewers.
+    @app.post("/api/debug/demo/{action}")
+    async def debug_demo(action: str = "on") -> dict[str, Any]:
+        """Control demo mode on all connected viewers.
 
-        Pushes a demo.toggle message via WS to all sessions.
-        Viewers handle the toggle client-side (HortDemo.toggle).
+        Actions: 'on', 'off', 'toggle'
+        Pushes a demo command via WS to all sessions.
         """
+        if action not in ("on", "off", "toggle"):
+            return {"error": f"Invalid action: {action}. Use on/off/toggle."}
         from hort.session import HortRegistry
         registry = HortRegistry.get()
         count = 0
@@ -656,11 +658,11 @@ def _register_routes(app: FastAPI) -> None:
             try:
                 entry = registry.get_session(sid)
                 if entry and hasattr(entry, "controller") and entry.controller:
-                    await entry.controller.send({"type": "demo.toggle"})
+                    await entry.controller.send({"type": "demo.set", "action": action})
                     count += 1
             except Exception:
                 pass
-        return {"ok": True, "viewers_notified": count}
+        return {"ok": True, "action": action, "viewers_notified": count}
 
     @app.get("/api/debug/tools")
     async def debug_tools() -> list[dict[str, Any]]:

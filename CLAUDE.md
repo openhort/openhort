@@ -41,7 +41,8 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/spaces.py` — macOS Spaces detection and switching (SkyLight)
 - `hort/network.py` — LAN IP detection, QR code generation
 - `hort/cert.py` — Self-signed TLS certificate generation
-- `hort/llming/` — Llming framework: `base.py` (Llming class), `decorators.py` (`@power`, `@pulse`, `@on_ready`), `models.py` (`PowerInput`, `PowerOutput`, `PulseEvent`), `handles.py` (self.llmings, self.vaults, self.channels), `llm_executor.py` (LlmExecutor base for LLM providers), `powers.py`, `pulse.py` (named channel bus), `bus.py` (MessageBus + power_catalog)
+- `hort/llming/` — Llming framework: `base.py` (Llming class), `decorators.py` (`@power`, `@pulse`, `@on_ready`), `models.py` (`PowerInput`, `PowerOutput`, `PulseEvent`), `handles.py` (self.llmings, self.vaults, self.channels, `vault_ref` descriptor), `llm_executor.py` (LlmExecutor base for LLM providers), `powers.py`, `pulse.py` (named channel bus), `bus.py` (MessageBus + power_catalog)
+- `hort/ext/vue_loader.py` — Vue SFC compiler: `<script setup>` support, import rewriting (vue/quasar/llming), `vaultRef` injection, card + app modes
 - `hort/lifecycle/` — Subprocess isolation: `manager.py` (ManagedProcess), `worker.py` (Worker base), `runner.py` (llming subprocess entry point), `llming_process.py` (LlmingProcess + LlmingProxy), `ipc_protocol.py` (IPC message types)
 - `hort/envoy/` — Envoy agent (MCP stdio server, control channel, host client)
 - `hort/ext/` — Framework internals: `registry.py` (extension discovery/loading), `manifest.py`, `scheduler.py`, `store.py`, `claude_auth.py` (cross-platform credential extraction)
@@ -56,7 +57,8 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/access/` — Remote access proxy server (Azure deployment, tunnel protocol, token auth)
 - `hort/access/docker-compose.yml` — Docker Compose for local dev and Azure deployment
 - `hort/static/index.html` — Quasar/Vue 3 mobile-first UI
-- `hort/static/vendor/` — Pre-compiled Vue 3, Quasar, xterm.js, Plotly.js, Material Icons, Phosphor Icons, hort-ext.js (`LlmingClient` base), hort-widgets.js, hort-llmings-ui.js
+- `hort/static/vendor/` — Pre-compiled Vue 3, Quasar, xterm.js, Plotly.js, Material Icons, Phosphor Icons, hort-ext.js (`LlmingClient` base, `vaultRef` push, vault watcher registry), hort-widgets.js, hort-llmings-ui.js, hort-demo.js (demo mode runtime)
+- `sample-data/` — Shared sample data for demo mode (accessible via `ctx.shared()` in demo.js)
 
 ## Communication Protocol
 
@@ -324,11 +326,25 @@ data = await self.vaults["system-monitor"].read("latest_metrics")
 catalog = await self.discover("system-monitor")
 ```
 
+**Reactive vault bindings (vault_ref):**
+```python
+class Dashboard(Llming):
+    cpu = vault_ref('system-monitor', 'state.cpu_percent', default=0)
+
+    @cpu.on_change
+    async def on_spike(self, value, old):
+        if value > 90: await self.emit('cpu_alert', {'cpu': value})
+```
+
 **Storage one-liners:**
 ```python
-self.save("key", {"cpu": 42})
-data = self.load("key", default={"cpu": 0})
+self.vault.set("key", {"cpu": 42})
+data = self.vault.get("key", default={"cpu": 0})
 ```
+
+**Vue SFC cards** — `{name}.vue` files compiled at serve time. Standard `<script setup>`, import rewriting (vue/quasar/llming). `vaultRef('owner', 'path', default)` for push-based reactive bindings. Apps via `app.vue` or `app/index.vue`. See [Llming Dev Guide](docs/manual/develop/llming-dev-guide.md).
+
+**Demo mode** — in-memory vault mock, per-llming `demo.js` simulation. Toggle via `POST /api/debug/demo/on`, 5 rapid logo clicks, or `HortDemo.toggle()`. Amber "DEMO MODE" banner when active. Components re-mount on toggle. `ctx.load(path)` for own static data, `ctx.shared(path)` for shared `sample-data/`.
 
 **LlmExecutor** — base class for LLM providers (Claude Code, Codex, etc.). Session lifecycle: `create_session` → `send_message` → `end_session`. All are standard Powers callable by any llming.
 
