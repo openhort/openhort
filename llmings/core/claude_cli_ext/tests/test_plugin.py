@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llmings.core.claude_code.claude_code import ClaudeCodeExecutor
+from llmings.core.claude_cli_ext.claude_code import ClaudeCodeExecutor
 
 
 @pytest.fixture

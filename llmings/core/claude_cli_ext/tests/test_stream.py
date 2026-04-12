@@ -7,7 +7,7 @@ import json
 import subprocess
 from unittest.mock import MagicMock
 
-from llmings.core.claude_code.stream import stream_response
+from llmings.core.claude_cli_ext.stream import stream_response
 
 
 def _make_proc(lines: list[str]) -> MagicMock:

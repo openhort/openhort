@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from llmings.core.claude_code.typewriter import typewriter
+from llmings.core.claude_cli_ext.typewriter import typewriter
 
 
 def _make_proc(lines: list[str]) -> MagicMock:

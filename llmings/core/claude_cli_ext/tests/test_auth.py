@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llmings.core.claude_code.auth import get_oauth_token, get_api_key
+from llmings.core.claude_cli_ext.auth import get_oauth_token, get_api_key
 
 
 # ── get_oauth_token ─────────────────────────────────────────────────

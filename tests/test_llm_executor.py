@@ -221,7 +221,7 @@ class TestUsageAndPulse:
 class TestClaudeCodeExecutor:
 
     def test_import_and_interface(self) -> None:
-        from llmings.core.claude_code.claude_code import ClaudeCodeExecutor
+        from llmings.core.claude_cli_ext.claude_cli_ext import ClaudeCodeExecutor
         e = ClaudeCodeExecutor()
         assert e.provider_name == "claude-code"
         assert isinstance(e, LlmExecutor)

@@ -4,7 +4,7 @@ Supports macOS Keychain, Linux libsecret, and Windows Credential Manager.
 Falls back to ANTHROPIC_API_KEY environment variable.
 
 This is framework code used by the main process (chat backend, peer
-orchestrator). The identical module also exists in llmings/core/claude_code/auth.py
+orchestrator). The identical module also exists in llmings/core/claude_cli_ext/auth.py
 for use inside llming subprocesses.
 """
 

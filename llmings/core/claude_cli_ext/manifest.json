@@ -1,12 +1,12 @@
 {
-  "name": "claude-code",
+  "name": "claude-cli-ext",
   "version": "0.1.0",
   "description": "Claude Code \u2014 AI coding assistant with sandboxed container execution",
   "provider": "core",
   "capabilities": [
     "mcp"
   ],
-  "entry_point": "claude_code:ClaudeCodeExecutor",
+  "entry_point": "claude_cli_ext:ClaudeCodeExecutor",
   "icon": "ph ph-robot",
   "author": "openhort",
   "llming_type": "llm",
