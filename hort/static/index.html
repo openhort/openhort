@@ -2367,8 +2367,12 @@
             </div>
             <!-- All items sorted by last interaction -->
             <template v-for="item in unifiedGridItems" :key="item.key">
-              <!-- Spirit/plugin card -->
-              <div v-if="item.type === 'spirit'" class="grid-card" :style="{borderColor: isFavorite(item.key) ? 'var(--el-accent)' : ''}"
+              <!-- Vue SFC card — live component rendered in the grid -->
+              <div v-if="item.type === 'spirit' && spiritCardComponent(item.id)" class="grid-card-vue">
+                <component :is="spiritCardComponent(item.id)" />
+              </div>
+              <!-- Classic spirit card with canvas/icon thumbnail -->
+              <div v-else-if="item.type === 'spirit'" class="grid-card" :style="{borderColor: isFavorite(item.key) ? 'var(--el-accent)' : ''}"
                    @click="touch(item.key); openSpiritFullscreen(item.id)">
                 <div style="position:relative">
                   <img v-if="pluginThumbs[item.id]" class="grid-card-thumb" :src="pluginThumbs[item.id]" alt="">
@@ -3092,6 +3096,13 @@
         }
         return '';
       }
+      function spiritCardComponent(pluginName) {
+        if (typeof LlmingClient === 'undefined') return '';
+        for (const [id, ExtClass] of LlmingClient.getRegistry()) {
+          if (id === pluginName && ExtClass.cardComponent) return ExtClass.cardComponent;
+        }
+        return '';
+      }
 
       async function toggleSpiritFeature(pluginId, feature, enabled) {
         await sendControlRequest({ type: 'llmings.feature', name: pluginId, feature, enabled });
@@ -3431,7 +3442,7 @@
         configScreen, generalConfig, toggleGeneral,
         selectedSpirit, selectedPlugin, toggleSpiritFeature,
         revokeAuth, submitToken, startOAuth, startDeviceCode, showTokenInput, tokenInputValue,
-        spiritStoreKeys, spiritUIVisible, toggleSpiritUI, spiritWidgetName,
+        spiritStoreKeys, spiritUIVisible, toggleSpiritUI, spiritWidgetName, spiritCardComponent,
         unifiedGridItems, touch, lastInteraction, pluginThumbs,
         favorites, toggleFavorite, isFavorite,
         fullscreenSpirit, openSpiritFullscreen, closeSpiritFullscreen,

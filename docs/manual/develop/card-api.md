@@ -1,5 +1,10 @@
 # Card API
 
+!!! tip "Prefer card.vue"
+    For new llmings, use [card.vue](llming-dev-guide.md) with `<script setup>`.
+    Card.vue files are standard Vue SFCs that render live in the grid.
+    The Card API below is for `LlmingClient` JS classes (legacy `cards.js` pattern).
+
 JS cards interact with llmings through the Card API — a set of WS
 commands that provide the same capabilities as Python llmings:
 pulse subscriptions, vault access, and power execution.

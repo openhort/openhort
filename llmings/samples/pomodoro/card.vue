@@ -67,90 +67,67 @@
   </q-card>
 </template>
 
-<script>
-export default {
-  name: 'PomodoroTimer',
+<script setup>
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
-  data() {
-    return {
-      remaining: 25 * 60,
-      running: false,
-      duration: 25,
-    };
-  },
+const duration = ref(25)
+const remaining = ref(25 * 60)
+const running = ref(false)
 
-  computed: {
-    mins() {
-      return String(Math.floor(this.remaining / 60)).padStart(2, '0');
-    },
-    secs() {
-      return String(this.remaining % 60).padStart(2, '0');
-    },
-    progress() {
-      const total = this.duration * 60;
-      return total > 0 ? ((total - this.remaining) / total) * 100 : 0;
-    },
-    statusLabel() {
-      if (this.running) return 'FOCUSING';
-      return this.remaining === this.duration * 60 ? 'READY' : 'PAUSED';
-    },
-  },
+const mins = computed(() => String(Math.floor(remaining.value / 60)).padStart(2, '0'))
+const secs = computed(() => String(remaining.value % 60).padStart(2, '0'))
+const progress = computed(() => {
+  const total = duration.value * 60
+  return total > 0 ? ((total - remaining.value) / total) * 100 : 0
+})
+const statusLabel = computed(() => {
+  if (running.value) return 'FOCUSING'
+  return remaining.value === duration.value * 60 ? 'READY' : 'PAUSED'
+})
 
-  async mounted() {
-    // Load saved state from vault
-    const state = await this.$llming.vault.get('state');
-    if (state && state.remaining !== undefined) {
-      this.remaining = state.remaining;
-      this.duration = state.duration || 25;
-    }
+// Persist to localStorage
+watch([remaining, duration], () => {
+  localStorage.setItem('pomodoro', JSON.stringify({
+    remaining: remaining.value,
+    duration: duration.value,
+  }))
+})
 
-    // Use system tick:1hz pulse — no setInterval needed
-    this.$llming.subscribe('tick:1hz', () => {
-      if (this.running && this.remaining > 0) {
-        this.remaining--;
-        this.saveState();
-      } else if (this.running && this.remaining <= 0) {
-        this.running = false;
-        this.$q.notify({
-          message: 'Pomodoro complete!',
-          color: 'positive',
-          icon: 'check_circle',
-          position: 'top',
-        });
-        this.saveState();
+onMounted(() => {
+  const saved = JSON.parse(localStorage.getItem('pomodoro') || '{}')
+  if (saved.remaining != null) remaining.value = saved.remaining
+  if (saved.duration) duration.value = saved.duration
+})
+
+// Reset remaining when duration slider changes while paused
+watch(duration, (val) => {
+  if (!running.value) remaining.value = val * 60
+})
+
+// Timer — standard setInterval, no framework dependency
+let timer
+watch(running, (on) => {
+  clearInterval(timer)
+  if (on) {
+    timer = setInterval(() => {
+      if (remaining.value > 0) {
+        remaining.value--
+      } else {
+        running.value = false
       }
-    });
-  },
+    }, 1000)
+  }
+})
+onUnmounted(() => clearInterval(timer))
 
-  methods: {
-    toggle() {
-      this.running = !this.running;
-      this.saveState();
-    },
+function toggle() {
+  running.value = !running.value
+}
 
-    reset() {
-      this.running = false;
-      this.remaining = this.duration * 60;
-      this.saveState();
-    },
-
-    saveState() {
-      this.$llming.vault.set('state', {
-        remaining: this.remaining,
-        running: this.running,
-        duration: this.duration,
-      });
-    },
-  },
-
-  watch: {
-    duration(val) {
-      if (!this.running) {
-        this.remaining = val * 60;
-      }
-    },
-  },
-};
+function reset() {
+  running.value = false
+  remaining.value = duration.value * 60
+}
 </script>
 
 <style scoped>

@@ -61,6 +61,13 @@
     static autoShow = false;
 
     /**
+     * Vue component name for live rendering in the grid card.
+     * When set, the grid mounts this component directly instead of showing
+     * a canvas thumbnail. Used by Vue SFC llmings (card.vue).
+     */
+    static cardComponent = '';
+
+    /**
      * Device types this llming's UI is optimized for.
      *
      * Set by the llming author:

@@ -134,6 +134,12 @@ body {
   transition: border-color 0.15s, transform 0.1s;
   overflow: hidden;
 }
+/* Live Vue component card — the component IS the card content */
+.grid-card-vue {
+  overflow: hidden;
+  border-radius: 10px;
+  min-height: 100px;
+}
 .grid-card:hover { border-color: var(--el-primary); box-shadow: 0 0 12px rgba(59,130,246,0.25); }
 .grid-card-thumb {
   width: 100%;
