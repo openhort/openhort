@@ -43,8 +43,7 @@ def _is_internal_error(text: str) -> bool:
     return any(m in text for m in markers)
 
 
-# System commands imported from framework (hort/ext/connectors.py)
-# No local copy — single source of truth.
+from hort.ext.connectors import SYSTEM_COMMANDS
 
 
 class TelegramConnector(Llming, ConnectorBase):
