@@ -156,10 +156,10 @@ const data = await this.vaultRead("latest", "system-monitor");
     - Browser cards → via WS push
     - Container llmings → via envoy wire (future)
     - Remote VMs → via H2H protocol (future)
-- Python llmings subscribe with `@on("channel")` decorator
+- Python llmings subscribe with `@pulse("channel")` decorator
 - JS cards subscribe with `this.subscribe("channel", handler)`
 - **Pulses can NEVER be read** — subscribe or miss them
-- Built-in tick pulses (`tick:10hz`, `tick:1hz`, `tick:slow`) are just regular pulses emitted by the main process — they reach all subscribers like any other pulse
+- Built-in tick pulses (`tick:10hz`, `tick:1hz`, `tick:5s`) are just regular pulses emitted by the main process — they reach all subscribers like any other pulse
 
 ### Vaults / Storage
 - Each llming has own vault (scrolls + crates)

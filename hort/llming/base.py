@@ -194,6 +194,19 @@ class Llming:
         payload["_channel"] = channel
         await self._pulse_bus.emit(self._instance_name, channel, payload)
 
+    # ── Vault bindings ──
+
+    def _poll_vault_refs(self) -> None:
+        """Refresh all vault_ref descriptors. Called by the framework on tick:5s."""
+        from hort.llming.handles import VaultRef
+        for cls in type(self).__mro__:
+            for attr_name, attr_val in vars(cls).items():
+                if isinstance(attr_val, VaultRef):
+                    try:
+                        attr_val.poll(self)
+                    except Exception:
+                        pass
+
     # ── Built-in services ──
 
     @property

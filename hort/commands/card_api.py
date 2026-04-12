@@ -8,13 +8,17 @@ Message types:
     card.unsubscribe — unsubscribe from a channel
     card.vault.read  — read from a vault (own or permitted other)
     card.vault.write — write to own vault
+    card.vault.watch — subscribe to vault key changes (server pushes updates)
+    card.vault.unwatch — unsubscribe from vault key changes
     card.power       — execute a power (own or permitted other)
     card.scrolls.query — query a scrolls collection
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 
 from llming_com import WSRouter
@@ -25,8 +29,11 @@ logger = logging.getLogger(__name__)
 
 router = WSRouter(prefix="card")
 
-# Per-session pulse subscriptions: {session_id: {channel: True}}
+# Per-session pulse subscriptions: {session_id: {channel}}
 _viewer_subscriptions: dict[str, set[str]] = {}
+
+# Per-session vault watchers: {session_id: {(owner, key)}}
+_vault_watchers: dict[str, set[tuple[str, str]]] = {}
 
 
 @router.handler("subscribe")
@@ -35,9 +42,7 @@ async def card_subscribe(controller: Any, channel: str = "") -> dict[str, Any]:
     if not channel:
         return {"error": "channel required"}
     sid = getattr(controller, "session_id", "")
-    if sid not in _viewer_subscriptions:
-        _viewer_subscriptions[sid] = set()
-    _viewer_subscriptions[sid].add(channel)
+    _viewer_subscriptions.setdefault(sid, set()).add(channel)
     return {"ok": True, "channel": channel}
 
 
@@ -82,9 +87,44 @@ async def card_vault_write(controller: Any, owner: str = "", key: str = "", data
         data["_key"] = key
         storage.persist.scrolls.delete_one("_kv", {"_key": key})
         storage.persist.scrolls.insert("_kv", data)
+        # Notify watchers
+        clean = dict(data)
+        clean.pop("_key", None)
+        notify_vault_change(owner, key, clean)
         return {"ok": True}
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.handler("vault.watch")
+async def card_vault_watch(controller: Any, owner: str = "", key: str = "") -> dict[str, Any]:
+    """Subscribe to vault key changes. Server pushes updates."""
+    if not owner or not key:
+        return {"error": "owner and key required"}
+    sid = getattr(controller, "session_id", "")
+    _vault_watchers.setdefault(sid, set()).add((owner, key))
+    # Return current value immediately
+    try:
+        from hort.storage.store import StorageManager
+        storage = StorageManager.get().get_storage(owner)
+        result = storage.persist.scrolls.find_one("_kv", {"_key": key})
+        if result:
+            result.pop("_id", None)
+            result.pop("_key", None)
+            result.pop("_access", None)
+            return {"ok": True, "data": result}
+    except Exception:
+        pass
+    return {"ok": True, "data": {}}
+
+
+@router.handler("vault.unwatch")
+async def card_vault_unwatch(controller: Any, owner: str = "", key: str = "") -> dict[str, Any]:
+    """Unsubscribe from vault key changes."""
+    sid = getattr(controller, "session_id", "")
+    if sid in _vault_watchers:
+        _vault_watchers[sid].discard((owner, key))
+    return {"ok": True}
 
 
 @router.handler("power")
@@ -100,7 +140,6 @@ async def card_power(controller: Any, llming: str = "", power: str = "", args: d
         return {"error": f"llming '{llming}' not found"}
     try:
         result = await inst.execute_power(power, args or {})
-        # Serialize Pydantic models
         if hasattr(result, "model_dump"):
             return {"result": result.model_dump()}
         return {"result": result}
@@ -125,11 +164,90 @@ async def card_scrolls_query(
         return {"error": str(e)}
 
 
+# ---- Viewer subscription accessors ----
+
+
 def get_viewer_subscriptions() -> dict[str, set[str]]:
     """Get all viewer pulse subscriptions. Used by the pulse push system."""
     return _viewer_subscriptions
 
 
 def remove_viewer(session_id: str) -> None:
-    """Clean up subscriptions when a viewer disconnects."""
+    """Clean up all subscriptions when a viewer disconnects."""
     _viewer_subscriptions.pop(session_id, None)
+    _vault_watchers.pop(session_id, None)
+
+
+# ---- Vault change push (throttled) ----
+
+_VAULT_PUSH_MIN_INTERVAL = 0.2  # 200ms → 5Hz max per (owner, key)
+_vault_last_push: dict[tuple[str, str], float] = {}
+_vault_pending_data: dict[tuple[str, str], dict[str, Any]] = {}
+_vault_pending_handle: dict[tuple[str, str], asyncio.TimerHandle] = {}
+
+
+def notify_vault_change(owner: str, key: str, data: dict[str, Any]) -> None:
+    """Push vault update to watching viewers, throttled to 5Hz max.
+
+    Called by Vault.set(). If writes happen faster than 5Hz, only the
+    latest value is pushed at the next throttle window.
+    """
+    if not _vault_watchers:
+        return
+
+    wk = (owner, key)
+    now = time.monotonic()
+    last = _vault_last_push.get(wk, 0)
+    elapsed = now - last
+
+    if elapsed >= _VAULT_PUSH_MIN_INTERVAL:
+        # Push immediately
+        _vault_last_push[wk] = now
+        _push_vault_to_viewers(owner, key, data)
+        # Cancel any pending delayed push
+        handle = _vault_pending_handle.pop(wk, None)
+        if handle:
+            handle.cancel()
+        _vault_pending_data.pop(wk, None)
+    else:
+        # Store latest data, schedule push at next window
+        _vault_pending_data[wk] = data
+        if wk not in _vault_pending_handle:
+            delay = _VAULT_PUSH_MIN_INTERVAL - elapsed
+            try:
+                loop = asyncio.get_running_loop()
+                _vault_pending_handle[wk] = loop.call_later(
+                    delay, _flush_vault_push, owner, key
+                )
+            except RuntimeError:
+                pass
+
+
+def _flush_vault_push(owner: str, key: str) -> None:
+    """Delayed push — sends the latest stored data."""
+    wk = (owner, key)
+    _vault_pending_handle.pop(wk, None)
+    data = _vault_pending_data.pop(wk, None)
+    if data is not None:
+        _vault_last_push[wk] = time.monotonic()
+        _push_vault_to_viewers(owner, key, data)
+
+
+def _push_vault_to_viewers(owner: str, key: str, data: dict[str, Any]) -> None:
+    """Send vault.update to all watching viewer sessions."""
+    try:
+        from hort.session import HortRegistry
+        registry = HortRegistry.get()
+        msg = {"type": "vault.update", "owner": owner, "key": key, "data": data}
+
+        for sid, watches in _vault_watchers.items():
+            if (owner, key) not in watches:
+                continue
+            try:
+                entry = registry.get_session(sid)
+                if entry and hasattr(entry, "controller") and entry.controller:
+                    asyncio.create_task(entry.controller.send(msg))
+            except Exception:
+                pass
+    except Exception:
+        pass  # Registry not ready during startup

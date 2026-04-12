@@ -433,10 +433,10 @@ card.vue:
 
 ```python
 # cpu_monitor.py
-from hort.llming import Llming, power, on
+from hort.llming import Llming, power, pulse
 
 class CpuMonitor(Llming):
-    @on("tick:1hz")
+    @pulse("tick:1hz")
     async def poll(self, _data):
         """Poll CPU every second."""
         import psutil
@@ -562,5 +562,5 @@ See `llmings/samples/` for working examples:
 | Sample | Type | Features |
 |--------|------|----------|
 | `pomodoro/` | Client (Vue only) | `<script setup>`, `ref`, `watch`, `localStorage`, `q-circular-progress` |
-| `dice_roller/` | Hybrid (Python + JS) | `@power`, `@on`, positional args, Pydantic models |
+| `dice_roller/` | Hybrid (Python + JS) | `@power`, `@pulse`, positional args, Pydantic models |
 | `color_picker/` | Hybrid (Python + JS) | Vault storage, pulse events |

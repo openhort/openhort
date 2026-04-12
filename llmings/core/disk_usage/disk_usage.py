@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from hort.llming import Llming, power, on, PowerInput, PowerOutput, PulseEvent
+from hort.llming import Llming, power, pulse, PowerInput, PowerOutput, PulseEvent
 
 
 # ── Data models ──
@@ -52,9 +52,9 @@ class DiskUsage(Llming):
         self._latest = {}
         self.log.info("Disk usage monitor activated")
 
-    @on("tick:slow")
+    @pulse("tick:5s")
     async def poll_disks(self, _data: dict) -> None:
-        """Poll disk partitions every 5s via tick:slow channel."""
+        """Poll disk partitions every 5s via tick:5s channel."""
         partitions = await asyncio.to_thread(self._read_partitions)
         now = time.time()
 

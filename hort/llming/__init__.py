@@ -2,7 +2,8 @@
 
 from hort.llming.base import Llming
 from hort.llming.bus import MessageBus
-from hort.llming.decorators import on, on_ready, power
+from hort.llming.decorators import on_ready, power, pulse
+from hort.llming.handles import vault_ref
 from hort.llming.llm_executor import LlmExecutor, SendResult, SessionConfig, SessionInfo
 from hort.llming.models import LlmingData, PowerInput, PowerOutput, PulseEvent
 from hort.llming.powers import Power, PowerType
@@ -12,5 +13,5 @@ __all__ = [
     "Llming", "LlmExecutor", "SendResult", "SessionConfig", "SessionInfo",
     "LlmingData", "PowerInput", "PowerOutput", "PulseEvent",
     "MessageBus", "Power", "PowerType", "PulseBus",
-    "power", "on", "on_ready",
+    "power", "pulse", "on_ready", "vault_ref",
 ]

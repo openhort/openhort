@@ -20,10 +20,10 @@ Powers::
 
 Pulse subscriptions::
 
-    @on("cpu_spike")
+    @pulse("cpu_spike")
     async def handle_spike(self, data: dict) -> None: ...
 
-    @on("tick:1hz")
+    @pulse("tick:1hz")
     async def every_second(self, data: dict) -> None: ...
 
 Dependency waiting::
@@ -246,10 +246,10 @@ class OnMeta:
     channel: str
 
 
-def on(channel: str) -> Callable:
+def pulse(channel: str) -> Callable:
     """Subscribe a method to a named pulse channel.
 
-    Built-in: tick:30hz, tick:10hz, tick:1hz, tick:slow
+    Built-in: tick:10hz, tick:1hz, tick:5s
     Lifecycle: llming:started, llming:stopped
     Custom: cpu_spike, disk_usage, etc.
     """

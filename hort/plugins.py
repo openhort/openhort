@@ -149,6 +149,13 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
         for channel, handler in collect_subscriptions(inst):
             bus.subscribe_channel(channel, handler)
 
+        # Register vault_ref bindings for push notifications
+        from hort.llming.handles import VaultRef, register_vault_ref
+        for cls in type(inst).__mro__:
+            for attr_val in vars(cls).values():
+                if isinstance(attr_val, VaultRef):
+                    register_vault_ref(inst, attr_val)
+
         # Collect @on_ready handlers
         for deps, handler in collect_ready_handlers(inst):
             ready_waiters.append((deps, handler))
@@ -207,12 +214,12 @@ async def start_llmings(registry: ExtensionRegistry) -> None:  # pragma: no cove
     except Exception:
         pass
 
-    # Fire initial ticks so @on("tick:slow") etc. get data immediately
+    # Fire initial ticks so @pulse("tick:5s") etc. get data immediately
     import time
     now = time.time()
     await bus.emit_channel("tick:10hz", {"ts": now})
     await bus.emit_channel("tick:1hz", {"ts": now})
-    await bus.emit_channel("tick:slow", {"ts": now})
+    await bus.emit_channel("tick:5s", {"ts": now})
 
     # Start built-in tick channels in background
     asyncio.create_task(_tick_loop(bus))
@@ -254,9 +261,9 @@ async def _tick_loop(bus: Any) -> None:
         if counter % 10 == 0:
             await bus.emit_channel("tick:1hz", {"ts": now})
 
-        # tick:slow — every 50th tick (5s)
+        # tick:5s — every 50th tick (5s)
         if counter % 50 == 0:
-            await bus.emit_channel("tick:slow", {"ts": now})
+            await bus.emit_channel("tick:5s", {"ts": now})
 
 
 _global_cmd_registry: list = [None]  # mutable container for the singleton

@@ -313,6 +313,67 @@
       _registry.set(ExtClass.id, ExtClass);
     }
 
+    // ---- Vault watcher registry (push-based vaultRef) ----
+
+    /** @internal {Map<string, Array<{ref, extract, onChange}>>} key = "owner:vaultKey" */
+    static _vaultWatchers = new Map();
+
+    /**
+     * Register a vaultRef watcher. Called by the SFC loader's vaultRef().
+     * @internal
+     */
+    static _watchVault(owner, key, entry) {
+      const wk = owner + ':' + key;
+      if (!LlmingClient._vaultWatchers.has(wk)) {
+        LlmingClient._vaultWatchers.set(wk, []);
+        // Subscribe via WS
+        if (window.hortWS) {
+          window.hortWS.request({ type: 'card.vault.watch', owner, key });
+        }
+      }
+      LlmingClient._vaultWatchers.get(wk).push(entry);
+    }
+
+    /**
+     * Unregister a vaultRef watcher.
+     * @internal
+     */
+    static _unwatchVault(owner, key, entry) {
+      const wk = owner + ':' + key;
+      const list = LlmingClient._vaultWatchers.get(wk);
+      if (!list) return;
+      const idx = list.indexOf(entry);
+      if (idx >= 0) list.splice(idx, 1);
+      if (!list.length) {
+        LlmingClient._vaultWatchers.delete(wk);
+        if (window.hortWS) {
+          window.hortWS.request({ type: 'card.vault.unwatch', owner, key });
+        }
+      }
+    }
+
+    /**
+     * Handle an incoming vault.update push from the server.
+     * @internal
+     */
+    static _notifyVaultUpdate(owner, key, data) {
+      const wk = owner + ':' + key;
+      const list = LlmingClient._vaultWatchers.get(wk);
+      if (!list) return;
+      for (const entry of list) {
+        try {
+          const nv = entry.extract(data);
+          const nj = JSON.stringify(nv);
+          if (nj !== entry.lastJson) {
+            const ov = entry.ref.value;
+            entry.ref.value = nv;
+            entry.lastJson = nj;
+            if (entry.onChange) entry.onChange(nv, ov);
+          }
+        } catch (e) { /* ignore */ }
+      }
+    }
+
     /**
      * Instantiate and activate all registered extensions.
      * Called by the host app after all extension scripts have loaded.
@@ -353,6 +414,13 @@
     static notifyConnect() {
       for (const [, instance] of _instances) {
         try { instance.onConnect(); } catch (e) { console.error('[ext:connect]', e); }
+      }
+      // Re-register vault watches on reconnect
+      for (const [wk] of LlmingClient._vaultWatchers) {
+        const [owner, key] = wk.split(':');
+        if (window.hortWS) {
+          window.hortWS.request({ type: 'card.vault.watch', owner, key });
+        }
       }
     }
 

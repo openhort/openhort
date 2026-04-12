@@ -2,11 +2,29 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from llming_com import WSRouter
 
 from hort.commands._registry import get_llming_registry
+
+_llmings_root = Path(__file__).parent.parent.parent / "llmings"
+
+
+def _has_file(dir_name: str, filename: str) -> bool:
+    """Check if a llming has a specific file."""
+    for provider in _llmings_root.iterdir() if _llmings_root.is_dir() else []:
+        if not provider.is_dir():
+            continue
+        ext = provider / dir_name
+        if ext.is_dir():
+            if (ext / filename).exists():
+                return True
+            # Also check app/index.vue for app routes
+            if filename == "app.vue" and (ext / "app" / "index.vue").exists():
+                return True
+    return False
 
 router = WSRouter(prefix="llmings")
 
@@ -20,13 +38,15 @@ async def llmings_list(controller: Any) -> dict[str, Any]:
     llmings = registry.list_llmings()
     for p in llmings:
         manifest = registry.get_manifest(p["name"])
+        dir_name = manifest.name.replace("-", "_") if manifest else p["name"].replace("-", "_")
         if manifest and manifest.ui_script:
-            p["ui_script_url"] = (
-                f"/ext/{manifest.name.replace('-', '_')}/static/"
-                f"{manifest.ui_script.replace('static/', '')}"
-            )
+            p["ui_script_url"] = f"/ext/{dir_name}/static/{manifest.ui_script.replace('static/', '')}"
         else:
             p["ui_script_url"] = ""
+        # App script (app.vue / app/index.vue)
+        p["app_script_url"] = f"/ext/{dir_name}/static/app.js" if _has_file(dir_name, "app.vue") else ""
+        # Demo script
+        p["demo_url"] = f"/ext/{dir_name}/demo.js" if _has_file(dir_name, "demo.js") else ""
     return {"data": llmings}
 
 

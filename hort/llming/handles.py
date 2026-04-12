@@ -10,10 +10,21 @@
     await self.llmings["hue-bridge"].call("set_light", {...})
 
     self.channels["cpu_spike"].subscribe(handler)
+
+Reactive vault bindings:
+
+    class Dashboard(Llming):
+        cpu = vault_ref('system-monitor', 'state.cpu_percent', default=0)
+
+        @cpu.on_change
+        async def on_cpu_spike(self, value, old):
+            if value > 90:
+                await self.emit('cpu_alert', {'cpu': value})
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
@@ -24,6 +35,131 @@ if TYPE_CHECKING:
     from hort.llming.pulse import PulseBus
 
 logger = logging.getLogger(__name__)
+
+
+# ── VaultRef (reactive descriptor) ──
+
+
+class VaultRef:
+    """Reactive binding to a vault value.
+
+    Declare as a class attribute. The framework polls the source vault
+    and updates the descriptor automatically. Use ``@ref.on_change`` to
+    register callbacks that fire when the value changes.
+
+    Example::
+
+        class AlertManager(Llming):
+            cpu = vault_ref('system-monitor', 'state.cpu_percent', default=0)
+            mem = vault_ref('system-monitor', 'state.mem_percent', default=0)
+
+            @cpu.on_change
+            async def on_cpu_spike(self, value, old):
+                if value > 90:
+                    await self.emit('cpu_alert', {'cpu': value})
+    """
+
+    def __init__(self, owner: str, path: str, *, default: Any = None) -> None:
+        self.owner = owner
+        self.default = default
+        self._attr = ""
+        self._on_change_handlers: list[Callable] = []
+
+        # Parse path: 'state.cpu_percent' → key='state', props=['cpu_percent']
+        dot = path.find(".")
+        self.key = path[:dot] if dot >= 0 else path
+        self.props = path[dot + 1 :].split(".") if dot >= 0 else []
+
+    def __set_name__(self, owner_cls: type, name: str) -> None:
+        self._attr = f"_vr_{name}"
+
+    def __get__(self, obj: Any, objtype: type | None = None) -> Any:
+        if obj is None:
+            return self  # class-level access returns the descriptor
+        return getattr(obj, self._attr, self.default)
+
+    def __set__(self, obj: Any, value: Any) -> None:
+        old = getattr(obj, self._attr, self.default)
+        object.__setattr__(obj, self._attr, value)
+        if old != value:
+            for handler in self._on_change_handlers:
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(handler(obj, value, old))
+                except RuntimeError:
+                    pass
+
+    def on_change(self, handler: Callable) -> Callable:
+        """Decorator: register a callback for value changes."""
+        self._on_change_handlers.append(handler)
+        return handler
+
+    def _extract(self, data: dict[str, Any]) -> Any:
+        """Navigate the property path to extract the bound value."""
+        val: Any = data
+        for p in self.props:
+            if not isinstance(val, dict):
+                return self.default
+            val = val.get(p, self.default)
+        return val if val is not None else self.default
+
+    def poll(self, llming: Any) -> None:
+        """Read the vault and update the value. Called by the framework."""
+        if self.owner == "self":
+            data = llming.vault.get(self.key, {})
+        else:
+            data = llming.vaults[self.owner].get(self.key, {})
+        value = self._extract(data)
+        self.__set__(llming, value)
+
+
+def vault_ref(owner: str, path: str, *, default: Any = None) -> VaultRef:
+    """Create a reactive vault binding.
+
+    Args:
+        owner: Source llming name, or 'self' for own vault.
+        path: Dot-separated path — 'state.cpu_percent'.
+        default: Default value when vault is empty.
+
+    Returns:
+        VaultRef descriptor for use as a class attribute.
+    """
+    return VaultRef(owner, path, default=default)
+
+
+# ── Python vault_ref push registry ──
+
+# {(owner, key): [(llming_instance, VaultRef), ...]}
+_python_vault_watchers: dict[tuple[str, str], list[tuple[Any, VaultRef]]] = {}
+
+
+def register_vault_ref(llming: Any, vr: VaultRef) -> None:
+    """Register a VaultRef for push notifications. Called by the framework."""
+    resolved_owner = vr.owner if vr.owner != "self" else llming._instance_name
+    wk = (resolved_owner, vr.key)
+    _python_vault_watchers.setdefault(wk, []).append((llming, vr))
+    # Initial read
+    vr.poll(llming)
+
+
+def unregister_vault_refs(llming: Any) -> None:
+    """Unregister all VaultRefs for a llming instance. Called on deactivate."""
+    for wk in list(_python_vault_watchers):
+        _python_vault_watchers[wk] = [
+            (inst, vr) for inst, vr in _python_vault_watchers[wk] if inst is not llming
+        ]
+        if not _python_vault_watchers[wk]:
+            del _python_vault_watchers[wk]
+
+
+def _notify_python_watchers(owner: str, key: str, data: dict[str, Any]) -> None:
+    """Called by Vault.set() — update all VaultRef bindings for this key."""
+    watchers = _python_vault_watchers.get((owner, key))
+    if not watchers:
+        return
+    for llming, vr in watchers:
+        value = vr._extract(data)
+        vr.__set__(llming, value)
 
 
 # ── Vault (own — full access, cached) ──
@@ -85,6 +221,13 @@ class Vault:
         cached = dict(payload)
         cached.pop("_key", None)
         self._cache[key] = cached
+        # Push to watching viewers and Python vault_ref bindings
+        try:
+            from hort.commands.card_api import notify_vault_change
+            notify_vault_change(self._owner, key, cached)
+        except Exception:
+            pass
+        _notify_python_watchers(self._owner, key, cached)
 
     def delete(self, key: str) -> bool:
         """Delete a key."""

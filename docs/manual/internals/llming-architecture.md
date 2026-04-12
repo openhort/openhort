@@ -247,7 +247,7 @@ from llmings.core.system_monitor.provider import SystemMonitor
 result = await self.llmings["system-monitor"].call("get_metrics")
 
 # ALLOWED — subscribe to named channels
-@on("cpu_spike")
+@pulse("cpu_spike")
 async def handle_spike(self, data: dict) -> None: ...
 
 # ALLOWED — read shared vault data

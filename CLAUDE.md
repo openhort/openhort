@@ -7,7 +7,7 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - **Llming** — an extension unit. The universal building block. Has up to five parts: Soul, Powers, Pulse, Cards, Envoy. Server class: `Llming` (`hort/llming/base.py`). Client class: `LlmingClient` (`hort/static/vendor/hort-ext.js`). All llming code lives in `llmings/` (separate from the `hort/` framework package). Each llming runs in its own subprocess.
 - **Soul** (`SOUL.md`) — what a Llming knows and how it behaves. Markdown file with feature-gated sections. Injected into the AI system prompt.
 - **Powers** — what a Llming can do. Defined with `@power` decorator, auto-routed by the framework. Every power is an MCP tool by default (`mcp=False` to hide). Input/output are Pydantic models (`PowerInput`/`PowerOutput`). `PowerOutput` uses HTTP status codes (200/403/404/500). No manual `get_powers()` or `execute_power()` dispatch needed.
-- **Pulse** — named channel events. Push-only (`self.emit("channel", data)`), subscribe with `@on("channel")` decorator or `self.channels["channel"].subscribe(handler)` at runtime. `get_pulse()` exists for UI thumbnail rendering only — NOT for cross-llming data. Built-in tick channels: `tick:10hz`, `tick:1hz`, `tick:slow`. Lifecycle events: `llming:started`, `llming:stopped`.
+- **Pulse** — named channel events. Push-only (`self.emit("channel", data)`), subscribe with `@pulse("channel")` decorator or `self.channels["channel"].subscribe(handler)` at runtime. `get_pulse()` exists for UI thumbnail rendering only — NOT for cross-llming data. Built-in tick channels: `tick:10hz`, `tick:1hz`, `tick:5s`. Lifecycle events: `llming:started`, `llming:stopped`.
 - **Cards** — how a Llming looks. Grid thumbnails, detail panels, widgets, float windows.
 - **Envoy** — the Llming's execution agent inside a sub-hort (container/VM/remote machine). Runs locally inside the isolation boundary. Handles MCP (stdio + SSE, SDK-agnostic), process management, credential provisioning, and streaming output. Speaks H2H protocol over stdio/TCP. Works with any MCP client (Claude Code, OpenAI, Anthropic SDK). openhort can also run as a standalone MCP reverse proxy with policy enforcement. See [Envoy Architecture](docs/manual/internals/envoy-architecture.md).
 - **Circuits** — visual flow editor for wiring Llmings, triggers, and actions into automated workflows (`/hortmap`).
@@ -41,14 +41,14 @@ Remote window viewer — watch and control your machine from your phone/tablet.
 - `hort/spaces.py` — macOS Spaces detection and switching (SkyLight)
 - `hort/network.py` — LAN IP detection, QR code generation
 - `hort/cert.py` — Self-signed TLS certificate generation
-- `hort/llming/` — Llming framework: `base.py` (Llming class), `decorators.py` (`@power`, `@on`, `@on_ready`), `models.py` (`PowerInput`, `PowerOutput`, `PulseEvent`), `handles.py` (self.llmings, self.vaults, self.channels), `llm_executor.py` (LlmExecutor base for LLM providers), `powers.py`, `pulse.py` (named channel bus), `bus.py` (MessageBus + power_catalog)
+- `hort/llming/` — Llming framework: `base.py` (Llming class), `decorators.py` (`@power`, `@pulse`, `@on_ready`), `models.py` (`PowerInput`, `PowerOutput`, `PulseEvent`), `handles.py` (self.llmings, self.vaults, self.channels), `llm_executor.py` (LlmExecutor base for LLM providers), `powers.py`, `pulse.py` (named channel bus), `bus.py` (MessageBus + power_catalog)
 - `hort/lifecycle/` — Subprocess isolation: `manager.py` (ManagedProcess), `worker.py` (Worker base), `runner.py` (llming subprocess entry point), `llming_process.py` (LlmingProcess + LlmingProxy), `ipc_protocol.py` (IPC message types)
 - `hort/envoy/` — Envoy agent (MCP stdio server, control channel, host client)
 - `hort/ext/` — Framework internals: `registry.py` (extension discovery/loading), `manifest.py`, `scheduler.py`, `store.py`, `claude_auth.py` (cross-platform credential extraction)
 - `hort/containers/` — Container management (base ABC, Docker provider, registry)
 - `hort/ext/chat_backend.py` — Chat backend (routes messages to LLM executor, MCP bridge)
 - `hort/commands/` — WS command modules (llmings, config, cam, wire, debug, sources)
-- `hort/plugins.py` — Llming lifecycle (discovery, loading, @on wiring, non-blocking startup, tick channels)
+- `hort/plugins.py` — Llming lifecycle (discovery, loading, @pulse wiring, non-blocking startup, tick channels)
 - `llmings/` — ALL llming implementations (separate package, NOT part of hort). Main process never imports from here.
 - `llmings/core/` — Built-in llmings (system-monitor, telegram, hue-bridge, peer2peer, etc.)
 - `llmings/llms/` — LLM executor llmings (claude_code, llming_models_ext)
@@ -305,12 +305,12 @@ class MyLlming(Llming):
 - `PulseEvent(version=1)` — named channel event payloads
 - All inherit from `LlmingData(version=1)`
 
-**Pulse channels** — push-only named channels, subscribe with `@on`:
+**Pulse channels** — push-only named channels, subscribe with `@pulse`:
 ```python
-@on("cpu_spike")
+@pulse("cpu_spike")
 async def handle_spike(self, data: dict) -> None: ...
 
-@on("tick:1hz")
+@pulse("tick:1hz")
 async def poll(self, data: dict) -> None: ...
 
 # Or at runtime:
@@ -337,12 +337,12 @@ data = self.load("key", default={"cpu": 0})
 create_app()          → setup_llmings() discovers manifests, registers API routes (NO loading)
 on_event("startup")   → load_llmings_sync() → start_llmings():
                           1. Build @power handler maps
-                          2. Wire @on subscriptions
+                          2. Wire @pulse subscriptions
                           3. Start scheduler jobs
                           4. Start connectors (background tasks)
                           5. Fire @on_ready handlers
                           6. Emit llming:started events
-                          7. Start tick channels (tick:10hz, tick:1hz, tick:slow)
+                          7. Start tick channels (tick:10hz, tick:1hz, tick:5s)
 on_event("shutdown")  → stop_llmings() → emit llming:stopped → deactivate all
 ```
 Startup must complete in <3s. Connector starts are non-blocking background tasks.

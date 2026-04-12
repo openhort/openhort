@@ -22,7 +22,7 @@ llmings/core/my_llming/
 
 ```python
 # provider.py
-from hort.llming import Llming, power, on, PowerOutput
+from hort.llming import Llming, power, pulse, PowerOutput
 
 class MyLlming(Llming):
     @power("get_status", description="Get current status")
@@ -33,7 +33,7 @@ class MyLlming(Llming):
     async def cpu_command(self) -> str:
         return f"CPU: {self._cpu}%"
 
-    @on("tick:1hz")
+    @pulse("tick:1hz")
     async def poll(self, data: dict) -> None:
         self._cpu = get_cpu()
         self.save("latest", {"cpu": self._cpu})
@@ -42,7 +42,7 @@ class MyLlming(Llming):
 ### Key Concepts
 
 - **`@power`** — declares a power (MCP tool by default, `mcp=False` to hide). No manual `get_powers()` or `execute_power()`.
-- **`@on`** — subscribes to a named pulse channel. Built-in: `tick:10hz`, `tick:1hz`, `tick:slow`, `llming:started`, `llming:stopped`.
+- **`@pulse`** — subscribes to a named pulse channel. Built-in: `tick:10hz`, `tick:1hz`, `tick:5s`, `llming:started`, `llming:stopped`.
 - **`@on_ready`** — fires when dependencies are loaded.
 - **`PowerOutput(code=200)`** — HTTP status codes for responses.
 - **`self.save/load`** — one-liner storage with defaults.

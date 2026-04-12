@@ -3,17 +3,18 @@
     <q-card-section class="text-center">
       <div class="text-overline text-grey-6 q-mb-sm">POMODORO</div>
 
-      <q-circular-progress
-        :value="progress"
-        size="200px"
-        :thickness="0.08"
-        :color="running ? 'green-5' : 'blue-5'"
-        track-color="grey-9"
-        center-color="dark"
-        rounded
-        class="q-mb-md"
-      >
-        <div class="column items-center justify-center">
+      <div class="progress-ring">
+        <q-circular-progress
+          :value="progress"
+          size="200px"
+          :thickness="0.08"
+          :color="running ? 'green-5' : 'blue-5'"
+          track-color="grey-9"
+          center-color="dark"
+          rounded
+          class="q-mb-md"
+        />
+        <div class="ring-center">
           <span
             class="time-display text-h3 text-weight-bold"
             :class="{ 'text-green-5': running, 'text-grey-1': !running }"
@@ -24,7 +25,7 @@
             {{ statusLabel }}
           </span>
         </div>
-      </q-circular-progress>
+      </div>
     </q-card-section>
 
     <q-card-section class="text-center q-pt-none">
@@ -134,6 +135,19 @@ function reset() {
 .pomodoro-card {
   max-width: 380px;
   margin: 0 auto;
+}
+.progress-ring {
+  position: relative;
+  display: inline-block;
+}
+.ring-center {
+  position: absolute;
+  inset: 0 0 16px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
 }
 
 .time-display {

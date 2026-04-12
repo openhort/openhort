@@ -108,9 +108,9 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     app.state.dev_mode = is_dev
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # Serve compiled .vue files as JS (card.vue → /ext/{name}/static/cards.js)
+    # Serve compiled .vue files as JS ({name}.vue → /ext/{name}/static/cards.js)
     _llmings_root = Path(__file__).parent.parent / "llmings"
-    _vue_routes: dict[str, Path] = {}  # {llming_name: vue_path}
+    _vue_routes: dict[str, Path] = {}  # {dir_name: vue_path}
 
     for _provider_dir in sorted(_llmings_root.iterdir()) if _llmings_root.is_dir() else []:
         if not _provider_dir.is_dir() or _provider_dir.name.startswith((".", "_")):
@@ -118,7 +118,21 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
         for ext_path in _provider_dir.iterdir():
             if not ext_path.is_dir():
                 continue
-            vue_file = ext_path / "card.vue"
+            # Check manifest for custom card file name
+            _card_name = None
+            _manifest_path = ext_path / "manifest.json"
+            if _manifest_path.exists():
+                try:
+                    import json as _json
+                    _mdata = _json.loads(_manifest_path.read_text())
+                    _card_name = _mdata.get("card")
+                except Exception:
+                    pass
+            # Default: {dir_name}.vue
+            if _card_name:
+                vue_file = ext_path / _card_name
+            else:
+                vue_file = ext_path / f"{ext_path.name}.vue"
             if vue_file.exists():
                 _vue_routes[ext_path.name] = vue_file
 
@@ -133,6 +147,53 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
                     return Response(content=js, media_type="application/javascript")
                 return handler
             app.get(f"/ext/{_vue_name}/static/cards.js")(_make_handler(_vue_path, _vue_name))
+
+    # Serve compiled app.vue files as JS (/ext/{name}/static/app.js)
+    _app_routes: dict[str, Path] = {}
+    for _provider_dir in sorted(_llmings_root.iterdir()) if _llmings_root.is_dir() else []:
+        if not _provider_dir.is_dir() or _provider_dir.name.startswith((".", "_")):
+            continue
+        for ext_path in _provider_dir.iterdir():
+            if not ext_path.is_dir():
+                continue
+            # Check app.vue, then app/index.vue
+            app_vue = ext_path / "app.vue"
+            if not app_vue.exists():
+                app_vue = ext_path / "app" / "index.vue"
+            if app_vue.exists():
+                _app_routes[ext_path.name] = app_vue
+
+    if _app_routes:
+        from hort.ext.vue_loader import compile_vue as _compile_app
+
+        for _app_name, _app_path in _app_routes.items():
+            def _make_app_handler(vp: Path, vn: str) -> Any:
+                async def handler() -> Response:
+                    js = _compile_app(vp, vn, mode="app")
+                    return Response(content=js, media_type="application/javascript")
+                return handler
+            app.get(f"/ext/{_app_name}/static/app.js")(_make_app_handler(_app_path, _app_name))
+
+    # Serve demo.js files (/ext/{name}/demo.js)
+    for _provider_dir in sorted(_llmings_root.iterdir()) if _llmings_root.is_dir() else []:
+        if not _provider_dir.is_dir() or _provider_dir.name.startswith((".", "_")):
+            continue
+        for ext_path in _provider_dir.iterdir():
+            if not ext_path.is_dir():
+                continue
+            demo_file = ext_path / "demo.js"
+            if demo_file.exists():
+                def _make_demo_handler(dp: Path) -> Any:
+                    async def handler() -> Response:
+                        return Response(content=dp.read_text(), media_type="application/javascript",
+                                        headers={"Cache-Control": "no-cache"})
+                    return handler
+                app.get(f"/ext/{ext_path.name}/demo.js")(_make_demo_handler(demo_file))
+
+    # Serve shared demo data directory
+    _demo_data_dir = Path(__file__).parent.parent / "sample-data"
+    if _demo_data_dir.is_dir():
+        app.mount("/sample-data", StaticFiles(directory=str(_demo_data_dir)), name="sample-data")
 
     # Mount extension static directories (all provider dirs under llmings/)
     for _provider_dir in sorted(_llmings_root.iterdir()) if _llmings_root.is_dir() else []:
@@ -580,6 +641,26 @@ def _register_routes(app: FastAPI) -> None:
             "dev": str(app.state.dev_mode),
             "observers": registry.observer_count(),
         }
+
+    @app.post("/api/debug/demo")
+    async def debug_demo_toggle() -> dict[str, Any]:
+        """Toggle demo mode on all connected viewers.
+
+        Pushes a demo.toggle message via WS to all sessions.
+        Viewers handle the toggle client-side (HortDemo.toggle).
+        """
+        from hort.session import HortRegistry
+        registry = HortRegistry.get()
+        count = 0
+        for sid in list(registry._sessions.keys()):
+            try:
+                entry = registry.get_session(sid)
+                if entry and hasattr(entry, "controller") and entry.controller:
+                    await entry.controller.send({"type": "demo.toggle"})
+                    count += 1
+            except Exception:
+                pass
+        return {"ok": True, "viewers_notified": count}
 
     @app.get("/api/debug/tools")
     async def debug_tools() -> list[dict[str, Any]]:

@@ -46,6 +46,16 @@
         }
       }
       await Promise.allSettled(promises);
+      // Load app scripts (app.vue) after card scripts
+      const appPromises = [];
+      for (const p of _pluginsData) {
+        if (p.loaded && p.app_script_url && !_loadedScripts.has(p.app_script_url)) {
+          const url = bp + p.app_script_url;
+          appPromises.push(_loadScript(url));
+          _loadedScripts.add(p.app_script_url);
+        }
+      }
+      if (appPromises.length) await Promise.allSettled(appPromises);
     } catch (e) {
       console.warn('[plugins] Discovery failed:', e);
     }

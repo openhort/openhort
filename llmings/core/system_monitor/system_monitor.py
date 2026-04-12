@@ -6,7 +6,7 @@ import asyncio
 import time
 from typing import Any
 
-from hort.llming import Llming, power, on, PowerInput, PowerOutput, PulseEvent
+from hort.llming import Llming, power, pulse, PowerInput, PowerOutput, PulseEvent
 
 
 # ── Data models ──
@@ -50,9 +50,9 @@ class SystemMonitor(Llming):
         self._history = []
         self.log.info("System monitor activated")
 
-    @on("tick:slow")
+    @pulse("tick:1hz")
     async def poll_metrics(self, _data: dict) -> None:
-        """Poll system metrics every 5s via tick:slow."""
+        """Poll system metrics every second."""
         metrics = await asyncio.to_thread(self._read_metrics)
         self._latest = metrics
         self._history.append(metrics)
