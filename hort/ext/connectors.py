@@ -56,16 +56,27 @@ class IncomingMessage:
 
     @property
     def command(self) -> str:
+        """Root command name. /hort__info → "hort", /cpu → "cpu"."""
         if not self.is_command or not self.text:
             return ""
-        return self.text.split()[0][1:].split("@")[0].lower()
+        raw = self.text.split()[0][1:].split("@")[0].lower()
+        # Double underscore = subcommand separator → extract root
+        if "__" in raw:
+            return raw.split("__")[0]
+        return raw
 
     @property
     def command_args(self) -> str:
+        """Args after command. /hort__info foo → "info foo", /hort info → "info"."""
         if not self.is_command or not self.text:
             return ""
-        parts = self.text.split(maxsplit=1)
-        return parts[1] if len(parts) > 1 else ""
+        raw = self.text.split()[0][1:].split("@")[0].lower()
+        rest = self.text.split(maxsplit=1)[1] if " " in self.text.strip() else ""
+        # Double underscore = subcommand embedded in command
+        if "__" in raw:
+            sub = raw.split("__", 1)[1]
+            return f"{sub} {rest}".strip() if rest else sub
+        return rest
 
 
 @dataclass(frozen=True)

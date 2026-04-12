@@ -85,11 +85,16 @@ class HortChief(Llming):
                 lines.append(f"  {c['name']}: {c['status']} ({c['image']})")
         else:
             lines.append("  No containers running")
-        # List available subcommands
+        # Clickable subcommand links (__ = subcommand separator)
         handlers = getattr(self, "_power_handlers", {})
-        subs = sorted(m.sub for _, m in handlers.values() if m.name == "hort" and m.sub)
+        subs = sorted(
+            (m.sub, m.short) for _, m in handlers.values()
+            if m.name == "hort" and m.sub
+        )
         if subs:
-            lines.append(f"\nSubcommands: /hort {' | '.join(subs)}")
+            lines.append("")
+            for sub, desc in subs:
+                lines.append(f"/hort__{sub} — {desc}")
         return "\n".join(lines)
 
     # ── MCP tools ──
