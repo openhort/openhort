@@ -221,9 +221,34 @@ llmings:
       network: restricted
 ```
 
-Two tiers: subprocess (trusted, local filesystem) and container
-(untrusted, Docker sandbox). Group is optional — llmings without
-a group get their own subprocess.
+Three tiers:
+
+| Tier | Isolation | Use case |
+|------|-----------|----------|
+| **subprocess** (default) | Own process, IPC only | All llmings by default |
+| **container** | Docker sandbox | Untrusted / community llmings |
+| **in_process** | None — shares main process memory | Platform providers, hort-chief |
+
+Group is optional — llmings in the same group share a subprocess.
+Ungrouped llmings each get their own subprocess.
+
+!!! danger "in_process is a security risk"
+    An `in_process` llming runs inside the main server process. It has
+    full access to:
+
+    - All other in-process llmings' memory and credentials
+    - The OS keychain (OAuth tokens, API keys)
+    - The framework internals (session manager, registries)
+    - The event loop (can block the entire server)
+    - All Docker containers on the host
+
+    **Only core platform providers and hort-chief should ever be in_process.**
+    Third-party or community llmings must NEVER run in-process.
+
+    Future: installing a llming with `in_process: true` must show a
+    prominent security warning with explicit user acceptance before
+    loading. The UI should display a red badge on in-process llmings
+    and log a WARNING on every startup.
 
 ## Startup Sequence
 
