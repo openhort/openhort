@@ -93,7 +93,7 @@ class HortChief(Llming):
 
     # ── Slash commands ──
 
-    @power("hort info", description="Container and LLM executor status", command="/hort info", mcp=False)
+    @power("hort", sub="info", description="Container and LLM executor status", command=True, mcp=False)
     async def hort_info(self) -> str:
         containers = self._get_containers()
         lines = ["Hort Container Info"]
@@ -112,7 +112,7 @@ class HortChief(Llming):
             pass
         return "\n".join(lines)
 
-    @power("hort restart", description="Restart Claude container and clear sessions", command="/hort restart", mcp=False, admin_only=True)
+    @power("hort", sub="restart", description="Restart Claude container and clear sessions", command=True, mcp=False, admin_only=True)
     async def hort_restart(self) -> str:
         logger.info("Admin requested hort container restart")
         result = subprocess.run(
@@ -133,7 +133,7 @@ class HortChief(Llming):
         logger.info("Hort container restarted, sessions cleared")
         return "Container restarted. Sessions cleared."
 
-    @power("hort sessions", description="List active chat sessions", command="/hort sessions", mcp=False, admin_only=True)
+    @power("hort", sub="sessions", description="List active chat sessions", command=True, mcp=False, admin_only=True)
     async def hort_sessions(self) -> str:
         try:
             from hort.ext.chat_backend import _shared_manager
@@ -150,15 +150,15 @@ class HortChief(Llming):
         except Exception:
             return "Could not read sessions."
 
-    @power("horts", description="Sub-hort overview", command="/horts", admin_only=True)
+    @power("horts", description="Sub-hort overview", command=True, admin_only=True)
     async def horts_command(self) -> str:
         return self._build_overview()
 
-    @power("hort detail", description="Details for a specific container", command="/hort detail", mcp=False, admin_only=True)
+    @power("hort", sub="detail", description="Details for a specific container", command=True, mcp=False, admin_only=True)
     async def hort_detail(self, req: HortDetailRequest) -> str:
         return self._build_detail(req.container_id)
 
-    @power("workers", description="Show managed worker process status", command="/workers", admin_only=True)
+    @power("workers", description="Show managed worker process status", command=True, admin_only=True)
     async def workers_command(self) -> str:
         return self._build_workers_status()
 

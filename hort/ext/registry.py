@@ -129,6 +129,7 @@ class ExtensionRegistry:
 
         if isinstance(instance, Llming):
             self._inject_llming_services(instance, manifest, config or {})
+            instance._build_power_map()
 
         if hasattr(instance, "activate"):
             instance.activate(config or {})

@@ -13,6 +13,5 @@
   "author": "openhort",
   "llming_type": "tool",
   "mcp": true,
-  "soul": "SOUL.md",
-  "group": "core.media"
+  "soul": "SOUL.md"
 }

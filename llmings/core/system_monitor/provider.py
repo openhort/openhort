@@ -93,14 +93,14 @@ class SystemMonitor(Llming):
         )
         return PowerOutput(message=text)
 
-    @power("cpu", description="Current CPU, memory, disk usage", command="/cpu")
+    @power("cpu", description="Current CPU, memory, disk usage", command=True)
     async def cpu_command(self) -> str:
         if not self._latest:
             return "No metrics available yet."
         d = self._latest
         return f"CPU: {d.get('cpu_percent', '?')}%  MEM: {d.get('mem_percent', '?')}%  DISK: {d.get('disk_percent', '?')}%"
 
-    @power("health", description="Full system health report", command="/health")
+    @power("health", description="Full system health report", command=True)
     async def health_command(self) -> str:
         if not self._latest:
             return "No system metrics available yet."

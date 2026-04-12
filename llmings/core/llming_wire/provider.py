@@ -74,7 +74,7 @@ class LlmingWire(Llming):
 
             # Handle slash commands (same as Telegram)
             if text.startswith("/"):
-                cmd = text.strip().lstrip("/").split()[0].lower()
+                cmd = text.strip().lstrip("/").strip()
                 result = await plugin._handle_command(cid, cmd)
                 if result:
                     return JSONResponse(result)

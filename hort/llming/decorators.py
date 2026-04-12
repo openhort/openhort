@@ -6,27 +6,35 @@ Powers::
     async def get_status(self) -> StatusResponse:
         return StatusResponse(cpu=42.0)
 
+    @power("hort", sub="info", description="Container status", command=True)
+    async def hort_info(self) -> str:
+        return "..."
+
+    @power("hort", sub="restart", description="Restart", command=True, admin_only=True)
+    async def hort_restart(self) -> str:
+        return "Restarted."
+
+    @power("cpu", description="CPU usage", command=True)
+    async def cpu_command(self) -> str:
+        return f"CPU: {self._cpu}%"
+
 Pulse subscriptions::
 
     @on("cpu_spike")
-    async def handle_spike(self, data: dict) -> None:
-        self.log.warning("CPU: %s%%", data["cpu"])
+    async def handle_spike(self, data: dict) -> None: ...
 
     @on("tick:1hz")
-    async def every_second(self, data: dict) -> None:
-        self.poll_metrics()
+    async def every_second(self, data: dict) -> None: ...
 
 Dependency waiting::
 
     @on_ready("system-monitor", "hue-bridge")
-    async def deps_loaded(self) -> None:
-        self.log.info("All dependencies ready")
+    async def deps_loaded(self) -> None: ...
 """
 
 from __future__ import annotations
 
 import asyncio
-import functools
 import inspect
 from dataclasses import dataclass
 from typing import Any, Callable, Type, get_type_hints
@@ -39,45 +47,61 @@ class PowerMeta:
     """Metadata attached to a @power-decorated method."""
 
     name: str
+    sub: str          # subcommand (e.g. "info" for /hort info). Empty = no sub.
     description: str
-    mcp: bool
-    command: str  # empty = not a slash command
+    mcp: bool         # expose as MCP tool
+    command: bool     # expose as slash command (listed in /help)
     admin_only: bool
     input_model: Type[BaseModel] | None
     output_model: Type[BaseModel] | None
+
+    @property
+    def full_name(self) -> str:
+        """Full power name including subcommand: "hort.info" or "cpu"."""
+        if self.sub:
+            return f"{self.name}.{self.sub}"
+        return self.name
+
+    @property
+    def command_name(self) -> str:
+        """Slash command display: "/hort info" or "/cpu"."""
+        if self.sub:
+            return f"/{self.name} {self.sub}"
+        return f"/{self.name}"
 
 
 def power(
     name: str,
     *,
+    sub: str = "",
     description: str = "",
     mcp: bool = True,
-    command: str = "",
+    command: bool = False,
     admin_only: bool = False,
 ) -> Callable:
     """Mark a method as a power handler.
 
     Args:
-        name: Power name (used in execute_power, MCP tool name, etc.)
+        name: Power name (e.g. "get_metrics", "hort").
+        sub: Subcommand (e.g. "info" for /hort info). Empty = no sub.
         description: Human-readable description. Falls back to docstring.
         mcp: Expose as MCP tool (default True).
-        command: Slash command alias (e.g. "/cpu"). Empty = no command.
+        command: Expose as slash command in /help (default False).
         admin_only: Restrict to admin users.
 
-    Input/output models are inferred from type hints. If the first
-    parameter (after self) is a Pydantic BaseModel subclass, it becomes
-    the input schema. If the return type is a BaseModel subclass, it
-    becomes the output schema.
+    A power with ``command=True`` is callable both ways:
+    - As power (structured): call("hort", {"sub": "info"})
+    - As command (positional): /hort info
+      → framework maps positional args to Pydantic fields in order.
 
-    Sync handlers are auto-wrapped in asyncio.to_thread().
-    No-parameter handlers (just self) are valid — args are ignored.
+    Input/output models inferred from type hints.
+    Sync handlers auto-wrapped in asyncio.to_thread().
     """
 
     def decorator(fn: Callable) -> Callable:
         hints = _safe_get_hints(fn)
         params = list(inspect.signature(fn).parameters.values())
 
-        # Infer input model from first non-self parameter
         input_model = None
         non_self = [p for p in params if p.name != "self"]
         if non_self:
@@ -85,7 +109,6 @@ def power(
             if hint and isinstance(hint, type) and issubclass(hint, BaseModel):
                 input_model = hint
 
-        # Infer output model from return hint
         output_model = None
         ret = hints.get("return")
         if ret and isinstance(ret, type) and issubclass(ret, BaseModel):
@@ -93,6 +116,7 @@ def power(
 
         fn._power_meta = PowerMeta(  # type: ignore[attr-defined]
             name=name,
+            sub=sub,
             description=description or fn.__doc__ or "",
             mcp=mcp,
             command=command,
@@ -108,8 +132,8 @@ def power(
 def collect_powers(instance: object) -> dict[str, tuple[Callable, PowerMeta]]:
     """Collect all @power-decorated methods from an instance.
 
-    Returns {power_name: (bound_method, PowerMeta)}.
-    Called once at registration time, not on every request.
+    Returns {full_name: (bound_method, PowerMeta)}.
+    Full name is "name.sub" for subcommands, "name" for root powers.
     """
     handlers: dict[str, tuple[Callable, PowerMeta]] = {}
     for attr_name in dir(type(instance)):
@@ -121,28 +145,23 @@ def collect_powers(instance: object) -> dict[str, tuple[Callable, PowerMeta]]:
         if meta is None:
             continue
         bound = getattr(instance, attr_name)
-        handlers[meta.name] = (bound, meta)
+        handlers[meta.full_name] = (bound, meta)
     return handlers
 
 
 async def invoke_handler(handler: Callable, meta: PowerMeta, args: dict[str, Any]) -> Any:
-    """Invoke a power handler with proper input parsing and async wrapping.
+    """Invoke a power handler with input parsing and async wrapping.
 
-    - Pydantic input model: parsed from args dict OR positional args string
-    - No parameters: called with no args
-    - Dict args: passed as kwargs
-    - Sync handlers: wrapped in asyncio.to_thread()
-
-    Positional argument mapping (for slash commands):
-        If args contains only {"args": "value1 value2"} and the handler
-        takes a Pydantic model, the space-separated values are mapped to
-        the model's fields in declaration order.
+    Supports:
+    - Pydantic model input (from dict or positional string)
+    - No-input handlers (just self)
+    - Dict kwargs
+    - Sync handlers wrapped in asyncio.to_thread()
     """
     is_async = asyncio.iscoroutinefunction(handler)
 
-    # Pydantic model input
     if meta.input_model is not None:
-        # Try positional args: {"args": "val1 val2"} → map to fields in order
+        # Positional args: {"args": "val1 val2"} → map to fields in order
         if list(args.keys()) == ["args"] and isinstance(args.get("args"), str):
             parsed = _parse_positional(meta.input_model, args["args"])
         else:
@@ -151,7 +170,6 @@ async def invoke_handler(handler: Callable, meta: PowerMeta, args: dict[str, Any
             return await handler(parsed)
         return await asyncio.to_thread(handler, parsed)
 
-    # No-input handler (just self)
     sig = inspect.signature(handler)
     params = [p for p in sig.parameters.values() if p.name != "self"]
     if not params:
@@ -159,7 +177,6 @@ async def invoke_handler(handler: Callable, meta: PowerMeta, args: dict[str, Any
             return await handler()
         return await asyncio.to_thread(handler)
 
-    # Dict kwargs
     if is_async:
         return await handler(**args)
     return await asyncio.to_thread(handler, **args)
@@ -169,7 +186,7 @@ def _parse_positional(model: type[BaseModel], args_str: str) -> BaseModel:
     """Parse positional args string into a Pydantic model.
 
     Maps space-separated values to model fields in declaration order.
-    Handles type coercion via Pydantic validation.
+    Skips 'version' field. Pydantic handles type coercion.
 
     Example:
         class LightControl(PowerInput):
@@ -178,14 +195,9 @@ def _parse_positional(model: type[BaseModel], args_str: str) -> BaseModel:
 
         _parse_positional(LightControl, "1 200")
         → LightControl(light_id="1", brightness=200)
-
-        _parse_positional(LightControl, "1")
-        → LightControl(light_id="1", brightness=255)  # default
     """
     parts = args_str.split() if args_str.strip() else []
-    fields = list(model.model_fields.keys())
-    # Skip 'version' field (from PowerInput base)
-    fields = [f for f in fields if f != "version"]
+    fields = [f for f in model.model_fields.keys() if f != "version"]
 
     kwargs: dict[str, Any] = {}
     for i, field_name in enumerate(fields):
@@ -196,7 +208,6 @@ def _parse_positional(model: type[BaseModel], args_str: str) -> BaseModel:
 
 
 def _safe_get_hints(fn: Callable) -> dict[str, Any]:
-    """Get type hints without raising on forward refs."""
     try:
         return get_type_hints(fn)
     except Exception:
@@ -208,31 +219,15 @@ def _safe_get_hints(fn: Callable) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class OnMeta:
-    """Metadata attached to an @on-decorated method."""
     channel: str
 
 
 def on(channel: str) -> Callable:
     """Subscribe a method to a named pulse channel.
 
-    The method is called whenever an event is emitted on this channel.
-    Framework wires subscriptions at activation time.
-
-    Built-in channels:
-        tick:30hz, tick:10hz, tick:1hz, tick:slow
-
-    Custom channels:
-        cpu_spike, memory_warning, llming:started, llming:stopped
-
-    Example::
-
-        @on("cpu_spike")
-        async def handle_spike(self, data: dict) -> None:
-            self.log.warning("CPU: %s%%", data["cpu"])
-
-        @on("tick:1hz")
-        async def poll_metrics(self, data: dict) -> None:
-            ...
+    Built-in: tick:30hz, tick:10hz, tick:1hz, tick:slow
+    Lifecycle: llming:started, llming:stopped
+    Custom: cpu_spike, disk_usage, etc.
     """
     def decorator(fn: Callable) -> Callable:
         if not hasattr(fn, "_on_meta"):
@@ -243,10 +238,6 @@ def on(channel: str) -> Callable:
 
 
 def collect_subscriptions(instance: object) -> list[tuple[str, Callable]]:
-    """Collect all @on-decorated methods from an instance.
-
-    Returns [(channel_name, bound_method), ...].
-    """
     subs: list[tuple[str, Callable]] = []
     for attr_name in dir(type(instance)):
         try:
@@ -262,24 +253,16 @@ def collect_subscriptions(instance: object) -> list[tuple[str, Callable]]:
     return subs
 
 
-# ── @on_ready decorator — dependency waiting ──
+# ── @on_ready decorator ──
 
 
 @dataclass(frozen=True)
 class OnReadyMeta:
-    """Metadata attached to an @on_ready-decorated method."""
     dependencies: tuple[str, ...]
 
 
 def on_ready(*llming_names: str) -> Callable:
-    """Call a method once when all listed llmings have started.
-
-    Example::
-
-        @on_ready("system-monitor", "hue-bridge")
-        async def deps_loaded(self) -> None:
-            self.log.info("All dependencies ready")
-    """
+    """Call a method once when all listed llmings have started."""
     def decorator(fn: Callable) -> Callable:
         fn._on_ready_meta = OnReadyMeta(dependencies=llming_names)  # type: ignore[attr-defined]
         return fn
@@ -287,10 +270,6 @@ def on_ready(*llming_names: str) -> Callable:
 
 
 def collect_ready_handlers(instance: object) -> list[tuple[tuple[str, ...], Callable]]:
-    """Collect all @on_ready-decorated methods.
-
-    Returns [(("dep1", "dep2"), bound_method), ...].
-    """
     handlers: list[tuple[tuple[str, ...], Callable]] = []
     for attr_name in dir(type(instance)):
         try:

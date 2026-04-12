@@ -81,7 +81,7 @@ class DiskUsage(Llming):
         available = ", ".join(p["mountpoint"] for p in self._latest.get("partitions", []))
         return PartitionInfo(code=404, message=f"'{req.mountpoint}' not found. Available: {available}")
 
-    @power("disk", description="Disk partition usage", command="/disk")
+    @power("disk", description="Disk partition usage", command=True)
     async def disk_command(self) -> str:
         if not self._latest:
             return "No disk data available yet."

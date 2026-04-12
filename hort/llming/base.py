@@ -141,16 +141,18 @@ class Llming:
         self._power_handlers = collect_powers(self)
 
     def get_powers(self) -> list[Power]:
-        """Return all powers (decorators + manual override).
+        """Return all powers from @power decorators.
 
-        New-style: use @power decorators, don't override this.
-        Old-style: override this to return a manual list.
+        Powers with subcommands are listed individually
+        (e.g. "hort.info", "hort.restart").
         """
         powers: list[Power] = []
         for _handler, meta in getattr(self, "_power_handlers", {}).values():
-            ptype = PowerType.COMMAND if meta.command else (PowerType.MCP if meta.mcp else PowerType.ACTION)
+            ptype = PowerType.MCP if meta.mcp else PowerType.ACTION
+            if meta.command and not meta.mcp:
+                ptype = PowerType.COMMAND
             powers.append(Power(
-                name=meta.name,
+                name=meta.full_name,
                 type=ptype,
                 description=meta.description,
                 input_schema=meta.input_model or {"type": "object", "properties": {}},
@@ -160,10 +162,9 @@ class Llming:
         return powers
 
     async def execute_power(self, name: str, args: dict[str, Any]) -> Any:
-        """Execute a power by name. Routes to @power handlers automatically.
+        """Execute a power by name. Routes to @power handlers.
 
-        New-style: don't override. Decorators handle routing.
-        Old-style: override for manual dispatch.
+        Supports dotted names for subcommands: "hort.info"
         """
         handlers = getattr(self, "_power_handlers", {})
         entry = handlers.get(name)
@@ -289,80 +290,80 @@ class Llming:
         return MCPToolResult(content=[{"type": "text", "text": str(result)}])
 
     def get_connector_commands(self) -> list[Any]:
-        """Return connector command definitions from powers.
+        """Return slash commands for /help listing.
 
-        Groups subcommands under their root command. E.g. powers
-        "hort info", "hort restart" register as one "/hort" command.
+        Only powers with ``command=True`` are listed. Subcommands
+        are grouped under their root: /hort → info | restart | sessions.
         """
         from hort.ext.connectors import ConnectorCommand
 
+        handlers = getattr(self, "_power_handlers", {})
         seen_roots: set[str] = set()
         commands: list[Any] = []
-        for p in self.get_powers():
-            if p.type != PowerType.COMMAND:
+
+        for _handler, meta in handlers.values():
+            if not meta.command:
                 continue
-            # Extract root command: "hort info" → "hort"
-            root = p.name.split()[0]
+            root = meta.name
             if root in seen_roots:
                 continue
             seen_roots.add(root)
-            # Collect subcommand descriptions for the root
-            subs = [sp for sp in self.get_powers() if sp.type == PowerType.COMMAND and sp.name.startswith(root + " ")]
+
+            # Collect subs for this root
+            subs = [m for _, m in handlers.values() if m.command and m.name == root and m.sub]
             if subs:
-                desc = " | ".join(f"/{sp.name}" for sp in subs)
+                desc = " | ".join(f"{m.sub}" for m in subs)
+                desc = f"/{root} {desc}"
             else:
-                desc = p.description
+                desc = meta.description
+
             commands.append(ConnectorCommand(
                 name=root,
                 description=desc,
                 plugin_id=self._instance_name or self._class_name,
-                admin_only=p.admin_only,
             ))
         return commands
 
     async def handle_connector_command(
         self, command: str, message: Any, capabilities: Any
     ) -> Any:
-        """Handle a connector command — supports subcommands.
+        """Handle a slash command — routes to @power handlers.
 
-        "/hort info" → tries "hort info" power first, falls back to "hort".
+        "/hort info abc" → power "hort.info" with args "abc"
+        "/cpu" → power "cpu" with no args
         Positional args mapped to Pydantic model fields.
         """
         from hort.ext.connectors import ConnectorResponse
 
-        cmd_args = message.command_args if message else ""
+        cmd_args = (message.command_args if message else "").strip()
+        handlers = getattr(self, "_power_handlers", {})
 
-        # Try subcommand: "hort" + "info ..." → power "hort info"
+        # Try subcommand: "/hort info abc" → "hort.info" with args="abc"
         if cmd_args:
-            parts = cmd_args.strip().split(None, 1)
-            sub = parts[0]
-            rest = parts[1] if len(parts) > 1 else ""
-            subcommand = f"{command} {sub}"
-            handlers = getattr(self, "_power_handlers", {})
-            if subcommand in handlers:
-                result = await self.execute_power(subcommand, {"args": rest})
-                if result is None:
-                    return None
-                if isinstance(result, str):
-                    return ConnectorResponse.simple(result)
-                if hasattr(result, "text"):
-                    return result
-                if isinstance(result, dict) and "error" in result:
-                    return ConnectorResponse.simple(f"Error: {result['error']}")
-                return ConnectorResponse.simple(str(result))
+            parts = cmd_args.split(None, 1)
+            sub_key = f"{command}.{parts[0]}"
+            if sub_key in handlers:
+                rest = parts[1] if len(parts) > 1 else ""
+                result = await self.execute_power(sub_key, {"args": rest})
+                return self._wrap_command_result(result)
 
-        # Fall back to root command
+        # Root command: "/cpu" → "cpu"
         result = await self.execute_power(command, {"args": cmd_args})
+        return self._wrap_command_result(result)
+
+    @staticmethod
+    def _wrap_command_result(result: Any) -> Any:
+        from hort.ext.connectors import ConnectorResponse
         if result is None:
             return None
         if isinstance(result, str):
             return ConnectorResponse.simple(result)
-        # If it's already a ConnectorResponse, pass through
         if hasattr(result, "text"):
             return result
-        # Dict result — extract text
         if isinstance(result, dict) and "error" in result:
             return ConnectorResponse.simple(f"Error: {result['error']}")
+        if hasattr(result, "model_dump"):
+            return ConnectorResponse.simple(str(result.model_dump()))
         return ConnectorResponse.simple(str(result))
 
     @property
