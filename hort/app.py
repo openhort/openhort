@@ -108,10 +108,34 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     app.state.dev_mode = is_dev
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # Mount extension static directories (all provider dirs under llmings/)
+    # Serve compiled .vue files as JS (card.vue → /ext/{name}/static/cards.js)
     _llmings_root = Path(__file__).parent.parent / "llmings"
+    _vue_routes: dict[str, Path] = {}  # {llming_name: vue_path}
+
     for _provider_dir in sorted(_llmings_root.iterdir()) if _llmings_root.is_dir() else []:
-        if not _provider_dir.is_dir() or _provider_dir.name.startswith((".","_")):
+        if not _provider_dir.is_dir() or _provider_dir.name.startswith((".", "_")):
+            continue
+        for ext_path in _provider_dir.iterdir():
+            if not ext_path.is_dir():
+                continue
+            vue_file = ext_path / "card.vue"
+            if vue_file.exists():
+                _vue_routes[ext_path.name] = vue_file
+
+    if _vue_routes:
+        from hort.ext.vue_loader import compile_vue
+
+        @app.get("/ext/{llming_name}/static/cards.js")
+        async def serve_vue_card(llming_name: str) -> Response:
+            vue_path = _vue_routes.get(llming_name)
+            if vue_path and vue_path.exists():
+                js = compile_vue(vue_path, llming_name)
+                return Response(content=js, media_type="application/javascript")
+            return Response(status_code=404)
+
+    # Mount extension static directories (all provider dirs under llmings/)
+    for _provider_dir in sorted(_llmings_root.iterdir()) if _llmings_root.is_dir() else []:
+        if not _provider_dir.is_dir() or _provider_dir.name.startswith((".", "_")):
             continue
         for ext_path in _provider_dir.iterdir():
             if not ext_path.is_dir():
