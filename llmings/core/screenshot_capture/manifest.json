@@ -7,7 +7,7 @@
     "tool",
     "mcp"
   ],
-  "entry_point": "provider:ScreenshotCapture",
+  "entry_point": "screenshot_capture:ScreenshotCapture",
   "icon": "ph ph-camera",
   "author": "openhort",
   "llming_type": "tool",

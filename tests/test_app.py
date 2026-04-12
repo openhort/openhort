@@ -409,7 +409,7 @@ class TestTargetDiscovery:
         TargetRegistry.reset()
         with (
             patch(
-                "llmings.core.macos_windows.provider.MacOSWindowsExtension",
+                "llmings.core.macos_windows.macos_windows.MacOSWindowsExtension",
                 side_effect=ImportError("no quartz"),
             ),
             patch("hort.app._refresh_docker_targets"),
@@ -472,7 +472,7 @@ class TestTargetDiscovery:
         with (
             patch("subprocess.run", return_value=mock_result),
             patch(
-                "llmings.core.linux_windows.provider.LinuxWindowsExtension",
+                "llmings.core.linux_windows.linux_windows.LinuxWindowsExtension",
                 side_effect=ImportError("no docker"),
             ),
         ):

@@ -8,7 +8,7 @@
     "ui"
   ],
   "ui_script": "static/cards.js",
-  "entry_point": "provider:LlmingCam",
+  "entry_point": "llming_cam:LlmingCam",
   "icon": "ph ph-video-camera",
   "author": "openhort",
   "llming_type": "tool",

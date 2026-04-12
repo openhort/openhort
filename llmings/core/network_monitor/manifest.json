@@ -7,7 +7,7 @@
     "monitor",
     "mcp"
   ],
-  "entry_point": "provider:NetworkMonitor",
+  "entry_point": "network_monitor:NetworkMonitor",
   "icon": "ph ph-wifi-high",
   "author": "openhort",
   "llming_type": "monitor",

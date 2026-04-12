@@ -6,7 +6,7 @@
   "capabilities": [
     "tool"
   ],
-  "entry_point": "provider:CameraScan",
+  "entry_point": "camera_scan:CameraScan",
   "icon": "ph ph-qr-code",
   "author": "openhort",
   "llming_type": "tool",

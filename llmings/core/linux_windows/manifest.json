@@ -9,7 +9,7 @@
     "input.simulate",
     "workspace.manage"
   ],
-  "entry_point": "provider:LinuxWindowsExtension",
+  "entry_point": "linux_windows:LinuxWindowsExtension",
   "config_schema": {
     "type": "object",
     "properties": {

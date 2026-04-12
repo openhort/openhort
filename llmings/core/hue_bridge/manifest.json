@@ -6,7 +6,7 @@
   "capabilities": [
     "mcp"
   ],
-  "entry_point": "provider:HueBridge",
+  "entry_point": "hue_bridge:HueBridge",
   "icon": "ph ph-lamp",
   "author": "openhort",
   "llming_type": "tool",

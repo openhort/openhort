@@ -171,7 +171,7 @@ def run_chat(
     # ── Local provider ──────────────────────────────────────────────
     provider = None
     if not container:
-        from .provider import LlmingProvider
+        from .llming_models_ext import LlmingProvider
         provider = LlmingProvider(
             model=model, system_prompt=system_prompt,
             store=store, api_key=api_key,

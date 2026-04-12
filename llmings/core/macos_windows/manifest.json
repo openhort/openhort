@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "macOS window management via Quartz, SkyLight, and ApplicationServices APIs",
   "provider": "core",
-  "platforms": ["darwin"],
+  "platforms": [
+    "darwin"
+  ],
   "capabilities": [
     "window.list",
     "window.capture",
@@ -14,13 +16,15 @@
     "pyobjc-framework-Quartz>=11.0",
     "pyobjc-framework-ApplicationServices>=12.1"
   ],
-  "entry_point": "provider:MacOSWindowsExtension",
+  "entry_point": "macos_windows:MacOSWindowsExtension",
   "config_schema": {
     "type": "object",
     "properties": {
       "exclude_apps": {
         "type": "array",
-        "items": {"type": "string"},
+        "items": {
+          "type": "string"
+        },
         "description": "Application names to exclude from window listing",
         "default": []
       },

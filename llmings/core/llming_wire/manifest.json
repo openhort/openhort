@@ -6,7 +6,7 @@
   "capabilities": [
     "ui"
   ],
-  "entry_point": "provider:LlmingWire",
+  "entry_point": "llming_wire:LlmingWire",
   "icon": "ph ph-chat-dots",
   "llming_type": "connector",
   "ui_widgets": [

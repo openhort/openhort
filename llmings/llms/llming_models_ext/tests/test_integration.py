@@ -29,7 +29,7 @@ def store(tmp_path: Path) -> ConversationStore:
 
 @pytest.fixture
 def provider(store: ConversationStore):
-    from llmings.llms.llming_models_ext.provider import LlmingProvider
+    from llmings.llms.llming_models_ext.llming_models_ext import LlmingProvider
 
     return LlmingProvider(
         model="claude_haiku",
@@ -96,7 +96,7 @@ def test_multi_turn_conversation(
 @pytest.mark.skipif(not _has_api_key(), reason="ANTHROPIC_API_KEY not set")
 def test_conversation_persist_and_resume(tmp_path: Path) -> None:
     """Create a conversation, destroy the provider, resume from store."""
-    from llmings.llms.llming_models_ext.provider import LlmingProvider
+    from llmings.llms.llming_models_ext.llming_models_ext import LlmingProvider
 
     store = ConversationStore(store_dir=tmp_path)
     p1 = LlmingProvider(

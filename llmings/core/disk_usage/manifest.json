@@ -7,7 +7,7 @@
     "monitor",
     "mcp"
   ],
-  "entry_point": "provider:DiskUsage",
+  "entry_point": "disk_usage:DiskUsage",
   "icon": "ph ph-hard-drive",
   "author": "openhort",
   "llming_type": "monitor",

@@ -9,7 +9,7 @@
   "capabilities": [
     "tool"
   ],
-  "entry_point": "provider:ClipboardHistory",
+  "entry_point": "clipboard_history:ClipboardHistory",
   "icon": "ph ph-clipboard-text",
   "author": "openhort",
   "llming_type": "tool",

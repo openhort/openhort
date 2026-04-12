@@ -7,7 +7,7 @@
     "connector",
     "messaging"
   ],
-  "entry_point": "provider:TelegramConnector",
+  "entry_point": "telegram_connector:TelegramConnector",
   "icon": "ph ph-telegram-logo",
   "author": "openhort",
   "llming_type": "connector",

@@ -7,7 +7,7 @@
     "mcp",
     "connector"
   ],
-  "entry_point": "provider:HortChief",
+  "entry_point": "hort_chief:HortChief",
   "icon": "ph ph-tree-structure",
   "author": "openhort",
   "llming_type": "admin",

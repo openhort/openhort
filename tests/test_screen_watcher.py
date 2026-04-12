@@ -23,7 +23,7 @@ from llmings.core.screen_watcher.models import (
     WatchRule,
     resolve_region,
 )
-from llmings.core.screen_watcher.provider import ScreenWatcher
+from llmings.core.screen_watcher.screen_watcher import ScreenWatcher
 from hort.signals.models import Signal
 
 

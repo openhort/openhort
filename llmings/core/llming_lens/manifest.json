@@ -6,7 +6,7 @@
   "capabilities": [
     "viewer"
   ],
-  "entry_point": "provider:LlmingLens",
+  "entry_point": "llming_lens:LlmingLens",
   "icon": "ph ph-monitor",
   "author": "openhort",
   "llming_type": "tool",

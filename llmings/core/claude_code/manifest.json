@@ -6,7 +6,7 @@
   "capabilities": [
     "mcp"
   ],
-  "entry_point": "provider:ClaudeCodeExecutor",
+  "entry_point": "claude_code:ClaudeCodeExecutor",
   "icon": "ph ph-robot",
   "author": "openhort",
   "llming_type": "llm",

@@ -387,7 +387,7 @@ class TestSecurityGuard:
 
     def test_no_users_disables_chat(self) -> None:
         """Chat backend must not activate without allowed_users."""
-        from llmings.core.telegram_connector.provider import TelegramConnector
+        from llmings.core.telegram_connector.telegram_connector import TelegramConnector
         from hort.ext.scheduler import PluginScheduler
         import logging
 
@@ -542,7 +542,7 @@ class TestE2ETelegramFlow:
 
     def test_connector_reads_shared_agent_config(self) -> None:
         """Telegram connector reads agent config from hort-config.yaml."""
-        from llmings.core.telegram_connector.provider import TelegramConnector
+        from llmings.core.telegram_connector.telegram_connector import TelegramConnector
         from hort.ext.scheduler import PluginScheduler
         import logging
 
@@ -573,7 +573,7 @@ class TestE2ETelegramFlow:
 
     def test_connector_overrides_model(self) -> None:
         """Connector-level model override takes precedence."""
-        from llmings.core.telegram_connector.provider import TelegramConnector
+        from llmings.core.telegram_connector.telegram_connector import TelegramConnector
         from hort.ext.scheduler import PluginScheduler
         import logging
 

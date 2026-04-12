@@ -6,7 +6,7 @@
   "capabilities": [
     "mcp"
   ],
-  "entry_point": "provider:Office365Plugin",
+  "entry_point": "office365:Office365Plugin",
   "icon": "ph ph-microsoft-outlook-logo",
   "author": "openhort",
   "llming_type": "connector",

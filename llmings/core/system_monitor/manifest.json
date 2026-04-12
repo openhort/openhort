@@ -7,7 +7,7 @@
     "monitor",
     "mcp"
   ],
-  "entry_point": "provider:SystemMonitor",
+  "entry_point": "system_monitor:SystemMonitor",
   "icon": "ph ph-cpu",
   "author": "openhort",
   "llming_type": "monitor",

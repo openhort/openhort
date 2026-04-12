@@ -125,7 +125,7 @@ def run_chat(
         )
 
     # ── Provider (builds commands) ──────────────────────────────────
-    from .provider import ClaudeCodeProvider
+    from .claude_code import ClaudeCodeProvider
 
     provider = ClaudeCodeProvider(
         model=model, system_prompt=system_prompt, container=container,

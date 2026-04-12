@@ -221,7 +221,7 @@ class TestUsageAndPulse:
 class TestClaudeCodeExecutor:
 
     def test_import_and_interface(self) -> None:
-        from llmings.core.claude_code.provider import ClaudeCodeExecutor
+        from llmings.core.claude_code.claude_code import ClaudeCodeExecutor
         e = ClaudeCodeExecutor()
         assert e.provider_name == "claude-code"
         assert isinstance(e, LlmExecutor)
@@ -234,7 +234,7 @@ class TestClaudeCodeExecutor:
 class TestLlmingModelsExecutor:
 
     def test_import_and_interface(self) -> None:
-        from llmings.llms.llming_models_ext.provider import LlmingModelsExecutor
+        from llmings.llms.llming_models_ext.llming_models_ext import LlmingModelsExecutor
         e = LlmingModelsExecutor()
         assert e.provider_name == "llming-models"
         assert isinstance(e, LlmExecutor)

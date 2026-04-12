@@ -7,7 +7,7 @@
     "mcp",
     "monitor"
   ],
-  "entry_point": "provider:CodeWatch",
+  "entry_point": "code_watch:CodeWatch",
   "icon": "ph ph-terminal-window",
   "llming_type": "tool",
   "mcp": true,

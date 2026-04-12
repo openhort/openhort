@@ -3,14 +3,16 @@
   "version": "0.1.0",
   "description": "Native Windows window management via Win32 API (user32, gdi32)",
   "provider": "core",
-  "platforms": ["win32"],
+  "platforms": [
+    "win32"
+  ],
   "capabilities": [
     "window.list",
     "window.capture",
     "input.simulate",
     "workspace.manage"
   ],
-  "entry_point": "provider:WindowsNativeExtension",
+  "entry_point": "windows_native:WindowsNativeExtension",
   "config_schema": {
     "type": "object",
     "properties": {}

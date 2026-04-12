@@ -7,7 +7,7 @@
     "tool",
     "mcp"
   ],
-  "entry_point": "provider:ProcessManager",
+  "entry_point": "process_manager:ProcessManager",
   "icon": "ph ph-list-checks",
   "author": "openhort",
   "llming_type": "tool",

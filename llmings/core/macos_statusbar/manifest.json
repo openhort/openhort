@@ -1,15 +1,22 @@
 {
   "name": "macos-statusbar",
   "version": "0.1.0",
-  "description": "macOS menu bar companion — shows server status, viewer count, and quick controls",
+  "description": "macOS menu bar companion \u2014 shows server status, viewer count, and quick controls",
   "provider": "core",
-  "platforms": ["darwin"],
-  "capabilities": ["statusbar"],
-  "entry_point": "provider:MacOSStatusBarPlugin",
+  "platforms": [
+    "darwin"
+  ],
+  "capabilities": [
+    "statusbar"
+  ],
+  "entry_point": "macos_statusbar:MacOSStatusBarPlugin",
   "icon": "ph ph-sidebar",
   "author": "openhort",
   "llming_type": "tool",
   "features": {
-    "autostart": { "description": "Launch status bar when openhort starts", "default": true }
+    "autostart": {
+      "description": "Launch status bar when openhort starts",
+      "default": true
+    }
   }
 }

@@ -369,7 +369,7 @@ def _refresh_docker_targets() -> None:
             target_id = f"docker-{name}"
             if registry.get_provider(target_id) is None:
                 try:
-                    from llmings.core.linux_windows.provider import (  # noqa: platform provider (in-process for latency)
+                    from llmings.core.linux_windows.linux_windows import (  # noqa: platform provider (in-process for latency)
                         LinuxWindowsExtension,
                     )
                     from hort.targets import TargetInfo
@@ -433,7 +433,7 @@ def _register_targets() -> None:
     # Register local macOS target (only on macOS)
     if sys.platform == "darwin":
         try:
-            from llmings.core.macos_windows.provider import (  # noqa: platform provider (in-process)
+            from llmings.core.macos_windows.macos_windows import (  # noqa: platform provider (in-process)
                 MacOSWindowsExtension,
             )
 
@@ -448,7 +448,7 @@ def _register_targets() -> None:
     # Register native Linux target (only on Linux with X11)
     if sys.platform == "linux":
         try:
-            from llmings.core.linux_native.provider import (  # noqa: platform provider (in-process)
+            from llmings.core.linux_native.linux_native import (  # noqa: platform provider (in-process)
                 LinuxNativeExtension,
             )
 
@@ -465,7 +465,7 @@ def _register_targets() -> None:
     # Register native Windows target (only on Windows)
     if sys.platform == "win32":
         try:
-            from llmings.core.windows_native.provider import (  # noqa: platform provider (in-process)
+            from llmings.core.windows_native.windows_native import (  # noqa: platform provider (in-process)
                 WindowsNativeExtension,
             )
 

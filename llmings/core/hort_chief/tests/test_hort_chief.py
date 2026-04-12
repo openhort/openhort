@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llmings.core.hort_chief.provider import HortChief
+from llmings.core.hort_chief.hort_chief import HortChief
 
 
 @pytest.fixture
@@ -81,8 +81,8 @@ def test_admin_check_denies_non_admin_group(mock_cfg, chief):
     assert chief._is_admin(msg) is False
 
 
-@patch("llmings.core.hort_chief.provider.HortChief._get_containers")
-@patch("llmings.core.hort_chief.provider.HortChief._get_sessions")
+@patch("llmings.core.hort_chief.hort_chief.HortChief._get_containers")
+@patch("llmings.core.hort_chief.hort_chief.HortChief._get_sessions")
 @patch("hort.hort_config.get_hort_config")
 def test_build_overview_content(mock_cfg, mock_sessions, mock_containers, chief):
     from hort.hort_config import HortConfig

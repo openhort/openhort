@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llmings.core.macos_statusbar.provider import (
+from llmings.core.macos_statusbar.macos_statusbar import (
     HEADER_NAME,
     MacOSStatusBarPlugin,
     _KEY_FILE,
@@ -38,7 +38,7 @@ class TestSharedKeyFile:
     def test_creates_key_when_missing(self, tmp_path: Path) -> None:
         key_file = tmp_path / "statusbar.key"
         with patch(
-            "llmings.core.macos_statusbar.provider._KEY_FILE", key_file
+            "llmings.core.macos_statusbar.macos_statusbar._KEY_FILE", key_file
         ):
             key = get_or_rotate_key()
         assert len(key) > 20
@@ -51,7 +51,7 @@ class TestSharedKeyFile:
         key_file = tmp_path / "statusbar.key"
         key_file.write_text(json.dumps({"key": "existing-key", "created": time.time()}))
         with patch(
-            "llmings.core.macos_statusbar.provider._KEY_FILE", key_file
+            "llmings.core.macos_statusbar.macos_statusbar._KEY_FILE", key_file
         ):
             key = get_or_rotate_key()
         assert key == "existing-key"
@@ -61,7 +61,7 @@ class TestSharedKeyFile:
         old_time = time.time() - _KEY_MAX_AGE - 100
         key_file.write_text(json.dumps({"key": "old-key", "created": old_time}))
         with patch(
-            "llmings.core.macos_statusbar.provider._KEY_FILE", key_file
+            "llmings.core.macos_statusbar.macos_statusbar._KEY_FILE", key_file
         ):
             key = get_or_rotate_key()
         assert key != "old-key"
@@ -71,7 +71,7 @@ class TestSharedKeyFile:
         key_file = tmp_path / "statusbar.key"
         key_file.write_text("not json")
         with patch(
-            "llmings.core.macos_statusbar.provider._KEY_FILE", key_file
+            "llmings.core.macos_statusbar.macos_statusbar._KEY_FILE", key_file
         ):
             key = get_or_rotate_key()
         assert len(key) > 20
@@ -79,7 +79,7 @@ class TestSharedKeyFile:
     def test_creates_parent_dirs(self, tmp_path: Path) -> None:
         key_file = tmp_path / "nested" / "dir" / "statusbar.key"
         with patch(
-            "llmings.core.macos_statusbar.provider._KEY_FILE", key_file
+            "llmings.core.macos_statusbar.macos_statusbar._KEY_FILE", key_file
         ):
             key = get_or_rotate_key()
         assert key_file.exists()
@@ -87,7 +87,7 @@ class TestSharedKeyFile:
     def test_stable_within_24h(self, tmp_path: Path) -> None:
         key_file = tmp_path / "statusbar.key"
         with patch(
-            "llmings.core.macos_statusbar.provider._KEY_FILE", key_file
+            "llmings.core.macos_statusbar.macos_statusbar._KEY_FILE", key_file
         ):
             key1 = get_or_rotate_key()
             key2 = get_or_rotate_key()
@@ -102,8 +102,8 @@ class TestStatusBar:
     @patch("sys.platform", "darwin")
     @patch("subprocess.Popen")
     @patch("subprocess.run")
-    @patch("llmings.core.macos_statusbar.provider.get_or_rotate_key", return_value="k")
-    @patch("llmings.core.macos_statusbar.provider._STATUSBAR_BIN")
+    @patch("llmings.core.macos_statusbar.macos_statusbar.get_or_rotate_key", return_value="k")
+    @patch("llmings.core.macos_statusbar.macos_statusbar._STATUSBAR_BIN")
     def test_activate_launches_binary(
         self, mock_bin: MagicMock, _mock_key: MagicMock,
         mock_run: MagicMock, mock_popen: MagicMock,
@@ -207,7 +207,7 @@ class TestStatusBar:
 
 class TestVerifyEndpoint:
     @patch(
-        "llmings.core.macos_statusbar.provider.get_or_rotate_key",
+        "llmings.core.macos_statusbar.macos_statusbar.get_or_rotate_key",
         return_value="correct-key",
     )
     def test_verify_rejects_wrong_key(self, _mock: MagicMock) -> None:
@@ -222,7 +222,7 @@ class TestVerifyEndpoint:
         assert resp.status_code == 403
 
     @patch(
-        "llmings.core.macos_statusbar.provider.get_or_rotate_key",
+        "llmings.core.macos_statusbar.macos_statusbar.get_or_rotate_key",
         return_value="correct-key",
     )
     def test_verify_accepts_correct_key(self, _mock: MagicMock) -> None:
@@ -238,7 +238,7 @@ class TestVerifyEndpoint:
         assert resp.json()["ok"] is True
 
     @patch(
-        "llmings.core.macos_statusbar.provider.get_or_rotate_key",
+        "llmings.core.macos_statusbar.macos_statusbar.get_or_rotate_key",
         return_value="some-key",
     )
     def test_verify_rejects_missing_header(self, _mock: MagicMock) -> None:

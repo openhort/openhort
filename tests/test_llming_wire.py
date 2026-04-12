@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from llmings.core.llming_wire.provider import (
+from llmings.core.llming_wire.llming_wire import (
     LlmingWire,
     _extract_buttons,
     _strip_button_lines,

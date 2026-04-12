@@ -453,7 +453,7 @@ class HortController(BaseController):
                 pass
 
             try:
-                from llmings.core.code_watch.provider import _detect_session_state  # noqa: llming import (TODO: route via IPC)
+                from llmings.core.code_watch.code_watch import _detect_session_state  # noqa: llming import (TODO: route via IPC)
             except ImportError:
                 _detect_session_state = None
 

@@ -7,7 +7,7 @@
     "ui"
   ],
   "ui_script": "static/cards.js",
-  "entry_point": "provider:HostedAppsPlugin",
+  "entry_point": "hosted_apps:HostedAppsPlugin",
   "icon": "ph ph-package",
   "llming_type": "tool",
   "config_schema": {

@@ -7,7 +7,7 @@
     "connector",
     "mcp"
   ],
-  "entry_point": "provider:HolepunchPlugin",
+  "entry_point": "peer2peer:HolepunchPlugin",
   "icon": "ph ph-plugs-connected",
   "author": "openhort",
   "llming_type": "connector",
