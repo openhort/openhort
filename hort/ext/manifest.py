@@ -69,7 +69,8 @@ class ExtensionManifest(BaseModel):
     homepage: str = ""
     icon: str = ""  # Phosphor icon class (e.g. "ph ph-thermometer")
     llming_type: str = ""  # "platform", "connector", "monitor", "tool", ""
-    group: str = ""  # Process group (e.g. "core.systeminfo"). Empty = own process.
+    group: str = ""  # Process group (e.g. "core.systeminfo"). Share process with other llmings in same group.
+    in_process: bool = False  # True = runs in the main process (platform providers, hort-chief). Default: own subprocess.
 
     @property
     def plugin_type(self) -> str:
