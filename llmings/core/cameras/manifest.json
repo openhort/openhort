@@ -1,0 +1,12 @@
+{
+  "name": "cameras",
+  "version": "0.1.0",
+  "description": "Security camera feeds",
+  "provider": "core",
+  "entry_point": "cameras:Cameras",
+  "icon": "ph ph-security-camera",
+  "author": "openhort",
+  "llming_type": "tool",
+  "ui_widgets": ["cameras-card"],
+  "ui_script": "static/cards.js"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "weather",
+  "version": "0.1.0",
+  "description": "Weather forecast and conditions",
+  "provider": "core",
+  "entry_point": "weather:Weather",
+  "icon": "ph ph-cloud-sun",
+  "author": "openhort",
+  "llming_type": "tool",
+  "ui_widgets": ["weather-card"],
+  "ui_script": "static/cards.js"
+}

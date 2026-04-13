@@ -1,0 +1,12 @@
+{
+  "name": "energy",
+  "version": "0.1.0",
+  "description": "Solar production and consumption",
+  "provider": "core",
+  "entry_point": "energy:Energy",
+  "icon": "ph ph-lightning",
+  "author": "openhort",
+  "llming_type": "tool",
+  "ui_widgets": ["energy-card"],
+  "ui_script": "static/cards.js"
+}

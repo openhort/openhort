@@ -1,0 +1,12 @@
+{
+  "name": "email",
+  "version": "0.1.0",
+  "description": "Email inbox and notifications",
+  "provider": "core",
+  "entry_point": "email:Email",
+  "icon": "ph ph-envelope",
+  "author": "openhort",
+  "llming_type": "tool",
+  "ui_widgets": ["email-card"],
+  "ui_script": "static/cards.js"
+}

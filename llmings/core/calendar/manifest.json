@@ -1,0 +1,12 @@
+{
+  "name": "calendar",
+  "version": "0.1.0",
+  "description": "Calendar events and scheduling",
+  "provider": "core",
+  "entry_point": "calendar:Calendar",
+  "icon": "ph ph-calendar",
+  "author": "openhort",
+  "llming_type": "tool",
+  "ui_widgets": ["calendar-card"],
+  "ui_script": "static/cards.js"
+}

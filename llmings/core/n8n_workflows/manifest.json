@@ -1,0 +1,13 @@
+{
+  "name": "n8n-workflows",
+  "version": "0.1.0",
+  "description": "Workflow automation status",
+  "provider": "core",
+  "capabilities": ["monitor"],
+  "entry_point": "n8n_workflows:N8nWorkflows",
+  "icon": "ph ph-lightning",
+  "author": "openhort",
+  "llming_type": "monitor",
+  "ui_widgets": ["n8n-card"],
+  "ui_script": "static/cards.js"
+}

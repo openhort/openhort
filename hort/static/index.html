@@ -267,8 +267,155 @@
     // Unified toolbar state (shared between picker and HortApp)
     viewTab: 'screens',  // 'screens' | 'spirits' | 'config'
     targetDropdownOpen: false,
+
+    // ── Widget Home Screen ──
+    widgetMode: true,        // true = new desktop widget grid, false = old flat grid
+    desktops: [],            // [{id, name, isHome, tint, widgets:[]}]
+    activeDesktopIdx: 0,
+    editMode: false,
+    whDrawer: false,         // navigation drawer
+    widgetPicker: false,     // widget catalog
+    widgetPickerSearch: '',
+    desktopOverview: false,
+    deviceView: false,
+    activeDevice: 0,
+    detailWidget: null,      // opened detail card widget
+    whToast: '',             // toast message
+    whNameEditor: null,      // desktop name editing
+    notifications: [],
+    notifMenuOpen: false,
   });
   window.__hortState = state;
+
+  // ── Desktop tint colors (16 dark hues) ──
+  const desktopTints = [
+    {id:'blue',    rgb:[20,40,70],  bg:'#0a0e1a', plasma1:'rgba(50,110,180,.3)',  plasma2:'rgba(40,90,150,.25)', plasma3:'rgba(60,100,160,.2)'},
+    {id:'crimson', rgb:[50,16,20],  bg:'#120a0b', plasma1:'rgba(140,40,50,.3)',   plasma2:'rgba(120,30,40,.25)',plasma3:'rgba(100,35,45,.2)'},
+    {id:'green',   rgb:[16,42,24],  bg:'#0a120d', plasma1:'rgba(40,140,60,.3)',   plasma2:'rgba(35,120,50,.25)',plasma3:'rgba(50,130,55,.2)'},
+    {id:'purple',  rgb:[35,18,50],  bg:'#0d0a12', plasma1:'rgba(100,50,160,.3)',  plasma2:'rgba(85,40,140,.25)',plasma3:'rgba(90,45,150,.2)'},
+    {id:'amber',   rgb:[45,35,16],  bg:'#100e0a', plasma1:'rgba(160,120,40,.3)',  plasma2:'rgba(140,100,35,.25)',plasma3:'rgba(150,110,40,.2)'},
+    {id:'teal',    rgb:[16,42,42],  bg:'#0a1212', plasma1:'rgba(40,140,140,.3)',  plasma2:'rgba(35,120,120,.25)',plasma3:'rgba(45,130,130,.2)'},
+    {id:'pink',    rgb:[45,18,32],  bg:'#100a0e', plasma1:'rgba(160,50,100,.3)',  plasma2:'rgba(140,40,85,.25)',plasma3:'rgba(150,45,90,.2)'},
+    {id:'orange',  rgb:[45,28,16],  bg:'#100c0a', plasma1:'rgba(160,90,40,.3)',   plasma2:'rgba(140,75,35,.25)',plasma3:'rgba(150,80,40,.2)'},
+    {id:'indigo',  rgb:[22,18,50],  bg:'#0b0a12', plasma1:'rgba(70,50,160,.3)',   plasma2:'rgba(60,40,140,.25)',plasma3:'rgba(65,45,150,.2)'},
+    {id:'cyan',    rgb:[16,36,45],  bg:'#0a0e10', plasma1:'rgba(40,110,160,.3)',  plasma2:'rgba(35,95,140,.25)',plasma3:'rgba(45,100,150,.2)'},
+    {id:'emerald', rgb:[16,42,32],  bg:'#0a120e', plasma1:'rgba(40,140,100,.3)',  plasma2:'rgba(35,120,85,.25)',plasma3:'rgba(45,130,90,.2)'},
+    {id:'rose',    rgb:[45,18,28],  bg:'#100a0d', plasma1:'rgba(160,50,85,.3)',   plasma2:'rgba(140,40,70,.25)',plasma3:'rgba(150,45,75,.2)'},
+    {id:'violet',  rgb:[30,18,50],  bg:'#0c0a12', plasma1:'rgba(90,50,160,.3)',   plasma2:'rgba(75,40,140,.25)',plasma3:'rgba(80,45,150,.2)'},
+    {id:'slate',   rgb:[24,28,38],  bg:'#0b0c10', plasma1:'rgba(70,85,120,.3)',   plasma2:'rgba(60,75,105,.25)',plasma3:'rgba(65,80,110,.2)'},
+    {id:'lime',    rgb:[28,42,16],  bg:'#0c120a', plasma1:'rgba(85,140,40,.3)',   plasma2:'rgba(75,120,35,.25)',plasma3:'rgba(80,130,40,.2)'},
+    {id:'sky',     rgb:[16,32,45],  bg:'#0a0e10', plasma1:'rgba(40,95,160,.3)',   plasma2:'rgba(35,80,140,.25)',plasma3:'rgba(45,85,150,.2)'},
+  ];
+
+  // ── Hort groups (security boundaries) ──
+  const hortGroups = [
+    {id:'default',   name:'Local',       color:'#3b82f6', icon:'ph ph-house'},
+    {id:'sandboxed', name:'Sandboxed',   color:'#f59e0b', icon:'ph ph-shield-warning'},
+    {id:'sap',       name:'SAP Finance', color:'#ef4444', icon:'ph ph-lock'},
+    {id:'public',    name:'Public',      color:'#22c55e', icon:'ph ph-globe'},
+    {id:'hr',        name:'HR Systems',  color:'#a855f7', icon:'ph ph-users'},
+  ];
+  function getHortGroup(id) { return hortGroups.find(h => h.id === id) || hortGroups[0]; }
+
+  // ── Widget accent colors ──
+  const _widgetAccents = {
+    'system-monitor':'#06b6d4', 'network-monitor':'#22c55e', 'clipboard-history':'#3b82f6',
+    'llming-lens':'#60a5fa', 'now-playing':'#a855f7', 'calendar':'#3b82f6', 'email':'#06b6d4',
+    'n8n-workflows':'#ff6d00', 'cameras':'#ef4444', 'energy':'#22c55e', 'weather':'#f59e0b',
+    'code-watch':'#a855f7', 'openclaw':'#f59e0b', 'process-manager':'#94a3b8'
+  };
+
+  // ── Widget default sizes ──
+  const _defaultSizes = {
+    'system-monitor':'1x1', 'network-monitor':'1x1', 'clipboard-history':'1x1',
+    'llming-lens':'2x1', 'now-playing':'2x1', 'calendar':'1x1', 'email':'1x1',
+    'n8n-workflows':'1x1', 'cameras':'2x1', 'energy':'2x1', 'weather':'1x1',
+    'code-watch':'1x2', 'openclaw':'2x1', 'process-manager':'1x1',
+    'llming-wire':'2x1', 'disk-usage':'1x1',
+  };
+
+  // ── Widget grid helpers ──
+  let _widgetIdCounter = 100;
+  function nextWidgetId() { return 'w_' + (++_widgetIdCounter); }
+
+  const WH_CELL_W = 280, WH_GAP = 14, WH_PAD = 20;
+  function whCalcCols() { return Math.max(2, Math.floor((window.innerWidth - 2 * WH_PAD + WH_GAP) / (WH_CELL_W + WH_GAP))); }
+  const whGridCols = ref(whCalcCols());
+  window.addEventListener('resize', () => { whGridCols.value = whCalcCols(); });
+  watch(whGridCols, v => { document.documentElement.style.setProperty('--cols', v); }, { immediate: true });
+
+  function whGetWidgets(desk) { return [...desk.widgets].sort((a, b) => a.order - b.order); }
+
+  // Auto-reflow: compute display positions avoiding overlaps
+  function whComputePositions(desktops, cols) {
+    const result = {};
+    for (const desk of desktops) {
+      const widgets = whGetWidgets(desk);
+      const occupied = {};
+      function isOcc(r, c, w, h) {
+        for (let dr = 0; dr < h; dr++) for (let dc = 0; dc < w; dc++) if (occupied[(r+dr)+','+(c+dc)]) return true;
+        return false;
+      }
+      function occ(r, c, w, h) {
+        for (let dr = 0; dr < h; dr++) for (let dc = 0; dc < w; dc++) occupied[(r+dr)+','+(c+dc)] = true;
+      }
+      for (const w of widgets) {
+        const [ww, wh] = w.size.split('x').map(Number);
+        const cw = Math.min(ww, cols);
+        for (let tr = 0; tr < 50; tr++) {
+          let placed = false;
+          for (let tc = 0; tc <= cols - cw; tc++) {
+            if (!isOcc(tr, tc, cw, wh)) { occ(tr, tc, cw, wh); result[w.id] = { c: tc, r: tr, w: cw, h: wh }; placed = true; break; }
+          }
+          if (placed) break;
+        }
+      }
+    }
+    return result;
+  }
+
+  function whWidgetStyle(w, desk) {
+    const s = {};
+    s['--widget-icon-color'] = _widgetAccents[w.extId] || '#3b82f6';
+    const tint = desktopTints[desk.tint || 0];
+    s.borderColor = tint ? '#2a4a6e' : '#2a4a6e';
+    s['--widget-accent'] = _widgetAccents[w.extId] || '#3b82f6';
+    return s;
+  }
+
+  function whWidgetGridStyle(w, desk, posCache) {
+    const s = whWidgetStyle(w, desk);
+    const dp = posCache[w.id];
+    if (dp) {
+      s.gridColumn = (dp.c + 1) + ' / span ' + dp.w;
+      s.gridRow = (dp.r + 1) + ' / span ' + dp.h;
+    }
+    return s;
+  }
+
+  // Initialize default desktops from installed llmings
+  function whInitDesktops() {
+    const home = { id: 'home', name: 'Home', isHome: true, tint: 0, widgets: [] };
+    const registry = window.LlmingClient ? LlmingClient.getRegistry() : new Map();
+    for (const [id, Cls] of registry) {
+      if (Cls.autoShow) {
+        home.widgets.push({
+          id: nextWidgetId(), type: 'extension', extId: id,
+          size: _defaultSizes[id] || '1x1', order: home.widgets.length,
+          c: { title: Cls.llmingTitle || id, iconClass: Cls.llmingIcon || 'ph ph-puzzle-piece' }
+        });
+      }
+    }
+    // Also add any terminals
+    for (const t of state.terminals) {
+      home.widgets.push({
+        id: nextWidgetId(), type: 'terminal', subId: t.terminal_id,
+        size: '1x1', order: home.widgets.length,
+        c: { title: t.title || 'Terminal', iconClass: 'ph ph-terminal-window' }
+      });
+    }
+    state.desktops = [home];
+  }
 
   // Bridge API for extensions to interact with the SPA
   window.__hort = {
@@ -2208,7 +2355,7 @@
   // =============================================
   const HortPicker = {
     template: `
-      <div v-show="state.view === 'picker'" style="padding-top:40px">
+      <div v-show="state.view === 'picker'" :style="state.widgetMode ? 'padding-top:48px;height:100vh;display:flex;flex-direction:column;overflow:hidden' : 'padding-top:40px'">
         <!-- Logo bar removed — unified toolbar in HortApp handles navigation -->
 
         <!-- Connector detail panel (rendered by extensions) -->
@@ -2323,6 +2470,198 @@
         <!-- Target bar removed — replaced by dropdown in header -->
 
         <template v-if="state.viewTab === 'screens'">
+          <!-- Widget Home Screen -->
+          <template v-if="state.widgetMode">
+            <div class="wh-viewport" :style="whViewportStyle">
+              <div class="plasma-blob"></div>
+              <div class="wh-track" :style="whTrackStyle">
+                <div class="wh-page" v-for="(desk, di) in state.desktops" :key="desk.id"
+                     :style="{width: state.desktops.length ? (100/state.desktops.length)+'%' : '100%'}">
+                  <div class="wh-grid" :class="{'edit-mode': state.editMode}"
+                       @click.self="state.editMode ? (state.editMode = false) : null">
+                    <template v-for="w in whGetWidgets(desk)" :key="w.id">
+                      <div class="widget" :class="['w-'+w.size, {selected: state.detailWidget === w.id, 'claude-thinking': w.type === 'terminal' && w.c && w.c.state === 'thinking'}]"
+                           :style="whWidgetGridStyle(w, desk, whPosCache)"
+                           :draggable="state.editMode"
+                           @click="!state.editMode && onWidgetClick(w)"
+                           @contextmenu.prevent.stop="onWidgetCtx($event, w, desk)">
+                        <div class="del-badge" v-if="state.editMode" @click.stop="removeWidget(w, desk)">&times;</div>
+                        <div class="widget-icon-badge">
+                          <i :class="w.c && w.c.iconClass || 'ph ph-puzzle-piece'"></i>
+                        </div>
+                        <div v-if="state.editMode" class="size-label">{{ w.size.replace('x', '\u00d7') }}</div>
+
+                        <!-- Terminal widget -->
+                        <template v-if="w.type === 'terminal'">
+                          <div class="wh-term-output" style="line-height:1.6;padding:10px;font-size:10.5px">{{ w.c && w.c.output || '' }}</div>
+                          <div v-if="w.c && w.c.state === 'thinking'" class="term-progress"><div class="term-progress-fill" style="width:62%"></div></div>
+                          <div v-if="w.c && w.c.state" class="term-state-premium" :class="w.c.state">
+                            <span class="pdot" :class="w.c.state" style="width:8px;height:8px"></span>
+                            <span :style="{color: w.c.state === 'thinking' ? 'var(--purple)' : 'var(--dim)'}">{{ w.c.state.toUpperCase() }}</span>
+                          </div>
+                        </template>
+
+                        <!-- Extension widget (rendered by llming card component) -->
+                        <template v-else-if="w.type === 'extension'">
+                          <component v-if="spiritCardComponent(w.extId)"
+                                     :is="spiritCardComponent(w.extId)" :key="w.extId + '-' + demoEpoch" />
+                          <div v-else class="widget-thumb">
+                            <i :class="w.c && w.c.iconClass || 'ph ph-puzzle-piece'" style="font-size:32px;color:var(--dim)"></i>
+                            <span style="font-size:11px;color:var(--dim);margin-top:4px">{{ w.c && w.c.title || w.extId }}</span>
+                          </div>
+                        </template>
+
+                        <!-- Quick chat widget -->
+                        <template v-else-if="w.type === 'quick-chat'">
+                          <div class="chat-body">
+                            <div class="bub u">Turn on living room lights</div>
+                            <div class="bub a">Done! Lights on at 80%.</div>
+                          </div>
+                          <div class="chat-inp">
+                            <input placeholder="Message..." @click.stop>
+                            <button><i class="ph-fill ph-paper-plane-right" style="font-size:12px"></i></button>
+                          </div>
+                        </template>
+
+                        <!-- Fallback -->
+                        <template v-else>
+                          <div class="widget-thumb">
+                            <i :class="w.c && w.c.iconClass || 'ph ph-puzzle-piece'" style="font-size:32px;color:var(--dim)"></i>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom bar with page dots -->
+            <div class="wh-bottom-bar" :class="{'edit-active': state.editMode}">
+              <div class="dot-track">
+                <div v-for="(d, i) in state.desktops" :key="d.id"
+                     class="dot" :class="{active: i === state.activeDesktopIdx, home: d.isHome}"
+                     @click="goToDesktop(i)"></div>
+              </div>
+            </div>
+
+            <!-- Toast -->
+            <div v-if="state.whToast" class="wh-toast">{{ state.whToast }}</div>
+
+            <!-- Navigation drawer -->
+            <div class="dov" :class="{open: state.whDrawer}" @click="state.whDrawer = false">
+              <div class="dw" @click.stop>
+                <div class="dw-head">
+                  <h3>OpenHORT</h3>
+                  <small>{{ state.serverVersion || 'dev' }}</small>
+                </div>
+                <div class="dw-search">
+                  <i class="ph ph-magnifying-glass"></i>
+                  <input placeholder="Search...">
+                </div>
+                <div class="dsec">
+                  <div class="dsec-t">Desktops</div>
+                  <div v-for="(d, i) in state.desktops" :key="d.id" class="di" :class="{act: i === state.activeDesktopIdx}"
+                       @click="goToDesktop(i); state.whDrawer = false">
+                    <i :class="d.isHome ? 'ph ph-house' : 'ph ph-monitor'"></i>
+                    <span>{{ d.name }}</span>
+                    <span style="font-size:10px;color:var(--dim);margin-left:auto">{{ d.widgets.length }}</span>
+                  </div>
+                </div>
+                <div class="dsec">
+                  <div class="dsec-t">Quick Actions</div>
+                  <div class="di" @click="state.widgetPicker = true; state.whDrawer = false">
+                    <i class="ph ph-plus-circle"></i><span>Add Widget</span>
+                  </div>
+                  <div class="di" @click="addDesktop(); state.whDrawer = false">
+                    <i class="ph ph-monitor"></i><span>New Desktop</span>
+                  </div>
+                  <div class="di" @click="state.editMode = !state.editMode; state.whDrawer = false">
+                    <i class="ph ph-pencil-simple"></i><span>{{ state.editMode ? 'Done Editing' : 'Edit Layout' }}</span>
+                  </div>
+                </div>
+                <div class="dsec">
+                  <div class="dsec-t">Views</div>
+                  <div class="di" @click="state.viewTab = 'spirits'; state.whDrawer = false">
+                    <i class="ph ph-ghost"></i><span>Llmings</span>
+                  </div>
+                  <div class="di" @click="state.viewTab = 'config'; state.whDrawer = false">
+                    <i class="ph ph-sliders-horizontal"></i><span>Settings</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Widget catalog picker -->
+            <div v-if="state.widgetPicker" class="picker-overlay" @click.self="state.widgetPicker = false">
+              <div class="picker">
+                <div class="picker-head">
+                  <h3>Add Widget</h3>
+                  <button @click="state.widgetPicker = false"><i class="ph ph-x"></i></button>
+                </div>
+                <div class="picker-search">
+                  <i class="ph ph-magnifying-glass"></i>
+                  <input v-model="state.widgetPickerSearch" placeholder="Search widgets...">
+                </div>
+                <div class="picker-body">
+                  <div class="picker-cat">Llmings</div>
+                  <template v-for="sp in filteredCatalog" :key="sp.name">
+                    <div class="picker-item" @click="addWidgetFromCatalog(sp); state.widgetPicker = false">
+                      <i :class="sp.icon || 'ph ph-puzzle-piece'"></i>
+                      <div class="pi-info">
+                        <div class="pi-name">{{ sp.title || sp.name }}</div>
+                        <div class="pi-desc">{{ sp.description || '' }}</div>
+                      </div>
+                      <span class="pi-size">{{ (_defaultSizes[sp.name] || '1x1').replace('x', '\u00d7') }}</span>
+                    </div>
+                  </template>
+                  <div class="picker-cat">Built-in</div>
+                  <div class="picker-item" @click="addTerminalWidget(); state.widgetPicker = false">
+                    <i class="ph ph-terminal-window"></i>
+                    <div class="pi-info"><div class="pi-name">Terminal</div><div class="pi-desc">New terminal session</div></div>
+                    <span class="pi-size">1\u00d71</span>
+                  </div>
+                  <div class="picker-item" @click="addChatWidget(); state.widgetPicker = false">
+                    <i class="ph ph-chat-dots"></i>
+                    <div class="pi-info"><div class="pi-name">Quick Chat</div><div class="pi-desc">AI chat widget</div></div>
+                    <span class="pi-size">2\u00d71</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Desktop overview (shown on long-press of dots) -->
+            <div v-if="state.desktopOverview" class="overview-overlay" @click="state.desktopOverview = false">
+              <div class="overview-strip" @click.stop>
+                <div v-for="(d, i) in state.desktops" :key="d.id"
+                     class="overview-card" :class="{active: i === state.activeDesktopIdx}"
+                     @click="goToDesktop(i); state.desktopOverview = false"
+                     :style="{width: '200px'}">
+                  <div class="overview-card-inner" :style="{height: '160px', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:'8px'}">
+                    <i :class="d.isHome ? 'ph ph-house' : 'ph ph-monitor'" style="font-size:28px;color:var(--dim)"></i>
+                    <span style="font-size:11px;color:var(--dim)">{{ d.widgets.length }} widgets</span>
+                  </div>
+                  <div class="overview-card-label">{{ d.name }}</div>
+                </div>
+                <div class="overview-card new-desk" @click.stop="addDesktop(); state.desktopOverview = false" style="width:200px">
+                  <div class="overview-card-inner" style="height:160px;display:flex;align-items:center;justify-content:center">
+                    <i class="ph ph-plus" style="font-size:28px;color:var(--dim)"></i>
+                  </div>
+                  <div class="overview-card-label">New Desktop</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- FAB add button -->
+            <div class="fab-add" @click="state.widgetPicker = true">
+              <i class="ph ph-plus" style="font-size:20px"></i>
+            </div>
+
+          </template>
+
+          <!-- Legacy flat grid (widgetMode off) -->
+          <template v-else>
+
         <!-- Spaces bar (single-target only) -->
         <div v-if="state.activeTarget !== 'all'" class="spaces-bar" :class="{ visible: state.spacesData.count > 1 }">
           <span class="spaces-label"><i class="ph ph-monitor"></i></span>
@@ -2432,7 +2771,7 @@
                                 stroke-dasharray="80 45" stroke-linecap="round">
                           <animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="1s" repeatCount="indefinite"/>
                         </circle>
-                        <text x="24" y="29" text-anchor="middle" fill="currentColor" font-size="16">⚡</text>
+                        <text x="24" y="29" text-anchor="middle" fill="currentColor" font-size="16">&#x26A1;</text>
                       </svg>
                       <!-- Idle: Zzz -->
                       <svg v-else width="48" height="48" viewBox="0 0 48 48">
@@ -2508,6 +2847,8 @@
             No windows found
           </div>
         </div>
+
+          </template>
         </template><!-- /screens -->
 
 
@@ -3444,6 +3785,100 @@
         });
       }
 
+      // ===== Widget Home Screen =====
+      const activeDesktop = computed(() => state.desktops[state.activeDesktopIdx] || state.desktops[0]);
+      const whViewportStyle = computed(() => {
+        const tint = desktopTints[activeDesktop.value?.tint || 0] || desktopTints[0];
+        return { backgroundColor: tint.bg, '--plasma1': tint.plasma1, '--plasma2': tint.plasma2, '--plasma3': tint.plasma3 };
+      });
+      const whTrackStyle = computed(() => ({
+        transform: `translateX(-${state.activeDesktopIdx * 100 / Math.max(state.desktops.length, 1)}%)`,
+        transition: 'transform 0.3s ease',
+        width: (state.desktops.length * 100) + '%',
+      }));
+      const whPosCache = computed(() => whComputePositions(state.desktops, whGridCols.value));
+
+      const filteredCatalog = computed(() => {
+        const q = (state.widgetPickerSearch || '').toLowerCase();
+        const list = spiritsList.value || [];
+        if (!q) return list;
+        return list.filter(s => (s.name + ' ' + (s.description || '')).toLowerCase().includes(q));
+      });
+
+      function goToDesktop(i) { state.activeDesktopIdx = Math.max(0, Math.min(i, state.desktops.length - 1)); }
+
+      function addDesktop() {
+        const id = 'd_' + Date.now();
+        const tint = state.desktops.length % desktopTints.length;
+        state.desktops.push({ id, name: 'Desktop ' + (state.desktops.length + 1), isHome: false, tint, widgets: [] });
+        state.activeDesktopIdx = state.desktops.length - 1;
+      }
+
+      function addWidgetFromCatalog(sp) {
+        const desk = activeDesktop.value;
+        if (!desk) return;
+        desk.widgets.push({
+          id: nextWidgetId(), type: 'extension', extId: sp.name,
+          size: _defaultSizes[sp.name] || '1x1', order: desk.widgets.length,
+          c: { title: sp.title || sp.name, iconClass: sp.icon || 'ph ph-puzzle-piece' }
+        });
+        showWhToast('Added ' + (sp.title || sp.name));
+      }
+
+      function addTerminalWidget() {
+        const desk = activeDesktop.value;
+        if (!desk) return;
+        desk.widgets.push({
+          id: nextWidgetId(), type: 'terminal', subId: 'shell',
+          size: '1x1', order: desk.widgets.length,
+          c: { title: 'Terminal', iconClass: 'ph ph-terminal-window', state: null, output: '$ ' }
+        });
+      }
+
+      function addChatWidget() {
+        const desk = activeDesktop.value;
+        if (!desk) return;
+        desk.widgets.push({
+          id: nextWidgetId(), type: 'quick-chat', extId: 'llming-wire',
+          size: '2x1', order: desk.widgets.length,
+          c: { title: 'Chat', iconClass: 'ph ph-chat-dots' }
+        });
+      }
+
+      function removeWidget(w, desk) {
+        const idx = desk.widgets.findIndex(x => x.id === w.id);
+        if (idx >= 0) desk.widgets.splice(idx, 1);
+        showWhToast('Removed');
+      }
+
+      function onWidgetClick(w) {
+        if (w.type === 'terminal' && w.subId) {
+          const term = state.terminals.find(t => t.terminal_id === w.subId);
+          if (term) openTerminal(term.terminal_id);
+        } else if (w.type === 'extension' && w.extId) {
+          const sp = (spiritsList.value || []).find(s => s.name === w.extId);
+          if (sp) openSpiritFullscreen(w.extId);
+        }
+      }
+
+      function onWidgetCtx(e, w, desk) {
+        state.editMode = !state.editMode;
+      }
+
+      let _whToastTimer = null;
+      function showWhToast(msg) {
+        state.whToast = msg;
+        clearTimeout(_whToastTimer);
+        _whToastTimer = setTimeout(() => { state.whToast = ''; }, 2000);
+      }
+
+      // Init desktops when plugins load (or re-init if home is empty)
+      watch(pluginsLoaded, () => {
+        if (!state.desktops.length || (state.desktops.length === 1 && state.desktops[0].widgets.length === 0)) {
+          whInitDesktops();
+        }
+      });
+
       return {
         state, demoEpoch, groupsList, targetGroups, currentTargetName,
         isInAnyGroup, onAppFilterChange, setNavMode,
@@ -3461,6 +3896,10 @@
         favorites, toggleFavorite, isFavorite,
         fullscreenSpirit, openSpiritFullscreen, closeSpiritFullscreen,
         activeTargetLabel, activeTargetIcon,
+        activeDesktop, whViewportStyle, whTrackStyle, whPosCache, filteredCatalog,
+        goToDesktop, addDesktop, addWidgetFromCatalog, addTerminalWidget, addChatWidget,
+        removeWidget, onWidgetClick, onWidgetCtx, showWhToast,
+        whGetWidgets, whWidgetGridStyle,
       };
     },
   };
@@ -3772,8 +4211,16 @@
       <div v-if="demoMode" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#b45309;color:#fff;text-align:center;font-size:11px;font-weight:700;letter-spacing:2px;padding:2px 0;cursor:pointer;text-transform:uppercase" @click="onLogoClick();onLogoClick();onLogoClick();onLogoClick();onLogoClick()">
         DEMO MODE
       </div>
+      <!-- ===== WIDGET MODE NAVBAR ===== -->
+      <div v-if="state.widgetMode && state.view === 'picker'" class="wh-navbar" :style="{ marginTop: demoMode ? '18px' : '0' }">
+        <button class="nav-btn" @click="state.whDrawer = true"><i class="ph ph-list"></i></button>
+        <span class="nav-logo">OpenHORT</span>
+        <span class="nav-name">{{ whActiveDesktop?.name || 'Home' }}</span>
+        <div style="flex:1"></div>
+        <div class="nav-add" @click="state.widgetPicker = true"><i class="ph ph-plus" style="font-size:14px"></i></div>
+      </div>
       <!-- ===== UNIFIED TOOLBAR ===== -->
-      <div class="llming-toolbar unified-toolbar" :class="{ 'picker-mode': state.view === 'picker' }" v-if="!state.nativeApp" :style="{ zIndex: 600, marginTop: demoMode ? '18px' : '0' }">
+      <div class="llming-toolbar unified-toolbar" :class="{ 'picker-mode': state.view === 'picker' }" v-if="!state.nativeApp && !(state.widgetMode && state.view === 'picker')" :style="{ zIndex: 600, marginTop: demoMode ? '18px' : '0' }">
         <!-- LEFT: Back button (non-picker) or Logo + Hamburger (picker) -->
         <template v-if="state.view === 'picker'">
           <svg class="logo-svg" viewBox="0 0 220 32" xmlns="http://www.w3.org/2000/svg" @click="onLogoClick">
@@ -4300,6 +4747,9 @@
         return t ? (t.title || t.terminal_id) : 'Terminal';
       });
 
+      // Widget home screen
+      const whActiveDesktop = computed(() => state.desktops[state.activeDesktopIdx] || { name: 'Home' });
+
       return {
         state, viewer, onSelectWindow,
         fullscreenSpirit, fullscreenSpiritWidget, isFullscreenCapable, closeSpiritFullscreen,
@@ -4307,6 +4757,7 @@
         floatWindows, floatClose, floatToggleMin, floatDragStart,
         toolbarViewerTitle, toolbarNavCounter, toolbarTerminalTitle,
         demoMode, demoEpoch, onLogoClick,
+        whActiveDesktop,
       };
     },
   };

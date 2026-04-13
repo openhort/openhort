@@ -1,0 +1,12 @@
+{
+  "name": "openclaw",
+  "version": "0.1.0",
+  "description": "AI home automation",
+  "provider": "core",
+  "entry_point": "openclaw:OpenClaw",
+  "icon": "ph ph-house-line",
+  "author": "openhort",
+  "llming_type": "tool",
+  "ui_widgets": ["openclaw-card"],
+  "ui_script": "static/cards.js"
+}
