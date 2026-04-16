@@ -2,9 +2,9 @@ export default {
   vault: {
     'state': {
       emails: [
-        { id: 1, from: 'Alex Chen', subject: 'PR Review: Session refactor', unread: true, initials: 'AC', bg: '#3b82f6' },
-        { id: 2, from: 'Lisa Park', subject: 'Q2 roadmap draft attached', unread: true, initials: 'LP', bg: '#a855f7' },
-        { id: 3, from: 'CI Bot', subject: 'Build #847 passed', unread: false, initials: 'CI', bg: '#22c55e' }
+        { id: 1, from: 'Alex Chen', subject: 'PR Review: Session refactor', unread: true, avatar: '/static/vendor/demo/face-alex.jpg' },
+        { id: 2, from: 'Lisa Park', subject: 'Q2 roadmap draft attached', unread: true, avatar: '/static/vendor/demo/face-lisa.jpg' },
+        { id: 3, from: 'Sarah Kim', subject: 'Q2 OKR draft for review', unread: false, avatar: '/static/vendor/demo/face-sarah.jpg' }
       ],
       unreadCount: 2
     }

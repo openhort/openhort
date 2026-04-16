@@ -126,6 +126,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 ## Guidelines
 
 - **[Coding Guidelines](docs/ai/coding-guidelines.md)** — MUST follow: no private access, no if/elif dispatch, config over hardcoding, WS-first, error handling
+- [UI Concepts](docs/manual/internals/ui-concepts.md) — widget home screen, desktops, spatial hierarchy, IndexedDB layout persistence, widget data model
 - [UX Guidelines](docs/manual/develop/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
 - [Llming Development](docs/manual/develop/plugins.md) — creating llmings, storage, scheduler, MCP, intents, widgets
 - [Llming System](docs/manual/develop/extensions.md) — provider interfaces, manifest, registry, creating llmings

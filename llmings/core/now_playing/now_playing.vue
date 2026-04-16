@@ -24,7 +24,9 @@
 
     <div class="np-progress-area">
       <div class="music-progress">
+        <div class="music-progress-bg"></div>
         <div class="music-progress-fill" :style="{ width: progressPct + '%' }"></div>
+        <div class="music-progress-dot" :style="{ left: progressPct + '%' }"></div>
       </div>
       <div class="np-time">-{{ remaining }}</div>
     </div>
@@ -32,7 +34,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { vaultRef } from 'llming'
 
 const track    = vaultRef('now-playing', 'state.track', 'Midnight City')
@@ -41,6 +43,20 @@ const album    = vaultRef('now-playing', 'state.album', "Hurry Up, We're Dreamin
 const playing  = vaultRef('now-playing', 'state.playing', true)
 const position = vaultRef('now-playing', 'state.position', 158)
 const duration = vaultRef('now-playing', 'state.duration', 243)
+
+let timer = null
+
+onMounted(() => {
+  timer = setInterval(() => {
+    if (playing.value && position.value < duration.value) {
+      position.value += 1
+    }
+  }, 1000)
+})
+
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+})
 
 const progressPct = computed(() => {
   if (!duration.value || duration.value <= 0) return 0
@@ -63,19 +79,20 @@ function skipForward() {}
 .now-playing {
   width: 100%;
   height: 100%;
-  position: relative;
-  overflow: hidden;
+  position: absolute;
+  inset: 0;
   background: linear-gradient(145deg, #1a0a2e, #2d1b4e 40%, #1e1245 60%, #0f1a3e);
   padding: 12px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  overflow: hidden;
 }
 
 .np-top {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .np-album-art {
@@ -83,7 +100,7 @@ function skipForward() {}
   height: 56px;
   min-width: 56px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #6b21a8, #a855f7 50%, #7c3aed);
+  background: linear-gradient(135deg, #4a2080, #e040a0);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -147,28 +164,13 @@ function skipForward() {}
 
 .np-progress-area {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.music-progress {
-  width: 100%;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.music-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #a855f7, #c084fc);
-  border-radius: 2px;
-  transition: width 0.3s linear;
+  align-items: center;
+  gap: 8px;
 }
 
 .np-time {
   font-size: 9px;
   color: rgba(255, 255, 255, 0.4);
-  text-align: right;
+  white-space: nowrap;
 }
 </style>

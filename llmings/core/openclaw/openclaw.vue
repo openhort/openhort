@@ -5,7 +5,7 @@
       :key="room.id"
       class="room-tile"
       :class="{ on: room.lightOn }"
-      @click="room.lightOn = !room.lightOn"
+      @click.stop="room.lightOn = !room.lightOn"
     >
       <div class="room-header">
         <i :class="room.icon" class="room-icon" />

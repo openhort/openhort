@@ -1,40 +1,29 @@
 <template>
   <div class="n8n-root">
-    <div class="n8n-header">
-      <i class="ph ph-lightning n8n-header-icon"></i>
-      <span class="n8n-header-title">Workflows</span>
-    </div>
-
     <div class="n8n-cards">
       <div class="n8n-stat n8n-stat-passed">
-        <div class="n8n-stat-top">
-          <i class="ph ph-check-circle n8n-stat-icon n8n-icon-green"></i>
-          <span class="n8n-stat-count n8n-count-green">{{ passed }}</span>
-        </div>
+        <i class="ph-fill ph-check-circle n8n-stat-icon n8n-icon-green"></i>
+        <div class="n8n-stat-count n8n-count-green">{{ passed }}</div>
         <div class="n8n-stat-label">passed</div>
-        <svg class="n8n-sparkline" viewBox="0 0 60 16" preserveAspectRatio="none">
+        <svg class="n8n-sparkline" viewBox="0 0 40 12" preserveAspectRatio="none">
           <polyline :points="passedSparkline" fill="none" stroke="rgba(34,197,94,.5)" stroke-width="1.5" />
         </svg>
       </div>
 
       <div class="n8n-stat" :class="failed > 0 ? 'n8n-stat-failed n8n-fail-glow' : 'n8n-stat-neutral'">
-        <div class="n8n-stat-top">
-          <i class="ph ph-x-circle n8n-stat-icon" :class="failed > 0 ? 'n8n-icon-red' : 'n8n-icon-dim'"></i>
-          <span class="n8n-stat-count" :class="failed > 0 ? 'n8n-count-red' : 'n8n-count-dim'">{{ failed }}</span>
-        </div>
+        <i class="ph-fill ph-x-circle n8n-stat-icon" :class="failed > 0 ? 'n8n-icon-red' : 'n8n-icon-dim'"></i>
+        <div class="n8n-stat-count" :class="failed > 0 ? 'n8n-count-red' : 'n8n-count-dim'">{{ failed }}</div>
         <div class="n8n-stat-label">failed</div>
-        <svg class="n8n-sparkline" viewBox="0 0 60 16" preserveAspectRatio="none">
+        <svg class="n8n-sparkline" viewBox="0 0 40 12" preserveAspectRatio="none">
           <polyline :points="failedSparkline" fill="none" :stroke="failed > 0 ? 'rgba(239,68,68,.5)' : 'rgba(255,255,255,.1)'" stroke-width="1.5" />
         </svg>
       </div>
 
       <div class="n8n-stat n8n-stat-running">
-        <div class="n8n-stat-top">
-          <i class="ph ph-play-circle n8n-stat-icon n8n-icon-blue"></i>
-          <span class="n8n-stat-count n8n-count-blue">{{ running }}</span>
-        </div>
+        <i class="ph-fill ph-play-circle n8n-stat-icon n8n-icon-blue"></i>
+        <div class="n8n-stat-count n8n-count-blue">{{ running }}</div>
         <div class="n8n-stat-label">active</div>
-        <svg class="n8n-sparkline" viewBox="0 0 60 16" preserveAspectRatio="none">
+        <svg class="n8n-sparkline" viewBox="0 0 40 12" preserveAspectRatio="none">
           <polyline :points="runningSparkline" fill="none" stroke="rgba(96,165,250,.5)" stroke-width="1.5" />
         </svg>
       </div>
@@ -68,8 +57,8 @@ function sparkPoints(arr) {
   if (!arr.length) return ''
   const max = Math.max(...arr, 1)
   return arr.map((v, i) => {
-    const x = (i / (arr.length - 1)) * 60
-    const y = 14 - (v / max) * 12
+    const x = (i / (arr.length - 1)) * 40
+    const y = 10 - (v / max) * 8
     return `${x},${y}`
   }).join(' ')
 }
@@ -83,44 +72,27 @@ const runningSparkline = computed(() => sparkPoints(runningHistory.value))
 .n8n-root {
   width: 100%;
   height: 100%;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.n8n-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.n8n-header-icon {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.4);
-}
-
-.n8n-header-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.4);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  padding: 10px;
 }
 
 .n8n-cards {
   display: flex;
-  gap: 6px;
-  flex: 1;
+  gap: 8px;
+  justify-content: center;
+  width: 100%;
 }
 
 .n8n-stat {
   flex: 1;
-  border-radius: 8px;
-  padding: 8px;
+  border-radius: 10px;
+  padding: 8px 4px;
+  text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 1px;
   position: relative;
   overflow: hidden;
 }
@@ -136,7 +108,7 @@ const runningSparkline = computed(() => sparkPoints(runningHistory.value))
 }
 
 .n8n-stat-neutral {
-  background: var(--bg, rgba(255, 255, 255, 0.03));
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -149,14 +121,8 @@ const runningSparkline = computed(() => sparkPoints(runningHistory.value))
   box-shadow: 0 0 12px rgba(239, 68, 68, 0.15);
 }
 
-.n8n-stat-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .n8n-stat-icon {
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .n8n-icon-green { color: #22c55e; }
@@ -165,8 +131,8 @@ const runningSparkline = computed(() => sparkPoints(runningHistory.value))
 .n8n-icon-dim   { color: rgba(255, 255, 255, 0.2); }
 
 .n8n-stat-count {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: 24px;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -176,7 +142,7 @@ const runningSparkline = computed(() => sparkPoints(runningHistory.value))
 .n8n-count-dim   { color: rgba(255, 255, 255, 0.25); }
 
 .n8n-stat-label {
-  font-size: 9px;
+  font-size: 10px;
   color: rgba(255, 255, 255, 0.35);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -184,7 +150,7 @@ const runningSparkline = computed(() => sparkPoints(runningHistory.value))
 
 .n8n-sparkline {
   width: 100%;
-  height: 16px;
-  margin-top: auto;
+  height: 12px;
+  margin-top: 4px;
 }
 </style>

@@ -1,16 +1,27 @@
 <template>
   <div class="weather-card">
-    <div class="weather-main">
-      <div class="weather-temp">{{ Math.round(temp) }}<span class="weather-deg">&deg;</span></div>
-      <i :class="weatherIcon" class="weather-icon"></i>
+    <div class="weather-top">
+      <div class="weather-header">
+        <i :class="weatherIcon" class="weather-icon"></i>
+        <div class="weather-temp">{{ Math.round(temp) }}<span class="weather-deg">&deg;</span></div>
+      </div>
+      <div class="weather-condition">{{ condition }}</div>
+      <div v-if="icon === 'day'" class="weather-alert">
+        <i class="ph-fill ph-drop"></i>
+        Rain in 45 min
+      </div>
+      <div v-else class="weather-alert weather-alert-night">
+        <i class="ph-fill ph-moon-stars"></i>
+        Clear skies
+      </div>
     </div>
-    <div class="weather-condition">{{ condition }}</div>
+
     <div class="weather-forecast">
       <div v-for="slot in forecast" :key="slot.t" class="forecast-slot">
+        <div class="forecast-temp">{{ slot.v }}&deg;</div>
         <div class="forecast-bar-track">
           <div class="forecast-bar-fill" :style="barStyle(slot.v)"></div>
         </div>
-        <div class="forecast-temp">{{ slot.v }}&deg;</div>
         <div class="forecast-time">{{ slot.t }}</div>
       </div>
     </div>
@@ -42,10 +53,13 @@ function barStyle(v) {
   const min = Math.min(...temps) - 2
   const max = Math.max(...temps) + 2
   const pct = ((v - min) / (max - min)) * 100
-  const hue = Math.max(0, Math.min(240, (1 - (v - min) / (max - min)) * 240))
+  let color
+  if (v >= 18) color = '#f59e0b'
+  else if (v >= 14) color = '#60a5fa'
+  else color = '#94a3b8'
   return {
     height: pct + '%',
-    backgroundColor: `hsl(${hue}, 60%, 55%)`
+    backgroundColor: color
   }
 }
 </script>
@@ -59,38 +73,65 @@ function barStyle(v) {
   flex-direction: column;
   justify-content: space-between;
 }
-.weather-main {
+
+.weather-top {
+  display: flex;
+  flex-direction: column;
+}
+
+.weather-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
 }
+
+.weather-icon {
+  font-size: 42px;
+  color: #fbbf24;
+}
+
 .weather-temp {
   font-size: 36px;
   font-weight: 200;
   color: #e2e8f0;
   line-height: 1;
 }
+
 .weather-deg {
   font-size: 20px;
   vertical-align: super;
   color: #94a3b8;
 }
-.weather-icon {
-  font-size: 32px;
-  color: #fbbf24;
-}
+
 .weather-condition {
-  font-size: 13px;
+  font-size: 12px;
   color: #94a3b8;
+  margin-top: 6px;
+}
+
+.weather-alert {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #22d3ee;
   margin-top: 4px;
 }
+
+.weather-alert i {
+  font-size: 13px;
+}
+
+.weather-alert-night {
+  color: #94a3b8;
+}
+
 .weather-forecast {
   display: flex;
   gap: 8px;
   align-items: flex-end;
-  margin-top: auto;
-  padding-top: 12px;
 }
+
 .forecast-slot {
   flex: 1;
   display: flex;
@@ -98,6 +139,7 @@ function barStyle(v) {
   align-items: center;
   gap: 4px;
 }
+
 .forecast-bar-track {
   width: 16px;
   height: 40px;
@@ -107,16 +149,19 @@ function barStyle(v) {
   align-items: flex-end;
   overflow: hidden;
 }
+
 .forecast-bar-fill {
   width: 100%;
   border-radius: 4px 4px 0 0;
   transition: height 0.3s ease;
 }
+
 .forecast-temp {
   font-size: 11px;
   color: #cbd5e1;
   font-weight: 600;
 }
+
 .forecast-time {
   font-size: 10px;
   color: #64748b;

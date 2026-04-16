@@ -158,6 +158,52 @@
     } catch (e) { return null; }
   }
 
+  // ===== WIDGET LAYOUT PERSISTENCE (IndexedDB) =====
+  const _WIDGET_DB = 'hort-widget-layout';
+  const _WIDGET_STORE = 'layouts';
+
+  function _openWidgetDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(_WIDGET_DB, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(_WIDGET_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function _saveWidgetLayout(desktops) {
+    try {
+      const deviceClass = (window.LlmingClient && LlmingClient.getDeviceType) ? LlmingClient.getDeviceType() : 'desktop';
+      const data = desktops.map(d => ({
+        id: d.id, name: d.name, isHome: d.isHome, tint: d.tint, hpiort: d.hpiort || null,
+        widgets: d.widgets.map(w => ({
+          id: w.id, type: w.type, extId: w.extId || null, subId: w.subId || null,
+          size: w.size, order: w.order, hpiort: w.hpiort || null,
+          hortConnections: w.hortConnections || null,
+          pos: w.pos || null,
+          c: { title: w.c?.title || '', iconClass: w.c?.iconClass || '' }
+        }))
+      }));
+      const db = await _openWidgetDB();
+      const tx = db.transaction(_WIDGET_STORE, 'readwrite');
+      tx.objectStore(_WIDGET_STORE).put(data, deviceClass);
+      db.close();
+    } catch (e) { /* IndexedDB not available */ }
+  }
+
+  async function _loadWidgetLayout() {
+    try {
+      const deviceClass = (window.LlmingClient && LlmingClient.getDeviceType) ? LlmingClient.getDeviceType() : 'desktop';
+      const db = await _openWidgetDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(_WIDGET_STORE, 'readonly');
+        const req = tx.objectStore(_WIDGET_STORE).get(deviceClass);
+        req.onsuccess = () => { db.close(); resolve(req.result || null); };
+        req.onerror = () => { db.close(); resolve(null); };
+      });
+    } catch (e) { return null; }
+  }
+
   // ===== SHARED STATE =====
   const state = reactive({
     // Connection
@@ -269,21 +315,47 @@
     targetDropdownOpen: false,
 
     // ── Widget Home Screen ──
-    widgetMode: true,        // true = new desktop widget grid, false = old flat grid
-    desktops: [],            // [{id, name, isHome, tint, widgets:[]}]
+    widgetMode: true,
+    desktops: [],
     activeDesktopIdx: 0,
     editMode: false,
-    whDrawer: false,         // navigation drawer
-    widgetPicker: false,     // widget catalog
+    whDrawer: false,
+    widgetPicker: false,
     widgetPickerSearch: '',
+    pickerCat: null,
     desktopOverview: false,
     deviceView: false,
     activeDevice: 0,
-    detailWidget: null,      // opened detail card widget
-    whToast: '',             // toast message
-    whNameEditor: null,      // desktop name editing
+    detailWidget: null,
+    whToast: '',
+    whNameEditor: null,
+    // Drag state
+    dragW: null,
+    dragDesk: null,
+    dragGhost: null,
+    selectedWidget: null,
+    // Context menu
+    wctx: { open: false, x: 0, y: 0, w: null, desk: null },
+    gridCtx: { open: false, x: 0, y: 0 },
+    // Notifications
     notifications: [],
     notifMenuOpen: false,
+    criticalFlash: 0,
+    marqueeText: '',
+    marqueeNotif: null,
+    marqueeKey: 0,
+    centerNotif: null,
+    widgetBadges: {},
+    // Debug
+    debugMenuOpen: false,
+    // Simulation
+    simCollapsed: true,
+    simMotionActive: false,
+    simWashingMachine: false,
+    simIsDaytime: true,
+    simN8nFail: false,
+    // Viewport simulation
+    vpSimMode: null, // null | 'phone' | 'tablet'
   });
   window.__hortState = state;
 
@@ -309,11 +381,11 @@
 
   // ── Hort groups (security boundaries) ──
   const hortGroups = [
-    {id:'default',   name:'Local',       color:'#3b82f6', icon:'ph ph-house'},
-    {id:'sandboxed', name:'Sandboxed',   color:'#f59e0b', icon:'ph ph-shield-warning'},
-    {id:'sap',       name:'SAP Finance', color:'#ef4444', icon:'ph ph-lock'},
-    {id:'public',    name:'Public',      color:'#22c55e', icon:'ph ph-globe'},
-    {id:'hr',        name:'HR Systems',  color:'#a855f7', icon:'ph ph-users'},
+    {id:'default',   name:'Local',       color:'#3b82f6', tint:0, icon:'ph ph-house',          desc:'Local machine, no restrictions'},
+    {id:'sandboxed', name:'Sandboxed',   color:'#f59e0b', tint:4, icon:'ph ph-shield-warning', desc:'Container-isolated, limited network'},
+    {id:'sap',       name:'SAP Finance', color:'#ef4444', tint:1, icon:'ph ph-lock',           desc:'Confidential — no network out, no email'},
+    {id:'public',    name:'Public',      color:'#22c55e', tint:2, icon:'ph ph-globe',          desc:'Public data only, unrestricted output'},
+    {id:'hr',        name:'HR Systems',  color:'#a855f7', tint:3, icon:'ph ph-users',          desc:'PII — no logging, no external sharing'},
   ];
   function getHortGroup(id) { return hortGroups.find(h => h.id === id) || hortGroups[0]; }
 
@@ -335,8 +407,7 @@
   };
 
   // ── Widget grid helpers ──
-  let _widgetIdCounter = 100;
-  function nextWidgetId() { return 'w_' + (++_widgetIdCounter); }
+  function nextWidgetId() { return 'w_' + crypto.randomUUID(); }
 
   const WH_CELL_W = 280, WH_GAP = 14, WH_PAD = 20;
   function whCalcCols() { return Math.max(2, Math.floor((window.innerWidth - 2 * WH_PAD + WH_GAP) / (WH_CELL_W + WH_GAP))); }
@@ -344,10 +415,14 @@
   window.addEventListener('resize', () => { whGridCols.value = whCalcCols(); });
   watch(whGridCols, v => { document.documentElement.style.setProperty('--cols', v); }, { immediate: true });
 
-  function whGetWidgets(desk) { return [...desk.widgets].sort((a, b) => a.order - b.order); }
+  function whGetWidgets(desk) { return [...desk.widgets].sort((a, b) => (a.pos?.r ?? 999) - (b.pos?.r ?? 999) || (a.pos?.c ?? 0) - (b.pos?.c ?? 0)); }
 
-  // Auto-reflow: compute display positions avoiding overlaps
+  // Center-relative positioning with temporary reflow.
+  // Each widget has pos: {c, r} where c is center-relative (0 = screen center).
+  // Returns: { widgetId: { c: cssGridCol, r, w, h } }
+  let _whTempPositions = false; // true when current layout is a temporary reflow
   function whComputePositions(desktops, cols) {
+    const off = Math.floor(cols / 2); // center offset
     const result = {};
     for (const desk of desktops) {
       const widgets = whGetWidgets(desk);
@@ -356,18 +431,40 @@
         for (let dr = 0; dr < h; dr++) for (let dc = 0; dc < w; dc++) if (occupied[(r+dr)+','+(c+dc)]) return true;
         return false;
       }
-      function occ(r, c, w, h) {
+      function markOcc(r, c, w, h) {
         for (let dr = 0; dr < h; dr++) for (let dc = 0; dc < w; dc++) occupied[(r+dr)+','+(c+dc)] = true;
       }
-      for (const w of widgets) {
+
+      // Phase 1: Try placing widgets at their stored center-relative positions
+      const placed = new Set();
+      const sorted = [...widgets].filter(w => w.pos && w.pos.c !== undefined);
+      const noPos = widgets.filter(w => !w.pos || w.pos.c === undefined);
+
+      for (const w of sorted) {
+        const [ww, wh] = w.size.split('x').map(Number);
+        const cw = Math.min(ww, cols);
+        // Map center-relative → 0-based grid column, clamp to bounds
+        let gc = Math.max(0, Math.min(cols - cw, w.pos.c + off));
+        let gr = Math.max(0, w.pos.r);
+        if (!isOcc(gr, gc, cw, wh)) {
+          markOcc(gr, gc, cw, wh);
+          result[w.id] = { c: gc, r: gr, w: cw, h: wh };
+          placed.add(w.id);
+        }
+      }
+
+      // Phase 2: Auto-reflow any widgets that didn't fit (+ those without pos)
+      const remaining = [...sorted.filter(w => !placed.has(w.id)), ...noPos];
+      for (const w of remaining) {
+        _whTempPositions = true; // at least one widget was reflowed
         const [ww, wh] = w.size.split('x').map(Number);
         const cw = Math.min(ww, cols);
         for (let tr = 0; tr < 50; tr++) {
-          let placed = false;
+          let done = false;
           for (let tc = 0; tc <= cols - cw; tc++) {
-            if (!isOcc(tr, tc, cw, wh)) { occ(tr, tc, cw, wh); result[w.id] = { c: tc, r: tr, w: cw, h: wh }; placed = true; break; }
+            if (!isOcc(tr, tc, cw, wh)) { markOcc(tr, tc, cw, wh); result[w.id] = { c: tc, r: tr, w: cw, h: wh }; done = true; break; }
           }
-          if (placed) break;
+          if (done) break;
         }
       }
     }
@@ -376,10 +473,34 @@
 
   function whWidgetStyle(w, desk) {
     const s = {};
+    // Icon always shows the widget's own identity color
     s['--widget-icon-color'] = _widgetAccents[w.extId] || '#3b82f6';
-    const tint = desktopTints[desk.tint || 0];
-    s.borderColor = tint ? '#2a4a6e' : '#2a4a6e';
-    s['--widget-accent'] = _widgetAccents[w.extId] || '#3b82f6';
+    const wHort = w.hpiort || null;
+    const deskHort = desk.hpiort || null;
+    if (wHort && wHort !== deskHort) {
+      // Widget has explicit hort different from desktop — colored border + glow
+      const hg = getHortGroup(wHort);
+      const tint = desktopTints[hg.tint || 0] || desktopTints[0];
+      s.borderColor = hg.color;
+      s.borderWidth = '2px';
+      s['--rest-glow'] = `0 0 30px rgba(${(tint.rgb[0]*4)},${(tint.rgb[1]*4)},${(tint.rgb[2]*4)},.45)`;
+      s['--hover-glow'] = hg.color;
+      s['--widget-accent'] = hg.color;
+    } else if (deskHort) {
+      // Desktop has hort — all widgets get subtle tint
+      const hg = getHortGroup(deskHort);
+      s.borderColor = hg.color + '60';
+      s['--rest-glow'] = '0 0 20px rgba(0,0,0,.2)';
+      s['--hover-glow'] = hg.color;
+      s['--widget-accent'] = hg.color;
+    } else {
+      // No hort — default tint border
+      const tint = desktopTints[desk.tint || 0];
+      s.borderColor = tint ? (tint.accent || '#2a4a6e') : '#2a4a6e';
+      s['--rest-glow'] = tint ? `0 0 30px rgba(${(tint.rgb[0]*4)},${(tint.rgb[1]*4)},${(tint.rgb[2]*4)},.4)` : '0 0 30px rgba(80,160,280,.4)';
+      s['--hover-glow'] = '#3b82f6';
+      s['--widget-accent'] = _widgetAccents[w.extId] || '#3b82f6';
+    }
     return s;
   }
 
@@ -393,28 +514,98 @@
     return s;
   }
 
-  // Initialize default desktops from installed llmings
-  function whInitDesktops() {
-    const home = { id: 'home', name: 'Home', isHome: true, tint: 0, widgets: [] };
-    const registry = window.LlmingClient ? LlmingClient.getRegistry() : new Map();
-    for (const [id, Cls] of registry) {
-      if (Cls.autoShow) {
-        home.widgets.push({
-          id: nextWidgetId(), type: 'extension', extId: id,
-          size: _defaultSizes[id] || '1x1', order: home.widgets.length,
-          c: { title: Cls.llmingTitle || id, iconClass: Cls.llmingIcon || 'ph ph-puzzle-piece' }
-        });
-      }
+  // ── Default desktop presets (matching mockup exactly) ──
+  // pos: {c, r} — center-relative. c=0 is screen center. 4-col layout: c=-2,-1,0,1
+  function whDefaultDesktops() {
+    const wid = () => nextWidgetId();
+    return [
+      {id:'home', name:'Home', isHome:true, tint:0, hpiort:null, widgets:[
+        // Row 0: claude (1x2), system-monitor, llming-lens (2x1)
+        {id:wid(), type:'terminal', extId:null, subId:'claude_dev', size:'1x2', hpiort:'sandboxed',
+         pos:{c:-2,r:0},
+         c:{title:'claude_dev', iconClass:'ph ph-terminal-window', iconColor:'var(--purple)', state:'thinking', idle:12,
+            output:'$ claude --dangerously-skip\n\nAnalyzing codebase...\n\nReading hort/app.py\nReading hort/controller.py\n\nI\'ll refactor the session...'}},
+        {id:wid(), type:'extension', extId:'system-monitor', subId:null, size:'1x1', hpiort:'sandboxed',
+         pos:{c:-1,r:0}, c:{title:'System', iconClass:'ph ph-chart-line-up'}},
+        {id:wid(), type:'extension', extId:'llming-lens', subId:null, size:'2x1', hpiort:null,
+         pos:{c:0,r:0}, c:{title:'Desktop', iconClass:'ph ph-monitor'}},
+        // Row 1: claude cont., chat (2x1), network-monitor
+        {id:wid(), type:'quick-chat', extId:'llming-wire', subId:null, size:'2x1', hpiort:null,
+         pos:{c:-1,r:1}, c:{title:'Chat', iconClass:'ph ph-chat-dots'}, hortConnections:['sandboxed','sap']},
+        {id:wid(), type:'extension', extId:'network-monitor', subId:null, size:'1x1', hpiort:'public',
+         pos:{c:1,r:1}, c:{title:'Network', iconClass:'ph ph-wifi-high'}},
+        // Row 2: clipboard, weather, now-playing (2x1)
+        {id:wid(), type:'extension', extId:'clipboard-history', subId:null, size:'1x1', hpiort:'public',
+         pos:{c:-2,r:2}, c:{title:'Clipboard', iconClass:'ph ph-clipboard-text'}},
+        {id:wid(), type:'extension', extId:'weather', subId:null, size:'1x1', hpiort:null,
+         pos:{c:-1,r:2}, c:{title:'Weather', iconClass:'ph ph-cloud-sun'}},
+        {id:wid(), type:'extension', extId:'now-playing', subId:null, size:'2x1', hpiort:null,
+         pos:{c:0,r:2}, c:{title:'Now Playing', iconClass:'ph ph-music-notes'}},
+        // Row 3: calendar, email, cameras (2x1)
+        {id:wid(), type:'extension', extId:'calendar', subId:null, size:'1x1', hpiort:null,
+         pos:{c:-2,r:3}, c:{title:'Calendar', iconClass:'ph ph-calendar'}},
+        {id:wid(), type:'extension', extId:'email', subId:null, size:'1x1', hpiort:null,
+         pos:{c:-1,r:3}, c:{title:'Email', iconClass:'ph ph-envelope'}},
+        {id:wid(), type:'extension', extId:'cameras', subId:null, size:'2x1', hpiort:null,
+         pos:{c:0,r:3}, c:{title:'Cameras', iconClass:'ph ph-security-camera'}},
+        // Row 4: openclaw (2x1), code-watch (1x2), n8n
+        {id:wid(), type:'extension', extId:'openclaw', subId:null, size:'2x1', hpiort:null,
+         pos:{c:-2,r:4}, c:{title:'OpenClaw', iconClass:'ph ph-house-line'}},
+        {id:wid(), type:'extension', extId:'code-watch', subId:null, size:'1x1', hpiort:'sandboxed',
+         pos:{c:0,r:4}, c:{title:'Code Watch', iconClass:'ph ph-pulse'}},
+        {id:wid(), type:'extension', extId:'n8n-workflows', subId:null, size:'1x1', hpiort:null,
+         pos:{c:1,r:4}, c:{title:'n8n', iconClass:'ph ph-lightning'}},
+        // Row 5: energy (2x1)
+        {id:wid(), type:'extension', extId:'energy', subId:null, size:'2x1', hpiort:null,
+         pos:{c:-2,r:5}, c:{title:'Energy', iconClass:'ph ph-lightning'}},
+      ]},
+      {id:'d1', name:'SAP Finance', isHome:false, hpiort:'sap', tint:1, widgets:[
+        {id:wid(), type:'terminal', extId:null, subId:'sap_agent', size:'1x2', hpiort:'sap',
+         pos:{c:-2,r:0},
+         c:{title:'sap_agent', iconClass:'ph ph-terminal-window', state:'idle',
+            output:'$ claude --allowedTools "mcp__sap__*"\n\nSAP Finance agent ready.\nRestricted: no network, no email.'}},
+        {id:wid(), type:'extension', extId:'system-monitor', subId:null, size:'1x1', hpiort:'sap',
+         pos:{c:-1,r:0}, c:{title:'SAP Metrics', iconClass:'ph ph-chart-line-up'}},
+        {id:wid(), type:'quick-chat', extId:'llming-wire', subId:null, size:'2x1', hpiort:'sap',
+         pos:{c:0,r:0}, c:{title:'SAP Chat', iconClass:'ph ph-chat-dots'}, hortConnections:['sap']},
+      ]},
+      {id:'d2', name:'HR Dashboard', isHome:false, hpiort:'hr', tint:3, widgets:[]},
+      {id:'d3', name:'Smart Home', isHome:false, hpiort:null, tint:5, widgets:[
+        {id:wid(), type:'extension', extId:'openclaw', subId:null, size:'2x1', hpiort:null,
+         pos:{c:-2,r:0}, c:{title:'OpenClaw', iconClass:'ph ph-house-line'}},
+        {id:wid(), type:'extension', extId:'cameras', subId:null, size:'2x1', hpiort:null,
+         pos:{c:0,r:0}, c:{title:'Cameras', iconClass:'ph ph-security-camera'}},
+        {id:wid(), type:'extension', extId:'energy', subId:null, size:'2x1', hpiort:null,
+         pos:{c:-2,r:1}, c:{title:'Energy', iconClass:'ph ph-lightning'}},
+        {id:wid(), type:'extension', extId:'weather', subId:null, size:'1x1', hpiort:null,
+         pos:{c:0,r:1}, c:{title:'Weather', iconClass:'ph ph-cloud-sun'}},
+        {id:wid(), type:'extension', extId:'n8n-workflows', subId:null, size:'1x1', hpiort:null,
+         pos:{c:1,r:1}, c:{title:'n8n', iconClass:'ph ph-lightning'}},
+      ]}
+    ];
+  }
+
+  // Initialize desktops: load from IndexedDB or use defaults
+  async function whInitDesktops() {
+    const saved = await _loadWidgetLayout();
+    // Validate: all widgets must have pos with c,r — otherwise layout is stale
+    const valid = saved && saved.length > 0 && saved.every(d =>
+      !d.widgets || d.widgets.length === 0 || d.widgets.every(w => w.pos && w.pos.c !== undefined && w.pos.r !== undefined)
+    );
+    if (valid) {
+      state.desktops = saved;
+    } else {
+      state.desktops = whDefaultDesktops();
     }
-    // Also add any terminals
-    for (const t of state.terminals) {
-      home.widgets.push({
-        id: nextWidgetId(), type: 'terminal', subId: t.terminal_id,
-        size: '1x1', order: home.widgets.length,
-        c: { title: t.title || 'Terminal', iconClass: 'ph ph-terminal-window' }
-      });
-    }
-    state.desktops = [home];
+  }
+
+  // Debounced save (2s)
+  let _whSaveTimer = null;
+  function whScheduleSave() {
+    clearTimeout(_whSaveTimer);
+    _whSaveTimer = setTimeout(() => {
+      _saveWidgetLayout(state.desktops);
+    }, 2000);
   }
 
   // Bridge API for extensions to interact with the SPA
@@ -1345,9 +1536,32 @@
     // Delegate to LlmingClient.openLlming which handles float vs fullscreen
     if (typeof LlmingClient !== 'undefined') {
       LlmingClient.openLlming(name);
+      // Push browser history so back button closes the app
+      history.pushState({ _whFloat: true, app: name }, '', '?app=' + encodeURIComponent(name));
     }
   }
-  function floatClose(id) { if (typeof LlmingClient !== 'undefined') LlmingClient.closeFloat(id); }
+  function floatClose(id) {
+    if (typeof LlmingClient !== 'undefined') LlmingClient.closeFloat(id);
+    // Clean URL if no more floats open
+    const remaining = LlmingClient.getFloatWindows ? LlmingClient.getFloatWindows() : [];
+    if (remaining.length <= 1) { // 1 because the one being closed is still in the list
+      history.replaceState({}, '', location.pathname);
+    }
+  }
+  // Back button closes float/spirit
+  window.addEventListener('popstate', (e) => {
+    if (typeof LlmingClient !== 'undefined') {
+      const floats = LlmingClient.getFloatWindows ? LlmingClient.getFloatWindows() : [];
+      if (floats && floats.length > 0) {
+        LlmingClient.closeFloat(floats[floats.length - 1].id);
+        return;
+      }
+    }
+    if (state.view === 'spirit-fullscreen') {
+      if (window.__hort && window.__hort.closeSpiritFullscreen) window.__hort.closeSpiritFullscreen();
+      else state.view = 'picker';
+    }
+  });
   function floatToggleMin(id) { if (typeof LlmingClient !== 'undefined') LlmingClient.toggleMinimize(id); }
   function floatDragStart(e, fw) {
     const startX = e.clientX, startY = e.clientY;
@@ -2355,8 +2569,33 @@
   // =============================================
   const HortPicker = {
     template: `
-      <div v-show="state.view === 'picker'" :style="state.widgetMode ? 'padding-top:48px;height:100vh;display:flex;flex-direction:column;overflow:hidden' : 'padding-top:40px'">
-        <!-- Logo bar removed — unified toolbar in HortApp handles navigation -->
+      <div v-show="state.view === 'picker'" :style="state.widgetMode ? {position:'fixed',inset:'0',display:'flex',flexDirection:'column',overflow:'hidden',zIndex:5} : {paddingTop:'40px'}">
+
+        <!-- Widget mode navbar (inside picker for proper flex layout) -->
+        <div v-if="state.widgetMode" class="wh-navbar">
+          <button class="nav-btn" @click="state.whDrawer = true"><i class="ph ph-list"></i></button>
+          <span class="nav-logo">OpenHORT</span>
+          <span class="nav-name">{{ activeDesktop?.name || 'Home' }}</span>
+          <div style="flex:1"></div>
+          <div style="position:relative">
+            <button class="nav-btn" @click.stop="state.notifMenuOpen = !state.notifMenuOpen">
+              <i class="ph ph-bell"></i>
+              <div v-if="importantNotifCount" style="position:absolute;top:2px;right:2px;min-width:16px;height:16px;border-radius:8px;background:var(--danger);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px">{{ importantNotifCount }}</div>
+            </button>
+            <div v-if="state.notifMenuOpen" class="notif-bell-dropdown" @click.stop>
+              <div class="notif-bell-list">
+                <template v-if="importantNotifs && importantNotifs.length">
+                  <div v-for="n in importantNotifs" :key="n.id" class="notif-bell-item" @click="openNotifSource(n); state.notifMenuOpen=false" :style="{opacity:n.read?0.5:1}">
+                    <i :class="n.sourceIcon" :style="{color:n.sourceColor}"></i>
+                    <div style="flex:1;min-width:0"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.title }}</div><div style="font-size:10px;color:var(--dim)">{{ n.message }}</div></div>
+                  </div>
+                </template>
+                <div v-else style="padding:16px;text-align:center;color:var(--dim);font-size:12px">No notifications</div>
+              </div>
+            </div>
+          </div>
+          <div class="nav-add" @click="state.widgetPicker = true"><i class="ph ph-plus" style="font-size:14px"></i></div>
+        </div>
 
         <!-- Connector detail panel (rendered by extensions) -->
         <div v-if="state.connectorPanelOpen" class="connector-panel-overlay" @click.self="state.connectorPanelOpen = null">
@@ -2472,24 +2711,70 @@
         <template v-if="state.viewTab === 'screens'">
           <!-- Widget Home Screen -->
           <template v-if="state.widgetMode">
-            <div class="wh-viewport" :style="whViewportStyle">
+
+            <!-- Toast -->
+            <!-- toast removed -->
+            <!-- Critical event screen flash -->
+            <div v-if="state.criticalFlash" class="critical-flash" :key="state.criticalFlash"></div>
+
+            <!-- Device fullscreen view -->
+            <template v-if="state.deviceView">
+              <div class="device-fullscreen">
+                <div class="device-fs-head">
+                  <button class="nav-btn" @click="state.deviceView=false"><i class="ph ph-arrow-left"></i></button>
+                  <span style="font-size:16px;font-weight:600">Devices</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:12px;color:var(--dim)">{{ whDevices.length }} targets</span>
+                </div>
+                <div class="device-fs-grid">
+                  <div v-for="(dev,dvi) in whDevices" :key="dev.id"
+                       class="device-fs-card" :class="{active:dvi===state.activeDevice, offline:dev.status==='offline'}"
+                       @click="dev.status!=='offline'&&(state.activeDevice=dvi,state.deviceView=false,void 0)">
+                    <div class="device-fs-icon"><i :class="dev.iconClass"></i></div>
+                    <div class="device-fs-name">{{ dev.name }}</div>
+                    <div class="device-fs-status" :class="{connected:dvi===state.activeDevice}">
+                      <span class="st" :class="dev.status==='online'?'on':'off'"></span>
+                      <template v-if="dvi===state.activeDevice">Connected</template>
+                      <template v-else-if="dev.status==='offline'">Offline</template>
+                      <template v-else>{{ dev.desktopCount }} desktop{{ dev.desktopCount>1?'s':'' }}</template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Viewport -->
+            <div v-show="!state.deviceView" class="wh-viewport" ref="vpEl"
+                 @contextmenu.prevent="onGridCtx($event)" @wheel="mSwWheel($event)" :style="whViewportStyle">
               <div class="plasma-blob"></div>
-              <div class="wh-track" :style="whTrackStyle">
+              <div class="wh-track" :style="whTrackStyle" ref="trackEl">
                 <div class="wh-page" v-for="(desk, di) in state.desktops" :key="desk.id"
-                     :style="{width: state.desktops.length ? (100/state.desktops.length)+'%' : '100%'}">
+                     :style="{width: state.desktops.length ? (100/state.desktops.length)+'%' : '100%'}" ref="pageEls">
+                  <canvas class="hort-field" :data-desk="desk.id"></canvas>
                   <div class="wh-grid" :class="{'edit-mode': state.editMode}"
-                       @click.self="state.editMode ? (state.editMode = false) : null">
-                    <template v-for="w in whGetWidgets(desk)" :key="w.id">
-                      <div class="widget" :class="['w-'+w.size, {selected: state.detailWidget === w.id, 'claude-thinking': w.type === 'terminal' && w.c && w.c.state === 'thinking'}]"
+                       @click.self="state.editMode ? (state.editMode = false) : (state.selectedWidget = null)"
+                       @pointerdown.self="gridLpS($event)" @pointerup.self="gridLpE" @pointerleave.self="gridLpE"
+                       style="position:relative">
+                    <!-- Edit mode: show all grid cells as subtle dashed outlines -->
+                    <template v-if="state.editMode">
+                      <div v-for="cell in gridCells" :key="cell.k" class="grid-cell-hint" :style="{gridColumn:cell.c,gridRow:cell.r}"></div>
+                    </template>
+                    <!-- Drag ghost -->
+                    <div v-if="state.dragGhost" class="drag-ghost" :style="state.dragGhost"></div>
+                    <!-- All widgets -->
+                    <template v-for="(w, wi) in whGetWidgets(desk)" :key="w.id">
+                      <div class="widget"
+                           :class="['w-'+w.size, {selected: state.selectedWidget === w.id, dragging: state.dragW === w, 'claude-thinking': w.type === 'terminal' && w.c && w.c.state === 'thinking', buzzing: buzzingWidgets[w.extId], 'newly-added': w._new}]"
                            :style="whWidgetGridStyle(w, desk, whPosCache)"
-                           :draggable="state.editMode"
-                           @click="!state.editMode && onWidgetClick(w)"
-                           @contextmenu.prevent.stop="onWidgetCtx($event, w, desk)">
-                        <div class="del-badge" v-if="state.editMode" @click.stop="removeWidget(w, desk)">&times;</div>
-                        <div class="widget-icon-badge">
-                          <i :class="w.c && w.c.iconClass || 'ph ph-puzzle-piece'"></i>
-                        </div>
-                        <div v-if="state.editMode" class="size-label">{{ w.size.replace('x', '\u00d7') }}</div>
+                           @click="w._new = false; !state.editMode && onWidgetClick(w)"
+                           @contextmenu.prevent.stop="w._new = false; onWCtx($event, w, desk)"
+                           @pointerdown="w._new = false; lpS($event, w)" @pointerup="lpE" @pointerleave="lpE"
+                           @animationend="w._new = false">
+                        <div class="del-badge" @click.stop="rmW(w, desk)">&times;</div>
+                        <div v-if="getWidgetBadge(w)" class="widget-notif-badge" :class="getWidgetBadge(w).severity">{{ getWidgetBadge(w).count > 1 ? getWidgetBadge(w).count : '' }}</div>
+                        <div class="resize-edge resize-edge-r" @pointerdown.stop="resizeStart($event, w, 'w')"></div>
+                        <div class="resize-edge resize-edge-b" @pointerdown.stop="resizeStart($event, w, 'h')"></div>
+                        <div class="size-label">{{ w.size.replace('x', '\u00d7') }}</div>
 
                         <!-- Terminal widget -->
                         <template v-if="w.type === 'terminal'">
@@ -2498,6 +2783,8 @@
                           <div v-if="w.c && w.c.state" class="term-state-premium" :class="w.c.state">
                             <span class="pdot" :class="w.c.state" style="width:8px;height:8px"></span>
                             <span :style="{color: w.c.state === 'thinking' ? 'var(--purple)' : 'var(--dim)'}">{{ w.c.state.toUpperCase() }}</span>
+                            <span v-if="w.c.state === 'thinking'" style="margin-left:auto;font-size:10px;font-weight:400;color:var(--dim);opacity:.7">~38%</span>
+                            <span v-if="w.c.idle" style="margin-left:auto;opacity:.5;font-size:10px;font-weight:400">{{ w.c.idle }}s</span>
                           </div>
                         </template>
 
@@ -2519,7 +2806,7 @@
                           </div>
                           <div class="chat-inp">
                             <input placeholder="Message..." @click.stop>
-                            <button><i class="ph-fill ph-paper-plane-right" style="font-size:12px"></i></button>
+                            <button><i class="ph-fill ph-paper-plane-right" style="font-size:16px"></i></button>
                           </div>
                         </template>
 
@@ -2529,30 +2816,136 @@
                             <i :class="w.c && w.c.iconClass || 'ph ph-puzzle-piece'" style="font-size:32px;color:var(--dim)"></i>
                           </div>
                         </template>
+
+                        <!-- Floating icon badge (top-right, over content) -->
+                        <div v-if="w.type !== 'quick-chat'" class="widget-icon-badge" :class="widgetAccentClass(w)">
+                          <i :class="w.c && w.c.iconClass || 'ph ph-gear'"></i>
+                          <div v-if="w.hortConnections && w.hortConnections.length" class="hort-dots">
+                            <template v-for="hc in w.hortConnections" :key="hc">
+                              <div class="hort-dot" :style="{background: getHortGroup(hc).color}" :title="getHortGroup(hc).name"></div>
+                            </template>
+                          </div>
+                        </div>
                       </div>
                     </template>
+
+                    <!-- Scroll spacer -->
+                    <div v-if="!state.editMode" style="grid-column:1/-1;height:60px"></div>
                   </div>
                 </div>
               </div>
             </div>
 
+            <!-- FAB add button (bottom-right) -->
+            <button v-if="!state.editMode" class="fab-add" @click="openPicker()">
+              <i class="ph ph-plus" style="font-size:24px"></i>
+            </button>
+
+            <!-- Debug simulation FAB (bottom-left) -->
+            <button class="fab-debug" @click.stop="state.debugMenuOpen = !state.debugMenuOpen">
+              <i class="ph ph-flask" style="font-size:18px"></i>
+            </button>
+            <div v-if="state.debugMenuOpen" class="notif-bell-dropdown" style="position:fixed;bottom:52px;left:12px;top:auto;right:auto;z-index:200" @click.stop>
+              <span class="sim-label">Simulate</span>
+              <div class="notif-bell-item" @click="simNotifIntruder();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F6A8;</span> Intruder!</div>
+              <div class="notif-bell-item" @click="simNotifDoorbell();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F514;</span> Doorbell</div>
+              <div class="notif-bell-item" @click="simNotifClaudeDone();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x2705;</span> Claude done</div>
+              <div class="notif-bell-item" @click="simNotifTempAlert();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F321;&#xFE0F;</span> Temp alert</div>
+              <div class="notif-bell-sep"></div>
+              <div class="notif-bell-item" @click="simNotifEmail();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4E7;</span> New email</div>
+              <div class="notif-bell-item" @click="simNotifWashing();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F9FA;</span> Washing done</div>
+              <div class="notif-bell-item" @click="simNotifSong();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F3B5;</span> Song changed</div>
+              <div class="notif-bell-item" @click="simNotifBackup();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4BE;</span> Backup OK</div>
+            </div>
+
             <!-- Bottom bar with page dots -->
             <div class="wh-bottom-bar" :class="{'edit-active': state.editMode}">
-              <div class="dot-track">
+              <div class="dot-track"
+                   @pointerdown="dotLpS($event)" @pointerup="dotLpE" @pointerleave="dotLpE"
+                   @click="dotTrackClick($event)">
+                <!-- Long-press circle feedback -->
+                <div v-if="lpCircle" class="lp-circle" :style="{left:lpCircle.x+'px',top:lpCircle.y+'px'}"></div>
                 <div v-for="(d, i) in state.desktops" :key="d.id"
-                     class="dot" :class="{active: i === state.activeDesktopIdx, home: d.isHome}"
-                     @click="goToDesktop(i)"></div>
+                     class="dot" :class="{active: i === state.activeDesktopIdx, home: d.isHome}" ref="dotEls"></div>
+              </div>
+              <!-- Trash corner in edit mode -->
+              <div v-if="state.editMode" class="trash-corner" @dragover.prevent @drop.prevent="dropToTrash($event)">
+                <i class="ph ph-trash"></i>
               </div>
             </div>
 
-            <!-- Toast -->
-            <div v-if="state.whToast" class="wh-toast">{{ state.whToast }}</div>
+            <!-- Critical notification overlay (stays until dismissed) -->
+            <template v-for="n in criticalNotifs" :key="n.id">
+              <div class="notif-container" style="pointer-events:none">
+                <div class="notif-toast critical" style="pointer-events:auto" @click="openNotifSource(n)">
+                  <div class="notif-stripe" style="background:var(--danger)"></div>
+                  <div class="notif-head">
+                    <i :class="n.sourceIcon" :style="{fontSize:'22px',color:n.sourceColor,flexShrink:0}"></i>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:15px;font-weight:700;color:var(--text)">{{ n.title }}</div>
+                      <div style="font-size:13px;color:var(--dim)">{{ n.message }}</div>
+                    </div>
+                    <button style="background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:4px;flex-shrink:0" @click.stop="n.visible=false"><i class="ph ph-x"></i></button>
+                  </div>
+                  <div v-if="n.media" class="notif-media">
+                    <video :src="n.media" autoplay loop muted playsinline></video>
+                    <span class="notif-media-label">{{ n.mediaLabel || 'Live' }}</span>
+                    <span class="notif-media-live"><span style="width:6px;height:6px;border-radius:50%;background:#fff;animation:pulse 1s infinite"></span> LIVE</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Center-screen notification card (non-critical) -->
+            <template v-if="state.centerNotif">
+              <div class="notif-center-dismiss" @click="dismissCenterNotif()"></div>
+              <div class="notif-center" :class="state.centerNotif.severity" @click="openNotifSource(state.centerNotif);dismissCenterNotif()">
+                <i :class="state.centerNotif.sourceIcon" :style="{fontSize:'24px',color:state.centerNotif.sourceColor,flexShrink:0}"></i>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:15px;font-weight:600;color:var(--text)">{{ state.centerNotif.title }}</div>
+                  <div style="font-size:13px;color:var(--dim)">{{ state.centerNotif.message }}</div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Desktop overview (zoomed out) -->
+            <div v-if="state.desktopOverview" class="overview-overlay" @click.self="state.desktopOverview = false">
+              <div class="overview-strip">
+                <div v-for="(d, i) in state.desktops" :key="d.id"
+                     class="overview-card" :class="{active: i === state.activeDesktopIdx, 'drop-ok': overviewDrop === i}"
+                     @dragover.prevent="overviewDrop = i" @dragenter.prevent="overviewDrop = i"
+                     @dragleave="overviewDrop === i && (overviewDrop = -1)"
+                     @drop.prevent="dropToDesktop($event, i); state.desktopOverview = false; overviewDrop = -1"
+                     @click="goToDesktop(i); state.desktopOverview = false">
+                  <div class="overview-card-inner" :style="{height: '160px', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:'8px'}">
+                    <i :class="d.isHome ? 'ph ph-house' : 'ph ph-monitor'" style="font-size:28px;color:var(--dim)"></i>
+                    <span style="font-size:11px;color:var(--dim)">{{ d.widgets.length }} widgets</span>
+                  </div>
+                  <div class="overview-card-label">
+                    <i :class="d.isHome ? 'ph ph-house' : 'ph ph-layout'" style="font-size:12px"></i>
+                    {{ d.name }}
+                    <span style="font-size:10px;opacity:.5;margin-left:4px">{{ d.widgets.length }}</span>
+                  </div>
+                </div>
+                <!-- New desktop card -->
+                <div class="overview-card new-desk" :class="{'drop-ok': overviewDrop === 'new'}"
+                     @dragover.prevent="overviewDrop = 'new'" @dragenter.prevent="overviewDrop = 'new'"
+                     @dragleave="overviewDrop === 'new' && (overviewDrop = -1)"
+                     @drop.prevent="dropToNewDesktop($event); state.desktopOverview = false; overviewDrop = -1"
+                     @click="addDesk(); state.desktopOverview = false">
+                  <div class="overview-card-inner" style="height:160px;display:flex;align-items:center;justify-content:center">
+                    <i class="ph ph-plus" style="font-size:28px;opacity:.3"></i>
+                  </div>
+                  <div class="overview-card-label"><i class="ph ph-plus" style="font-size:12px"></i> New Desktop</div>
+                </div>
+              </div>
+            </div>
 
             <!-- Navigation drawer -->
-            <div class="dov" :class="{open: state.whDrawer}" @click="state.whDrawer = false">
+            <div class="dov" :class="{open: state.whDrawer}" @click.self="state.whDrawer = false">
               <div class="dw" @click.stop>
                 <div class="dw-head">
-                  <h3>OpenHORT</h3>
+                  <h3>openhort</h3>
                   <small>{{ state.serverVersion || 'dev' }}</small>
                 </div>
                 <div class="dw-search">
@@ -2568,12 +2961,26 @@
                     <span style="font-size:10px;color:var(--dim);margin-left:auto">{{ d.widgets.length }}</span>
                   </div>
                 </div>
+                <!-- Notification feed in drawer -->
+                <div class="dsec" v-if="state.notifications.length">
+                  <div class="dsec-t">Notifications <span v-if="unreadNotifCount" style="background:var(--danger);color:#fff;padding:1px 6px;border-radius:8px;font-size:9px;margin-left:4px">{{ unreadNotifCount }}</span></div>
+                  <div v-for="n in state.notifications.slice(0, 8)" :key="n.id" class="di" @click="openNotifSource(n); state.whDrawer = false" :style="{opacity: n.read ? .6 : 1}">
+                    <i :class="n.sourceIcon" :style="{color: n.sourceColor}"></i>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :style="{fontWeight: n.read ? 400 : 600}">{{ n.title }}</div>
+                      <div style="font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.message }}</div>
+                    </div>
+                    <span style="font-size:10px;color:var(--dim);flex-shrink:0">{{ notifTimeAgo(n.timestamp) }}</span>
+                  </div>
+                  <div v-if="state.notifications.length > 8" class="di" style="justify-content:center;color:var(--dim);font-size:12px">+{{ state.notifications.length - 8 }} more</div>
+                  <div class="di" style="justify-content:center;color:var(--dim);font-size:12px" @click="clearAllNotifs()"><i class="ph ph-trash" style="font-size:14px"></i> Clear all</div>
+                </div>
                 <div class="dsec">
                   <div class="dsec-t">Quick Actions</div>
-                  <div class="di" @click="state.widgetPicker = true; state.whDrawer = false">
+                  <div class="di" @click="openPicker(); state.whDrawer = false">
                     <i class="ph ph-plus-circle"></i><span>Add Widget</span>
                   </div>
-                  <div class="di" @click="addDesktop(); state.whDrawer = false">
+                  <div class="di" @click="addDesk(); state.whDrawer = false">
                     <i class="ph ph-monitor"></i><span>New Desktop</span>
                   </div>
                   <div class="di" @click="state.editMode = !state.editMode; state.whDrawer = false">
@@ -2589,73 +2996,115 @@
                     <i class="ph ph-sliders-horizontal"></i><span>Settings</span>
                   </div>
                 </div>
+                <div class="dsec">
+                  <div class="di" @click="state.whDrawer = false"><i class="ph ph-gear"></i><span>Settings</span></div>
+                  <div class="di" @click="state.whDrawer = false"><i class="ph ph-question"></i><span>Help</span></div>
+                </div>
               </div>
             </div>
 
-            <!-- Widget catalog picker -->
-            <div v-if="state.widgetPicker" class="picker-overlay" @click.self="state.widgetPicker = false">
-              <div class="picker">
-                <div class="picker-head">
-                  <h3>Add Widget</h3>
-                  <button @click="state.widgetPicker = false"><i class="ph ph-x"></i></button>
-                </div>
-                <div class="picker-search">
-                  <i class="ph ph-magnifying-glass"></i>
-                  <input v-model="state.widgetPickerSearch" placeholder="Search widgets...">
-                </div>
-                <div class="picker-body">
-                  <div class="picker-cat">Llmings</div>
-                  <template v-for="sp in filteredCatalog" :key="sp.name">
-                    <div class="picker-item" @click="addWidgetFromCatalog(sp); state.widgetPicker = false">
-                      <i :class="sp.icon || 'ph ph-puzzle-piece'"></i>
-                      <div class="pi-info">
-                        <div class="pi-name">{{ sp.title || sp.name }}</div>
-                        <div class="pi-desc">{{ sp.description || '' }}</div>
-                      </div>
-                      <span class="pi-size">{{ (_defaultSizes[sp.name] || '1x1').replace('x', '\u00d7') }}</span>
+            <!-- Widget Picker (bottom sheet / modal) -->
+            <template v-if="state.widgetPicker">
+              <div class="picker-overlay" @click.self="state.widgetPicker = false">
+                <div class="picker">
+                  <div class="picker-head">
+                    <h3>Add Widget</h3>
+                    <button @click="state.widgetPicker = false"><i class="ph ph-x"></i></button>
+                  </div>
+                  <div class="picker-search">
+                    <i class="ph ph-magnifying-glass"></i>
+                    <input v-model="state.widgetPickerSearch" placeholder="Search widgets...">
+                  </div>
+                  <div class="picker-body">
+                    <!-- Back button when in sub-category -->
+                    <div v-if="state.pickerCat" class="picker-item" @click="state.pickerCat = null" style="color:var(--primary)">
+                      <i class="ph ph-arrow-left"></i>
+                      <div class="pi-info"><div class="pi-name">Back</div></div>
                     </div>
-                  </template>
-                  <div class="picker-cat">Built-in</div>
-                  <div class="picker-item" @click="addTerminalWidget(); state.widgetPicker = false">
-                    <i class="ph ph-terminal-window"></i>
-                    <div class="pi-info"><div class="pi-name">Terminal</div><div class="pi-desc">New terminal session</div></div>
-                    <span class="pi-size">1\u00d71</span>
-                  </div>
-                  <div class="picker-item" @click="addChatWidget(); state.widgetPicker = false">
-                    <i class="ph ph-chat-dots"></i>
-                    <div class="pi-info"><div class="pi-name">Quick Chat</div><div class="pi-desc">AI chat widget</div></div>
-                    <span class="pi-size">2\u00d71</span>
+
+                    <template v-if="!state.pickerCat">
+                      <!-- Quick actions -->
+                      <div class="picker-cat">Quick Actions</div>
+                      <div class="picker-item" @click="spawnClaude(); state.widgetPicker = false">
+                        <i class="ph ph-terminal-window" style="color:var(--purple)"></i>
+                        <div class="pi-info"><div class="pi-name">Spawn Claude</div><div class="pi-desc">New Claude Code terminal session</div></div>
+                        <span class="pi-size">1\u00d72</span>
+                      </div>
+                      <div class="picker-item" @click="spawnTerm(); state.widgetPicker = false">
+                        <i class="ph ph-terminal"></i>
+                        <div class="pi-info"><div class="pi-name">New Terminal</div><div class="pi-desc">Shell session</div></div>
+                        <span class="pi-size">1\u00d71</span>
+                      </div>
+
+                      <!-- Llmings -->
+                      <div class="picker-cat">Llmings</div>
+                      <template v-for="cat in filteredCatalog" :key="cat.name">
+                        <div class="picker-item" @click="addFromCat(cat); state.widgetPicker = false">
+                          <i :class="cat.icon || 'ph ph-puzzle-piece'"></i>
+                          <div class="pi-info">
+                            <div class="pi-name">{{ cat.title || cat.name }}</div>
+                            <div class="pi-desc">{{ cat.description || '' }}</div>
+                          </div>
+                          <span class="pi-size">{{ getDefaultSize(cat.name).replace('x', '\u00d7') }}</span>
+                        </div>
+                      </template>
+
+                      <!-- Built-in widgets -->
+                      <div class="picker-cat">Built-in</div>
+                      <div class="picker-item" @click="addW('quick-chat','llming-wire',null,'2x1',{title:'Chat',iconClass:'ph ph-chat-dots'}); state.widgetPicker = false">
+                        <i class="ph ph-chat-dots"></i>
+                        <div class="pi-info"><div class="pi-name">Quick Chat</div><div class="pi-desc">Inline chat widget</div></div>
+                        <span class="pi-size">2\u00d71</span>
+                      </div>
+                    </template>
                   </div>
                 </div>
               </div>
-            </div>
+            </template>
 
-            <!-- Desktop overview (shown on long-press of dots) -->
-            <div v-if="state.desktopOverview" class="overview-overlay" @click="state.desktopOverview = false">
-              <div class="overview-strip" @click.stop>
-                <div v-for="(d, i) in state.desktops" :key="d.id"
-                     class="overview-card" :class="{active: i === state.activeDesktopIdx}"
-                     @click="goToDesktop(i); state.desktopOverview = false"
-                     :style="{width: '200px'}">
-                  <div class="overview-card-inner" :style="{height: '160px', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:'8px'}">
-                    <i :class="d.isHome ? 'ph ph-house' : 'ph ph-monitor'" style="font-size:28px;color:var(--dim)"></i>
-                    <span style="font-size:11px;color:var(--dim)">{{ d.widgets.length }} widgets</span>
-                  </div>
-                  <div class="overview-card-label">{{ d.name }}</div>
+            <!-- Widget context menu (resize/remove) -->
+            <template v-if="state.wctx.open">
+              <div style="position:fixed;inset:0;z-index:249" @click="state.wctx.open=false" @contextmenu.prevent="state.wctx.open=false"></div>
+              <div class="ctx" :style="{left:state.wctx.x+'px',top:state.wctx.y+'px'}">
+                <div class="ctx-hd">Hort</div>
+                <div class="ctx-i" :class="{act:!state.wctx.w?.hpiort}" @click="state.wctx.w.hpiort=null;state.wctx.open=false">
+                  <i class="ph ph-prohibit"></i> None
                 </div>
-                <div class="overview-card new-desk" @click.stop="addDesktop(); state.desktopOverview = false" style="width:200px">
-                  <div class="overview-card-inner" style="height:160px;display:flex;align-items:center;justify-content:center">
-                    <i class="ph ph-plus" style="font-size:28px;color:var(--dim)"></i>
-                  </div>
-                  <div class="overview-card-label">New Desktop</div>
+                <div v-for="hg in hortGroups" :key="hg.id" class="ctx-i" :style="state.wctx.w?.hpiort===hg.id?{color:hg.color,fontWeight:600}:{}" @click="state.wctx.w.hpiort=hg.id;state.wctx.open=false">
+                  <span class="hort-dot" :style="{background:hg.color}" style="width:10px;height:10px"></span> {{ hg.name }}
+                </div>
+                <div class="ctx-sep"></div>
+                <div class="ctx-i dng" @click="rmW(state.wctx.w,state.wctx.desk);state.wctx.open=false"><i class="ph ph-trash"></i> Remove</div>
+              </div>
+            </template>
+
+            <!-- Grid context menu (right-click on empty area) -->
+            <template v-if="state.gridCtx.open">
+              <div style="position:fixed;inset:0;z-index:199" @click="state.gridCtx.open=false" @contextmenu.prevent="state.gridCtx.open=false"></div>
+              <div class="ctx" :style="{left:state.gridCtx.x+'px',top:state.gridCtx.y+'px',minWidth:'220px'}">
+                <div class="ctx-i" @click="state.gridCtx.open=false;openPicker()" style="color:var(--primary);font-weight:600">
+                  <i class="ph ph-squares-four" style="color:var(--primary)"></i> Widget Catalog
+                </div>
+                <div class="ctx-sep"></div>
+                <div class="ctx-i" @click="spawnClaude();state.gridCtx.open=false"><i class="ph ph-terminal-window" style="color:var(--purple)"></i> Spawn Claude</div>
+                <div class="ctx-i" @click="spawnTerm();state.gridCtx.open=false"><i class="ph ph-terminal"></i> New Terminal</div>
+                <div class="ctx-sep"></div>
+                <div class="ctx-i" @click="state.gridCtx.open=false;state.editMode=true">
+                  <i class="ph ph-pencil-simple"></i> Edit layout
                 </div>
               </div>
-            </div>
+            </template>
 
-            <!-- FAB add button -->
-            <div class="fab-add" @click="state.widgetPicker = true">
-              <i class="ph ph-plus" style="font-size:20px"></i>
-            </div>
+            <!-- Name editor modal -->
+            <template v-if="state.whNameEditor">
+              <div class="modal-bg" @click.self="state.whNameEditor = null">
+                <div class="modal">
+                  <div style="font-weight:600;font-size:15px">{{ state.whNameEditor.title }}</div>
+                  <input v-model="state.whNameEditor.value" @keyup.enter="state.whNameEditor.save()" autofocus>
+                  <div class="btns"><button class="btn-g" @click="state.whNameEditor = null">Cancel</button><button class="btn-p" @click="state.whNameEditor.save()">{{ state.whNameEditor.btn }}</button></div>
+                </div>
+              </div>
+            </template>
 
           </template>
 
@@ -3791,11 +4240,9 @@
         const tint = desktopTints[activeDesktop.value?.tint || 0] || desktopTints[0];
         return { backgroundColor: tint.bg, '--plasma1': tint.plasma1, '--plasma2': tint.plasma2, '--plasma3': tint.plasma3 };
       });
-      const whTrackStyle = computed(() => ({
-        transform: `translateX(-${state.activeDesktopIdx * 100 / Math.max(state.desktops.length, 1)}%)`,
-        transition: 'transform 0.3s ease',
-        width: (state.desktops.length * 100) + '%',
-      }));
+
+      // Track style: width only — transform managed by snapTrack/applySwipeOffset
+      const whTrackStyle = computed(() => ({ width: (state.desktops.length * 100) + '%' }));
       const whPosCache = computed(() => whComputePositions(state.desktops, whGridCols.value));
 
       const filteredCatalog = computed(() => {
@@ -3805,53 +4252,433 @@
         return list.filter(s => (s.name + ' ' + (s.description || '')).toLowerCase().includes(q));
       });
 
-      function goToDesktop(i) { state.activeDesktopIdx = Math.max(0, Math.min(i, state.desktops.length - 1)); }
+      // Template refs
+      const trackEl = ref(null);
+      const vpEl = ref(null);
+      const pageEls = ref([]);
+      const dotEls = ref([]);
+      const lpCircle = ref(null);
+      const overviewDrop = ref(-1);
+      const buzzingWidgets = Vue.reactive({});
 
-      function addDesktop() {
-        const id = 'd_' + Date.now();
-        const tint = state.desktops.length % desktopTints.length;
-        state.desktops.push({ id, name: 'Desktop ' + (state.desktops.length + 1), isHome: false, tint, widgets: [] });
+      // Devices (mock data for device view)
+      const whDevices = Vue.reactive([
+        { id: 'mac', name: 'MacBook Pro', iconClass: 'ph ph-laptop', desktopCount: 2, status: 'online' },
+        { id: 'linux', name: 'Docker Linux', iconClass: 'ph ph-linux-logo', desktopCount: 1, status: 'online' },
+        { id: 'pi', name: 'Raspberry Pi', iconClass: 'ph ph-cpu', desktopCount: 1, status: 'online' },
+        { id: 'mini', name: 'Mac Mini Server', iconClass: 'ph ph-desktop-tower', desktopCount: 3, status: 'offline' },
+        { id: 'nas', name: 'NAS', iconClass: 'ph ph-hard-drives', desktopCount: 1, status: 'offline' },
+      ]);
+
+      // Widget accent color CSS class mapping
+      function widgetAccentClass(w) {
+        const map = {
+          'openclaw': 'accent-orange', 'now-playing': 'accent-purple', 'calendar': 'accent-blue',
+          'email': 'accent-cyan', 'n8n-workflows': 'accent-n8n-orange', 'cameras': 'accent-red',
+          'energy': 'accent-green', 'weather': 'accent-amber', 'code-watch': 'accent-codewatch',
+          'system-monitor': 'accent-sysmon', 'network-monitor': 'accent-green', 'clipboard-history': 'accent-clip',
+        };
+        return map[w.extId] || '';
+      }
+
+      // ── Grid cells for edit mode visualization ──
+      const GRID_ROWS = 6;
+      const gridCells = computed(() => {
+        const cols = whGridCols.value;
+        const cells = [];
+        for (let r = 0; r < GRID_ROWS; r++) {
+          for (let c = 0; c < cols; c++) {
+            cells.push({ k: r + ',' + c, c: (c + 1) + ' / span 1', r: (r + 1) + ' / span 1' });
+          }
+        }
+        return cells;
+      });
+
+      // ── Drag-to-place system ──
+      let _dragCancelTimer = null;
+      function onDragStart(e, w, desk) {
+        state.dragW = w; state.dragDesk = desk;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', w.id);
+        e.stopPropagation();
+        clearTimeout(_dragCancelTimer);
+        _dragCancelTimer = setTimeout(() => {
+          if (state.dragW) { state.dragW = null; state.dragDesk = null; state.dragGhost = null; }
+        }, 600);
+      }
+
+      function onDrop(e, targetW, desk) {
+        e.preventDefault();
+        if (!state.dragW || state.dragDesk !== desk) return;
+        if (state.dragW.id === targetW.id) return;
+        const src = state.dragW, tgt = targetW;
+        // Swap center-relative positions
+        const tmpPos = src.pos ? { ...src.pos } : null;
+        const tgtPos = tgt.pos ? { ...tgt.pos } : null;
+        if (tmpPos && tgtPos) {
+          src.pos = tgtPos; tgt.pos = tmpPos;
+        } else {
+          // If either lacks pos, compute from current display and swap
+          const cols = whGridCols.value;
+          const off = Math.floor(cols / 2);
+          const posCache = whComputePositions(state.desktops, cols);
+          const sp = posCache[src.id], tp = posCache[tgt.id];
+          if (sp) tgt.pos = { c: sp.c - off, r: sp.r };
+          if (tp) src.pos = { c: tp.c - off, r: tp.r };
+        }
+        state.dragW = null; state.dragGhost = null;
+        // swap done silently
+        whScheduleSave();
+      }
+
+      // checkOverlap not needed — we use order-based reflow, not absolute positioning
+
+      function onGridDragOver(e, desk) {
+        if (!state.dragW || !state.editMode) return;
+        e.preventDefault();
+        clearTimeout(_dragCancelTimer);
+        const gridEl = e.currentTarget;
+        const rect = gridEl.getBoundingClientRect();
+        const cols = whGridCols.value;
+        const cs = getComputedStyle(gridEl);
+        const gapV = parseFloat(cs.gap) || 14;
+        const rowH = parseFloat(cs.gridAutoRows) || 190;
+        const padL = parseFloat(cs.paddingLeft) || 0;
+        const padT = parseFloat(cs.paddingTop) || 0;
+        // With 1fr columns, compute cell width from actual grid width
+        const gridInnerW = rect.width - padL - parseFloat(cs.paddingRight || 0);
+        const cellW = (gridInnerW - (cols - 1) * gapV) / cols;
+        const mx = e.clientX - rect.left - padL;
+        const my = e.clientY - rect.top - padT;
+        // Find column from mouse position
+        const gc = Math.max(0, Math.min(cols - 1, Math.floor(mx / (cellW + gapV))));
+        const gr = Math.max(0, Math.floor(my / (rowH + gapV)));
+        const [wc, wr] = state.dragW.size.split('x').map(Number);
+        // Clamp so widget doesn't overflow grid
+        const clampedGc = Math.min(gc, cols - wc);
+        state.dragGhost = {
+          gridColumn: (clampedGc + 1) + ' / span ' + wc,
+          gridRow: (gr + 1) + ' / span ' + wr,
+          borderColor: 'var(--primary)',
+          background: 'rgba(59,130,246,.06)'
+        };
+        state.dragW._dropTarget = { col: clampedGc, row: gr };
+      }
+
+      function onGridDrop(e, desk) {
+        e.preventDefault();
+        if (!state.dragW) return;
+        const target = state.dragW._dropTarget;
+        if (target) {
+          const cols = whGridCols.value;
+          const off = Math.floor(cols / 2);
+          // Set dragged widget's center-relative position
+          state.dragW.pos = { c: target.col - off, r: target.row };
+          // If layout was temporary (reflow happened), commit ALL widget positions
+          if (_whTempPositions) {
+            const posCache = whComputePositions(state.desktops, cols);
+            for (const w of desk.widgets) {
+              const dp = posCache[w.id];
+              if (dp) w.pos = { c: dp.c - off, r: dp.r };
+            }
+            _whTempPositions = false;
+          }
+          delete state.dragW._dropTarget;
+          // placed silently
+          whScheduleSave();
+        }
+        state.dragW = null; state.dragDesk = null; state.dragGhost = null;
+      }
+      document.addEventListener('dragend', () => { state.dragW = null; state.dragDesk = null; state.dragGhost = null; });
+
+      // ── Swipe gestures ──
+      let _sx = 0, _sy = 0, _sw = false, _swLocked = false, _swOffset = 0;
+      const swipeDrag = ref(false);
+
+      function applySwipeOffset(dx) {
+        const t = trackEl.value; if (!t) return;
+        const pageW = t.offsetWidth / state.desktops.length;
+        const baseX = -state.activeDesktopIdx * pageW;
+        let clamped = dx;
+        if (state.activeDesktopIdx === 0 && dx > 0) clamped = dx * .3;
+        if (state.activeDesktopIdx === state.desktops.length - 1 && dx < 0) clamped = dx * .3;
+        t.style.transition = 'none';
+        t.style.transform = 'translateX(' + (baseX + clamped) + 'px)';
+      }
+
+      function snapTrack() {
+        const t = trackEl.value; if (!t) return;
+        const pageW = t.offsetWidth / state.desktops.length;
+        t.style.transition = 'transform .25s cubic-bezier(.25,.1,.25,1)';
+        t.style.transform = 'translateX(' + (-state.activeDesktopIdx * pageW) + 'px)';
+      }
+
+      // Snap on deskIdx change
+      watch(() => state.activeDesktopIdx, () => Vue.nextTick(() => snapTrack()));
+
+      // ── Long-press handlers ──
+      let _lp = null, _tt = null;
+      let _lpX = 0, _lpY = 0;
+      let _lpEditJustEntered = false;
+      function lpS(e, w) {
+        _lpX = e.clientX; _lpY = e.clientY;
+        if (state.editMode) {
+          // Already in edit mode — start drag immediately on pointerdown
+          _startLpDrag(e, w);
+          return;
+        }
+        const onMove = ev => {
+          if (Math.abs(ev.clientX - _lpX) > 8 || Math.abs(ev.clientY - _lpY) > 8) { clearTimeout(_lp); document.removeEventListener('pointermove', onMove); }
+        };
+        document.addEventListener('pointermove', onMove);
+        _lp = setTimeout(() => {
+          state.editMode = true;
+          _lpEditJustEntered = true;
+          setTimeout(() => { _lpEditJustEntered = false; }, 100);
+          document.removeEventListener('pointermove', onMove);
+          _startLpDrag(e, w);
+        }, 500);
+      }
+      function lpE() { clearTimeout(_lp); }
+
+      // Pointer-drag initiated from long-press: moves widget visually via CSS transform,
+      // shows grid ghost for drop target, places on release.
+      function _startLpDrag(origEvent, w) {
+        const desk = state.desktops[state.activeDesktopIdx];
+        if (!desk) return;
+        state.dragW = w; state.dragDesk = desk;
+        const widgetEl = origEvent.target.closest('.widget');
+        if (!widgetEl) return;
+        // Grab point: offset from widget top-left to cursor at drag start
+        const widgetRect = widgetEl.getBoundingClientRect();
+        const grabX = origEvent.clientX - widgetRect.left;
+        const grabY = origEvent.clientY - widgetRect.top;
+        // Save original inline style to restore on cancel/drop
+        const origStyle = widgetEl.style.cssText;
+        // Style the widget for dragging
+        widgetEl.style.cssText = 'position:fixed;z-index:50;opacity:0.85;pointer-events:none;' +
+          'width:' + widgetRect.width + 'px;height:' + widgetRect.height + 'px;' +
+          'left:' + widgetRect.left + 'px;top:' + widgetRect.top + 'px;margin:0;border-radius:14px;' +
+          'background:var(--surface);border:1.5px solid var(--primary);box-shadow:0 8px 32px rgba(0,0,0,.5)';
+
+        function onMove(ev) {
+          const wLeft = ev.clientX - grabX;
+          const wTop = ev.clientY - grabY;
+          widgetEl.style.left = wLeft + 'px';
+          widgetEl.style.top = wTop + 'px';
+          // Compute drop target from widget's visual center, not cursor
+          const gridEl = document.querySelector('.wh-grid');
+          if (!gridEl) return;
+          const rect = gridEl.getBoundingClientRect();
+          const cols = whGridCols.value;
+          const cs = getComputedStyle(gridEl);
+          const gapV = parseFloat(cs.gap) || 14;
+          const rowH = parseFloat(cs.gridAutoRows) || 190;
+          const padL = parseFloat(cs.paddingLeft) || 0;
+          const padT = parseFloat(cs.paddingTop) || 0;
+          const gridInnerW = rect.width - padL - parseFloat(cs.paddingRight || 0);
+          const cellW = (gridInnerW - (cols - 1) * gapV) / cols;
+          // Use widget's visual top-left corner for grid cell calculation
+          const mx = wLeft - rect.left - padL;
+          const my = wTop - rect.top - padT;
+          const gc = Math.max(0, Math.min(cols - 1, Math.floor((mx + cellW * 0.5) / (cellW + gapV))));
+          const gr = Math.max(0, Math.floor((my + rowH * 0.5) / (rowH + gapV)));
+          const [wc, wr] = w.size.split('x').map(Number);
+          const clampedGc = Math.min(gc, cols - wc);
+          // Check collision for ghost color
+          const posCache = whComputePositions(state.desktops, cols);
+          let collides = false;
+          for (const ow of desk.widgets) {
+            if (ow.id === w.id) continue;
+            const op = posCache[ow.id];
+            if (!op) continue;
+            if (clampedGc < op.c + op.w && clampedGc + wc > op.c && gr < op.r + op.h && gr + wr > op.r) { collides = true; break; }
+          }
+          state.dragGhost = {
+            gridColumn: (clampedGc + 1) + ' / span ' + wc,
+            gridRow: (gr + 1) + ' / span ' + wr,
+            borderColor: collides ? 'var(--danger)' : 'var(--primary)',
+            background: collides ? 'rgba(239,68,68,.08)' : 'rgba(59,130,246,.08)'
+          };
+          w._dropTarget = { col: clampedGc, row: gr };
+        }
+        function cancelDrag() {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          document.removeEventListener('pointercancel', cancelDrag);
+          widgetEl.style.cssText = origStyle;
+          state.dragW = null; state.dragDesk = null; state.dragGhost = null;
+        }
+        function onUp() {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          document.removeEventListener('pointercancel', cancelDrag);
+          widgetEl.style.cssText = origStyle;
+          // Apply drop — only if no collision
+          if (w._dropTarget) {
+            const cols = whGridCols.value;
+            const off = Math.floor(cols / 2);
+            const tc = w._dropTarget.col, tr = w._dropTarget.row;
+            const [tw, th] = w.size.split('x').map(Number);
+            // Check collision with all other widgets
+            const posCache = whComputePositions(state.desktops, cols);
+            let collides = false;
+            for (const ow of desk.widgets) {
+              if (ow.id === w.id) continue;
+              const op = posCache[ow.id];
+              if (!op) continue;
+              // AABB overlap test
+              if (tc < op.c + op.w && tc + tw > op.c && tr < op.r + op.h && tr + th > op.r) {
+                collides = true; break;
+              }
+            }
+            if (!collides) {
+              w.pos = { c: tc - off, r: tr };
+              whScheduleSave();
+            }
+            // Collision → widget snaps back to original position (no change)
+            delete w._dropTarget;
+          }
+          state.dragW = null; state.dragDesk = null; state.dragGhost = null;
+        }
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', cancelDrag);
+      }
+
+      let _glp = null;
+      function gridLpS(e) { _glp = setTimeout(() => { onGridCtx(e); }, 500); }
+      function gridLpE() { clearTimeout(_glp); }
+
+      // ── Long-press on dot area -> overview ──
+      let _dotLp = null;
+      function dotLpS(e) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const sx = e.clientX;
+        lpCircle.value = { x: sx - rect.left, y: e.clientY - rect.top };
+        let dragging = false, sx_ = sx;
+        const origOnMove = ev => {
+          const dx = ev.clientX - sx_;
+          if (!dragging && Math.abs(ev.clientX - sx) > 15) {
+            dragging = true; clearTimeout(_dotLp); lpCircle.value = null;
+          }
+          if (dragging) {
+            if (dx > 30 && state.activeDesktopIdx < state.desktops.length - 1) { state.activeDesktopIdx++; sx_ = ev.clientX; }
+            else if (dx < -30 && state.activeDesktopIdx > 0) { state.activeDesktopIdx--; sx_ = ev.clientX; }
+          }
+        };
+        const onUp = () => { document.removeEventListener('pointermove', origOnMove); document.removeEventListener('pointerup', onUp); };
+        document.addEventListener('pointermove', origOnMove);
+        document.addEventListener('pointerup', onUp);
+        _dotLp = setTimeout(() => {
+          if (!dragging) { lpCircle.value = null; state.desktopOverview = true; }
+          document.removeEventListener('pointermove', origOnMove);
+          document.removeEventListener('pointerup', onUp);
+        }, 400);
+      }
+      function dotLpE() { clearTimeout(_dotLp); lpCircle.value = null; }
+
+      function dotTrackClick(e) {
+        const dots = dotEls.value;
+        if (!dots || !dots.length) return;
+        const cx = e.clientX;
+        let closest = 0, minDist = Infinity;
+        dots.forEach((el, i) => {
+          const rect = el.getBoundingClientRect();
+          const dist = Math.abs(cx - (rect.left + rect.width / 2));
+          if (dist < minDist) { minDist = dist; closest = i; }
+        });
+        state.activeDesktopIdx = closest;
+      }
+
+      // ── Drag-to-resize ──
+      function resizeStart(e, w, axis) {
+        e.preventDefault();
+        const startX = e.clientX, startY = e.clientY;
+        const [cols, rows] = w.size.split('x').map(Number);
+        const threshold = 30;
+        function onMove(ev) {
+          const dx = ev.clientX - startX, dy = ev.clientY - startY;
+          if (axis === 'w') {
+            const newCols = dx > threshold ? 2 : dx < -threshold ? 1 : cols;
+            w.size = newCols + 'x' + rows;
+            if (w.pos) w.pos.w = newCols;
+          } else {
+            const newRows = dy > threshold ? 2 : dy < -threshold ? 1 : rows;
+            w.size = cols + 'x' + newRows;
+            if (w.pos) w.pos.h = newRows;
+          }
+        }
+        function onUp() {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+        }
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      }
+
+      // ── Desktop drop helpers ──
+      function dropToDesktop(e, targetIdx) {
+        if (!state.dragW || !state.dragDesk) return;
+        const targetDesk = state.desktops[targetIdx];
+        if (targetDesk === state.dragDesk) return;
+        state.dragDesk.widgets = state.dragDesk.widgets.filter(w => w.id !== state.dragW.id);
+        state.dragW.order = targetDesk.widgets.length;
+        targetDesk.widgets.push(state.dragW);
+        state.activeDesktopIdx = targetIdx;
+        // moved silently
+        state.dragW = null; state.dragDesk = null;
+      }
+
+      function dropToNewDesktop(e) {
+        if (!state.dragW || !state.dragDesk) return;
+        const name = 'Desktop ' + state.desktops.length;
+        const nd = { id: 'd_' + Date.now(), name, isHome: false, tint: state.desktops.length % desktopTints.length, widgets: [] };
+        state.dragDesk.widgets = state.dragDesk.widgets.filter(w => w.id !== state.dragW.id);
+        state.dragW.order = 0;
+        nd.widgets.push(state.dragW);
+        state.desktops.push(nd);
         state.activeDesktopIdx = state.desktops.length - 1;
+        // created silently
+        state.dragW = null; state.dragDesk = null;
       }
 
-      function addWidgetFromCatalog(sp) {
-        const desk = activeDesktop.value;
-        if (!desk) return;
-        desk.widgets.push({
-          id: nextWidgetId(), type: 'extension', extId: sp.name,
-          size: _defaultSizes[sp.name] || '1x1', order: desk.widgets.length,
-          c: { title: sp.title || sp.name, iconClass: sp.icon || 'ph ph-puzzle-piece' }
-        });
-        showWhToast('Added ' + (sp.title || sp.name));
+      function dropToTrash(e) {
+        if (!state.dragW || !state.dragDesk) return;
+        state.dragDesk.widgets = state.dragDesk.widgets.filter(w => w.id !== state.dragW.id);
+        // removed silently
+        state.dragW = null; state.dragDesk = null;
       }
 
-      function addTerminalWidget() {
-        const desk = activeDesktop.value;
-        if (!desk) return;
-        desk.widgets.push({
-          id: nextWidgetId(), type: 'terminal', subId: 'shell',
-          size: '1x1', order: desk.widgets.length,
-          c: { title: 'Terminal', iconClass: 'ph ph-terminal-window', state: null, output: '$ ' }
-        });
+      // ── Horizontal scroll wheel switches desktops ──
+      let _wheelCd = false;
+      function mSwWheel(e) {
+        if (_wheelCd || state.editMode) return;
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 20) {
+          if (e.deltaX > 0 && state.activeDesktopIdx < state.desktops.length - 1) state.activeDesktopIdx++;
+          else if (e.deltaX < 0 && state.activeDesktopIdx > 0) state.activeDesktopIdx--;
+          _wheelCd = true; setTimeout(() => { _wheelCd = false; }, 300);
+        }
       }
 
-      function addChatWidget() {
-        const desk = activeDesktop.value;
-        if (!desk) return;
-        desk.widgets.push({
-          id: nextWidgetId(), type: 'quick-chat', extId: 'llming-wire',
-          size: '2x1', order: desk.widgets.length,
-          c: { title: 'Chat', iconClass: 'ph ph-chat-dots' }
-        });
+      // ── Context menus ──
+      function onGridCtx(e) {
+        if (state.dragW || swipeDrag.value || _sw) return;
+        state.gridCtx.x = Math.min(e.clientX, innerWidth - 240);
+        state.gridCtx.y = Math.min(e.clientY, innerHeight - 300);
+        state.gridCtx.open = true;
       }
 
-      function removeWidget(w, desk) {
-        const idx = desk.widgets.findIndex(x => x.id === w.id);
-        if (idx >= 0) desk.widgets.splice(idx, 1);
-        showWhToast('Removed');
+      function onWCtx(e, w, desk) {
+        if (state.dragW || swipeDrag.value || _sw) return;
+        state.wctx.x = Math.min(e.clientX, innerWidth - 200);
+        state.wctx.y = Math.min(e.clientY, innerHeight - 250);
+        state.wctx.w = w; state.wctx.desk = desk; state.wctx.open = true;
       }
 
+      // ── Widget click ──
       function onWidgetClick(w) {
+        if (swipeDrag.value || _sw) return;
         if (w.type === 'terminal' && w.subId) {
           const term = state.terminals.find(t => t.terminal_id === w.subId);
           if (term) openTerminal(term.terminal_id);
@@ -3861,16 +4688,347 @@
         }
       }
 
-      function onWidgetCtx(e, w, desk) {
-        state.editMode = !state.editMode;
+      // ── Widget CRUD ──
+      function addW(type, extId, subId, size, c) {
+        const d = activeDesktop.value;
+        const sz = size.replace(/\u00d7/g, 'x');
+        const [ww, wh] = sz.split('x').map(Number);
+        // Find first free position — only check THIS desktop's widgets
+        const cols = whGridCols.value;
+        const off = Math.floor(cols / 2);
+        const occupied = {};
+        for (const ow of d.widgets) {
+          if (!ow.pos) continue;
+          const ogc = Math.max(0, Math.min(cols - 1, ow.pos.c + off));
+          const [oww, owh] = ow.size.split('x').map(Number);
+          for (let dr = 0; dr < owh; dr++) for (let dc = 0; dc < Math.min(oww, cols); dc++) occupied[(ow.pos.r + dr) + ',' + (ogc + dc)] = true;
+        }
+        let pos = { c: -off, r: 0 };
+        const cw = Math.min(ww, cols);
+        for (let tr = 0; tr < 50; tr++) {
+          let placed = false;
+          for (let tc = 0; tc <= cols - cw; tc++) {
+            let fits = true;
+            for (let dr = 0; dr < wh && fits; dr++) for (let dc = 0; dc < cw && fits; dc++) {
+              if (occupied[(tr+dr)+','+(tc+dc)]) fits = false;
+            }
+            if (fits) { pos = { c: tc - off, r: tr }; placed = true; break; }
+          }
+          if (placed) break;
+        }
+        const newId = nextWidgetId();
+        d.widgets.push({ id: newId, type, extId, subId, size: sz, pos, c: c || {}, _new: true });
+        whScheduleSave();
+        // Scroll only if the new widget is off-screen
+        Vue.nextTick(() => {
+          setTimeout(() => {
+            const page = document.querySelector('.wh-page');
+            const widgets = page?.querySelectorAll('.widget');
+            const widgetEl = widgets ? [...widgets].find(el => el.textContent.includes(extId || subId || '')) : null;
+            if (widgetEl && page) {
+              const wr = widgetEl.getBoundingClientRect();
+              const pr = page.getBoundingClientRect();
+              if (wr.bottom > pr.bottom) widgetEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+              else if (wr.top < pr.top) widgetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }, 150);
+        });
       }
 
-      let _whToastTimer = null;
-      function showWhToast(msg) {
-        state.whToast = msg;
-        clearTimeout(_whToastTimer);
-        _whToastTimer = setTimeout(() => { state.whToast = ''; }, 2000);
+      function addFromCat(cat) {
+        addW('extension', cat.name, null, _defaultSizes[cat.name] || '1x1', { title: cat.title || cat.name, iconClass: cat.icon || 'ph ph-puzzle-piece' });
       }
+
+      function rmW(w, desk) {
+        desk.widgets = desk.widgets.filter(x => x.id !== w.id);
+        // removed silently
+      }
+
+      function spawnClaude() {
+        const n = 'claude_' + Math.random().toString(36).slice(2, 5);
+        addW('terminal', null, n, '1x2', { title: n, iconClass: 'ph ph-terminal-window', iconColor: 'var(--purple)', state: 'idle', idle: 0, output: '$ claude\n\nWelcome! How can I help?' });
+      }
+
+      function spawnTerm() {
+        addW('terminal', null, 'shell', '1x1', { title: 'Terminal', iconClass: 'ph ph-terminal', state: 'idle', output: '$ \nReady.' });
+      }
+
+      // ── Desktop management ──
+      function goToDesktop(i) {
+        state.activeDesktopIdx = Math.max(0, Math.min(i, state.desktops.length - 1));
+      }
+
+      function addDesk() {
+        state.whNameEditor = {
+          title: 'New Desktop', value: '', btn: 'Create',
+          save: () => {
+            const n = state.whNameEditor.value.trim() || 'Desktop ' + state.desktops.length;
+            state.desktops.push({ id: 'd_' + Date.now(), name: n, isHome: false, tint: state.desktops.length % desktopTints.length, widgets: [] });
+            state.activeDesktopIdx = state.desktops.length - 1;
+            state.whNameEditor = null;
+            // desktop created silently
+          }
+        };
+      }
+
+      function editDesktopName() {
+        const d = activeDesktop.value;
+        if (!d || d.isHome) return;
+        state.whNameEditor = {
+          title: 'Rename Desktop', value: d.name, btn: 'Save',
+          save: () => { d.name = state.whNameEditor.value.trim() || d.name; state.whNameEditor = null; }
+        };
+      }
+
+      function openPicker() {
+        state.widgetPickerSearch = '';
+        state.pickerCat = null;
+        state.widgetPicker = true;
+      }
+
+      // ── Toast ──
+      // showT removed — no toast notifications
+      function getDefaultSize(name) { return _defaultSizes[name] || '1x1'; }
+
+      // ── Notification system ──
+      let _notifId = 0;
+      let _centerTimer = null;
+      let _marqueeTimer = null;
+
+      const criticalNotifs = computed(() => state.notifications.filter(n => n.visible && n.severity === 'critical'));
+      const importantNotifs = computed(() => state.notifications.filter(n => (n.severity === 'critical' || n.severity === 'high') && !n.read));
+      const importantNotifCount = computed(() => importantNotifs.value.length);
+      const unreadNotifCount = computed(() => state.notifications.filter(n => !n.read).length);
+
+      function dismissCenterNotif() {
+        if (state.centerNotif) {
+          const n = state.centerNotif;
+          state.marqueeText = n.title + ' \u2014 ' + n.message;
+          state.marqueeNotif = n;
+          state.marqueeKey++;
+          state.centerNotif = null;
+          clearTimeout(_marqueeTimer);
+          _marqueeTimer = setTimeout(() => { state.marqueeText = ''; state.marqueeNotif = null; }, 24000);
+        }
+      }
+
+      function notifTimeAgo(ts) {
+        const s = Math.floor((Date.now() - ts) / 1000);
+        if (s < 5) return 'now';
+        if (s < 60) return s + 's';
+        if (s < 3600) return Math.floor(s / 60) + 'm';
+        return Math.floor(s / 3600) + 'h';
+      }
+
+      function pushNotification(opts) {
+        const dupe = state.notifications.find(n => n.visible && n.source === opts.source && n.title === opts.title);
+        if (dupe) { dupe.timestamp = Date.now(); dupe.message = opts.message || dupe.message; dupe.read = false; return; }
+        const n = Vue.reactive({ id: ++_notifId, ...opts, timestamp: Date.now(), read: false, visible: true });
+        state.notifications.unshift(n);
+        if (opts.severity === 'critical') {
+          n.visible = true;
+        } else {
+          n.visible = false;
+          state.centerNotif = n;
+          clearTimeout(_centerTimer);
+          const delay = opts.severity === 'high' ? 5000 : opts.severity === 'medium' ? 3000 : 2000;
+          _centerTimer = setTimeout(() => { dismissCenterNotif(); }, delay);
+        }
+        if (opts.widgetExtId) {
+          const existing = state.widgetBadges[opts.widgetExtId];
+          if (existing) {
+            existing.count++;
+            const order = { critical: 3, high: 2, medium: 1, low: 0 };
+            if ((order[opts.severity] || 0) > (order[existing.severity] || 0)) existing.severity = opts.severity;
+          } else {
+            state.widgetBadges[opts.widgetExtId] = { severity: opts.severity, count: 1 };
+          }
+          if (opts.severity === 'critical') { switchToWidget(opts.widgetExtId, false); state.criticalFlash++; }
+          else if (opts.severity === 'high') { switchToWidget(opts.widgetExtId, false); }
+          else { buzzWidget(opts.widgetExtId); }
+        }
+      }
+
+      function getWidgetBadge(w) {
+        const eid = w.extId || w.subId;
+        return state.widgetBadges[eid] || null;
+      }
+
+      function switchToWidget(extId, openDetail) {
+        for (let di = 0; di < state.desktops.length; di++) {
+          const w = state.desktops[di].widgets.find(w => w.extId === extId);
+          if (w) {
+            state.activeDesktopIdx = di;
+            Vue.nextTick(() => snapTrack());
+            buzzWidget(extId);
+            return w;
+          }
+        }
+        return null;
+      }
+
+      function buzzWidget(extId) {
+        buzzingWidgets[extId] = true;
+        setTimeout(() => { delete buzzingWidgets[extId]; }, 1500);
+      }
+
+      function openNotifSource(n) {
+        n.visible = false;
+        n.read = true;
+        if (n.widgetExtId) switchToWidget(n.widgetExtId, true);
+      }
+
+      function clearAllNotifs() {
+        state.notifications.length = 0;
+        Object.keys(state.widgetBadges).forEach(k => delete state.widgetBadges[k]);
+      }
+
+      // Auto-expire unimportant notifications after 10 min
+      setInterval(() => {
+        const cutoff = Date.now() - 600000;
+        for (let i = state.notifications.length - 1; i >= 0; i--) {
+          const n = state.notifications[i];
+          if ((n.severity === 'medium' || n.severity === 'low') && n.timestamp < cutoff) {
+            state.notifications.splice(i, 1);
+          }
+        }
+      }, 30000);
+
+      // Close dropdowns on click outside
+      function _closeBellMenu() { state.notifMenuOpen = false; state.debugMenuOpen = false; }
+
+      // ── Notification simulation buttons ──
+      function simNotifIntruder() {
+        pushNotification({ source: 'Security Cameras', sourceIcon: 'ph-fill ph-security-camera', sourceColor: '#ef4444', severity: 'critical', title: 'Intruder Detected', message: 'Motion detected at front door', widgetExtId: 'cameras' });
+        state.simMotionActive = true;
+        setTimeout(() => { state.simMotionActive = false; }, 15000);
+      }
+      function simNotifDoorbell() {
+        pushNotification({ source: 'OpenClaw', sourceIcon: 'ph-fill ph-bell-ringing', sourceColor: '#f59e0b', severity: 'critical', title: 'Doorbell', message: 'Someone is at the front door', widgetExtId: 'openclaw' });
+      }
+      function simNotifClaudeDone() {
+        pushNotification({ source: 'Code Watch', sourceIcon: 'ph ph-pulse', sourceColor: 'var(--purple)', severity: 'high', title: 'Claude Finished', message: 'Refactored session manager. All 47 tests passing.', widgetExtId: 'code-watch' });
+      }
+      function simNotifTempAlert() {
+        pushNotification({ source: 'OpenClaw', sourceIcon: 'ph ph-thermometer', sourceColor: '#f59e0b', severity: 'high', title: 'Temperature Alert', message: 'Office temperature reached 28\u00b0C', widgetExtId: 'openclaw' });
+      }
+      function simNotifEmail() {
+        pushNotification({ source: 'Email', sourceIcon: 'ph ph-envelope', sourceColor: 'var(--accent)', severity: 'medium', title: 'New Email', message: 'Alex Chen: Re: Deployment pipeline update', widgetExtId: 'email' });
+      }
+      function simNotifWashing() {
+        pushNotification({ source: 'Energy', sourceIcon: 'ph ph-lightning', sourceColor: 'var(--success)', severity: 'medium', title: 'Washing Done', message: 'Washing machine cycle complete', widgetExtId: 'energy' });
+      }
+      function simNotifSong() {
+        pushNotification({ source: 'Now Playing', sourceIcon: 'ph ph-music-notes', sourceColor: 'var(--purple)', severity: 'low', title: 'Song Changed', message: 'Midnight City \u2014 M83', widgetExtId: 'now-playing' });
+      }
+      function simNotifBackup() {
+        pushNotification({ source: 'System', sourceIcon: 'ph ph-hard-drives', sourceColor: 'var(--dim)', severity: 'low', title: 'Backup Complete', message: 'Daily backup finished successfully', widgetExtId: 'system-monitor' });
+      }
+
+      // ── Keyboard handler ──
+      function _onKey(e) {
+        if (e.key === 'Escape') {
+          // Close topmost float window first
+          if (typeof LlmingClient !== 'undefined') {
+            const floats = LlmingClient.getFloatWindows ? LlmingClient.getFloatWindows() : [];
+            if (floats && floats.length > 0) {
+              LlmingClient.closeFloat(floats[floats.length - 1].id);
+              if (history.state?._whFloat) history.back();
+              return;
+            }
+          }
+          // Then close fullscreen spirit
+          if (state.view === 'spirit-fullscreen') {
+            if (typeof closeSpiritFullscreen === 'function') closeSpiritFullscreen();
+            else { state.view = 'picker'; }
+            if (history.state?._whFloat) history.back();
+            return;
+          }
+          if (state.deviceView) { state.deviceView = false; return; }
+          if (state.desktopOverview) { state.desktopOverview = false; return; }
+          state.notifMenuOpen = false; state.editMode = false; state.widgetPicker = false;
+          state.whDrawer = false; state.whNameEditor = null; state.wctx.open = false;
+          state.gridCtx.open = false; state.selectedWidget = null;
+        }
+        if (e.key === 'ArrowLeft' && state.activeDesktopIdx > 0 && !state.widgetPicker && !state.whDrawer) state.activeDesktopIdx--;
+        if (e.key === 'ArrowRight' && state.activeDesktopIdx < state.desktops.length - 1 && !state.widgetPicker && !state.whDrawer) state.activeDesktopIdx++;
+      }
+
+      // ── Lifecycle ──
+      Vue.onMounted(() => {
+        setTimeout(() => snapTrack(), 50);
+        document.addEventListener('keydown', _onKey);
+        document.addEventListener('click', _closeBellMenu);
+
+        // Attach swipe gestures to viewport
+        const el = vpEl.value;
+        if (el) {
+          el.addEventListener('touchstart', e => {
+            if (state.editMode || e.target.closest('.widget')) return;
+            _sx = e.touches[0].clientX; _sy = e.touches[0].clientY; _sw = false; _swLocked = false; _swOffset = 0;
+          }, { passive: true });
+
+          el.addEventListener('touchmove', e => {
+            if (state.editMode || _swLocked || _lpEditJustEntered) return;
+            const dx = e.touches[0].clientX - _sx, dy = e.touches[0].clientY - _sy;
+            if (!_sw && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) { _swLocked = true; return; }
+            if (!_sw && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 12) {
+              _sw = true; swipeDrag.value = true;
+              clearTimeout(_lp); clearTimeout(_dotLp); lpCircle.value = null;
+            }
+            if (_sw) { e.preventDefault(); _swOffset = dx; applySwipeOffset(dx); }
+          }, { passive: false });
+
+          el.addEventListener('touchend', e => {
+            if (!_sw) { swipeDrag.value = false; return; }
+            const dx = e.changedTouches[0].clientX - _sx;
+            const threshold = window.innerWidth * .2;
+            if (dx < -threshold && state.activeDesktopIdx < state.desktops.length - 1) state.activeDesktopIdx++;
+            else if (dx > threshold && state.activeDesktopIdx > 0) state.activeDesktopIdx--;
+            snapTrack(); _sw = false; setTimeout(() => { swipeDrag.value = false; }, 50);
+          }, { passive: true });
+
+          // Mouse drag for desktop browsers — disabled in edit mode and on widgets
+          el.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
+            // Don't swipe if in edit mode or if mousedown is on a widget
+            if (state.editMode) return;
+            if (e.target.closest('.widget')) return; // widget handles its own drag
+            const sx = e.clientX; let dragging = false;
+            function onMove(ev) {
+              // Abort if edit mode entered during drag (long-press triggered)
+              if (state.editMode || _lpEditJustEntered) {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                return;
+              }
+              const dx = ev.clientX - sx;
+              if (!dragging && Math.abs(dx) > 8) {
+                dragging = true; swipeDrag.value = true;
+                clearTimeout(_lp); clearTimeout(_dotLp); lpCircle.value = null;
+              }
+              if (dragging) { ev.preventDefault(); applySwipeOffset(dx); }
+            }
+            function onUp(ev) {
+              document.removeEventListener('mousemove', onMove);
+              document.removeEventListener('mouseup', onUp);
+              if (!dragging) return;
+              const dx = ev.clientX - sx;
+              const threshold = window.innerWidth * .2;
+              if (dx < -threshold && state.activeDesktopIdx < state.desktops.length - 1) state.activeDesktopIdx++;
+              else if (dx > threshold && state.activeDesktopIdx > 0) state.activeDesktopIdx--;
+              snapTrack(); setTimeout(() => { swipeDrag.value = false; }, 50);
+            }
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+          });
+        }
+      });
+
+      Vue.onUnmounted(() => {
+        document.removeEventListener('keydown', _onKey);
+        document.removeEventListener('click', _closeBellMenu);
+      });
 
       // Init desktops when plugins load (or re-init if home is empty)
       watch(pluginsLoaded, () => {
@@ -3878,6 +5036,10 @@
           whInitDesktops();
         }
       });
+
+      // Save layout on widget/desktop changes
+      watch(() => JSON.stringify(state.desktops.map(d => ({ id: d.id, name: d.name, tint: d.tint, wc: d.widgets.length }))),
+        () => { whScheduleSave(); }, { deep: false });
 
       return {
         state, demoEpoch, groupsList, targetGroups, currentTargetName,
@@ -3896,10 +5058,26 @@
         favorites, toggleFavorite, isFavorite,
         fullscreenSpirit, openSpiritFullscreen, closeSpiritFullscreen,
         activeTargetLabel, activeTargetIcon,
+        // Widget home screen
         activeDesktop, whViewportStyle, whTrackStyle, whPosCache, filteredCatalog,
-        goToDesktop, addDesktop, addWidgetFromCatalog, addTerminalWidget, addChatWidget,
-        removeWidget, onWidgetClick, onWidgetCtx, showWhToast,
-        whGetWidgets, whWidgetGridStyle,
+        trackEl, vpEl, pageEls, dotEls, lpCircle, overviewDrop, buzzingWidgets,
+        whDevices, widgetAccentClass, gridCells,
+        onDrop,
+        applySwipeOffset, snapTrack, swipeDrag,
+        lpS, lpE, gridLpS, gridLpE, dotLpS, dotLpE, dotTrackClick,
+        resizeStart, mSwWheel,
+        dropToDesktop, dropToNewDesktop, dropToTrash,
+        onGridCtx, onWCtx, onWidgetClick,
+        addW, addFromCat, rmW, spawnClaude, spawnTerm,
+        goToDesktop, addDesk, editDesktopName, openPicker,
+        // Notifications
+        criticalNotifs, importantNotifs, importantNotifCount, unreadNotifCount,
+        dismissCenterNotif, notifTimeAgo, pushNotification, getWidgetBadge,
+        switchToWidget, buzzWidget, openNotifSource, clearAllNotifs,
+        simNotifIntruder, simNotifDoorbell, simNotifClaudeDone, simNotifTempAlert,
+        simNotifEmail, simNotifWashing, simNotifSong, simNotifBackup,
+        // Shared globals
+        whGetWidgets, whWidgetGridStyle, hortGroups, getHortGroup, getDefaultSize,
       };
     },
   };
@@ -4211,12 +5389,34 @@
       <div v-if="demoMode" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#b45309;color:#fff;text-align:center;font-size:11px;font-weight:700;letter-spacing:2px;padding:2px 0;cursor:pointer;text-transform:uppercase" @click="onLogoClick();onLogoClick();onLogoClick();onLogoClick();onLogoClick()">
         DEMO MODE
       </div>
-      <!-- ===== WIDGET MODE NAVBAR ===== -->
-      <div v-if="state.widgetMode && state.view === 'picker'" class="wh-navbar" :style="{ marginTop: demoMode ? '18px' : '0' }">
+      <!-- ===== WIDGET MODE NAVBAR (rendered by HortApp but hidden — navbar moved into picker) ===== -->
+      <div v-if="false" class="wh-navbar">
         <button class="nav-btn" @click="state.whDrawer = true"><i class="ph ph-list"></i></button>
         <span class="nav-logo">OpenHORT</span>
-        <span class="nav-name">{{ whActiveDesktop?.name || 'Home' }}</span>
-        <div style="flex:1"></div>
+        <span class="nav-name" @click="editDesktopName && editDesktopName()">{{ whActiveDesktop?.name || 'Home' }}</span>
+        <!-- Marquee notification text -->
+        <div v-if="state.marqueeNotif" class="navbar-marquee" @click="openNotifSource && openNotifSource(state.marqueeNotif); state.marqueeNotif=null; state.marqueeText=''">
+          <span :key="state.marqueeKey"><i :class="state.marqueeNotif.sourceIcon" :style="{color:state.marqueeNotif.sourceColor,marginRight:'6px'}"></i>{{ state.marqueeText }}</span>
+        </div>
+        <div v-else style="flex:1"></div>
+        <!-- Notification bell -->
+        <div style="position:relative">
+          <button class="nav-btn" @click.stop="state.notifMenuOpen = !state.notifMenuOpen">
+            <i class="ph ph-bell"></i>
+            <div v-if="importantNotifCount" style="position:absolute;top:2px;right:2px;min-width:16px;height:16px;border-radius:8px;background:var(--danger);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px">{{ importantNotifCount }}</div>
+          </button>
+          <div v-if="state.notifMenuOpen" class="notif-bell-dropdown" @click.stop>
+            <div class="notif-bell-list">
+              <template v-if="importantNotifs && importantNotifs.length">
+                <div v-for="n in importantNotifs" :key="n.id" class="notif-bell-item" @click="openNotifSource && openNotifSource(n); state.notifMenuOpen=false" :style="{opacity:n.read?0.5:1}">
+                  <i :class="n.sourceIcon" :style="{color:n.sourceColor}"></i>
+                  <div style="flex:1;min-width:0"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.title }}</div><div style="font-size:10px;color:var(--dim)">{{ n.message }}</div></div>
+                </div>
+              </template>
+              <div v-else style="padding:16px;text-align:center;color:var(--dim);font-size:12px">No notifications</div>
+            </div>
+          </div>
+        </div>
         <div class="nav-add" @click="state.widgetPicker = true"><i class="ph ph-plus" style="font-size:14px"></i></div>
       </div>
       <!-- ===== UNIFIED TOOLBAR ===== -->
@@ -4362,8 +5562,11 @@
 
       </teleport>
 
+      <!-- Float window backdrop — click outside to close -->
+      <div v-if="floatWindows.length" style="position:fixed;inset:0;z-index:499;background:rgba(0,0,0,.3)"
+           @click="floatWindows.length && floatClose(floatWindows[floatWindows.length-1].id)"></div>
       <!-- Float windows (rendered by Vue so components mount correctly) -->
-      <div v-for="fw in floatWindows" :key="fw.id" class="hort-float-window"
+      <div v-for="fw in floatWindows" :key="fw.id" class="hort-float-window" @click.stop
            :style="{position:'fixed', left: fw.x+'px', top: fw.y+'px',
                     width: fw.minimized ? '240px' : fw.width+'px',
                     height: fw.minimized ? 'auto' : fw.height+'px',
@@ -4749,6 +5952,16 @@
 
       // Widget home screen
       const whActiveDesktop = computed(() => state.desktops[state.activeDesktopIdx] || { name: 'Home' });
+      const importantNotifs = computed(() => state.notifications.filter(n => (n.severity === 'critical' || n.severity === 'high') && !n.read));
+      const importantNotifCount = computed(() => importantNotifs.value.length);
+      function openNotifSource(n) {
+        if (n) { n.read = true; n.visible = false; }
+      }
+      function editDesktopName() {
+        const desk = whActiveDesktop.value;
+        if (!desk || desk.isHome) return;
+        state.whNameEditor = { title: 'Rename Desktop', value: desk.name, save: (v) => { desk.name = v; state.whNameEditor = null; } };
+      }
 
       return {
         state, viewer, onSelectWindow,
@@ -4757,7 +5970,7 @@
         floatWindows, floatClose, floatToggleMin, floatDragStart,
         toolbarViewerTitle, toolbarNavCounter, toolbarTerminalTitle,
         demoMode, demoEpoch, onLogoClick,
-        whActiveDesktop,
+        whActiveDesktop, importantNotifs, importantNotifCount, openNotifSource, editDesktopName,
       };
     },
   };

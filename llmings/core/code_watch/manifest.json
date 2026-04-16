@@ -44,5 +44,6 @@
       "description": "Terminate sessions"
     }
   },
-  "risk_level": "standard"
+  "risk_level": "standard",
+  "ui_script": "static/cards.js"
 }

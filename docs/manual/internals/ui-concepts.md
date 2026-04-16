@@ -162,6 +162,28 @@ Context menu with size options (1×1, 2×1, 1×2, 2×2) and "Remove" (red).
 
 Any pointer movement >8px cancels a pending long-press. Prevents accidental edit mode when swiping.
 
+### Widget Drag & Drop
+
+Drag is pointer-based (not HTML5 drag API) — this allows seamless transition from long-press into drag without releasing the mouse button.
+
+**Initiating a drag:**
+
+- **Not in edit mode:** Long-press a widget (500ms) → edit mode enters → drag starts immediately on the same pointer hold. No re-click needed.
+- **Already in edit mode:** Pointerdown on any widget → drag starts immediately.
+
+**During drag:**
+
+- The widget element becomes `position: fixed` and follows the cursor at the exact grab point offset (where within the widget you pressed).
+- A **ghost overlay** shows the target grid cell using CSS grid placement.
+- Ghost is **blue** when the target cell is free, **red** when it collides with another widget.
+
+**On drop:**
+
+- **No collision:** Widget moves to the target cell. New center-relative position is persisted to IndexedDB.
+- **Collision:** Widget snaps back to its original position. Nothing is persisted — it could have been an accident.
+
+**Swipe prevention:** When the pointer is on a widget, desktop swiping is disabled. Swiping only works from empty grid areas or the viewport edges.
+
 ## Widget Interactions
 
 | Action | Desktop | Mobile | Effect |
@@ -169,8 +191,28 @@ Any pointer movement >8px cancels a pending long-press. Prevents accidental edit
 | Hover | Mouse over | — | Outer blue glow, no border change |
 | Click/Tap | Click | Tap | Opens the widget (terminal, extension, etc.) |
 | Right-click | Right-click | — | Size/remove context menu |
-| Long-press | — | 500ms hold | Enter edit mode |
+| Long-press | 500ms hold | 500ms hold | Enter edit mode + start drag in one gesture |
+| Drag (edit mode) | Pointerdown + move | Touch + move | Move widget to new grid position |
 | Drag edges | In edit mode | In edit mode | Resize (right edge = width, bottom edge = height) |
+| Drop on empty | Release | Release | Widget placed, position persisted |
+| Drop on occupied | Release | Release | Widget snaps back, nothing persisted |
+| Open app | Click widget | Tap widget | Opens float window or fullscreen |
+| Close app | Escape / Back / click outside | Back / tap outside | Closes topmost app |
+
+### App Window Lifecycle
+
+When a widget is clicked, its app opens as a float window (desktop) or fullscreen panel (mobile).
+
+**Opening:** `history.pushState()` adds a browser history entry with the app name in the URL (`?app=now-playing`). This enables:
+
+- **Browser back button** closes the app (via `popstate` listener)
+- **Escape key** closes the topmost float window
+- **Click outside** the float window (on the dark backdrop) closes it
+- **URL sharing** — the `?app=` parameter identifies the open app
+
+**Closing priority** (Escape / Back): float windows first (topmost), then fullscreen spirit, then overlays (device view, desktop overview, picker, drawer, menus).
+
+**Backdrop:** A semi-transparent dark overlay (`rgba(0,0,0,.3)`) appears behind float windows. Click it to close. The float window itself has `@click.stop` to prevent close on internal clicks.
 
 ## Navbar
 
@@ -229,43 +271,70 @@ Monospace (`SF Mono`, `Fira Code`), 10px, color `#c8d0dc` (brighter than dim).
 
 ## Layout Persistence
 
-Layouts stored in localStorage keyed by device class:
+Widget layouts are a **client-side decision**, stored in IndexedDB keyed by device class. This allows completely independent layouts on phone, tablet, and desktop — same server, different presentations.
 
-```
-hort-layouts-phone
-hort-layouts-tablet
-hort-layouts-desktop
-```
+**Database:** `hort-widget-layout`, store `layouts`.
 
-Home desktop widgets are NOT stored (computed from live state). User desktops store their explicit widget lists. Debounced save on any change.
+**Keys:** `phone` | `tablet` | `desktop` (from `LlmingClient.getDeviceType()`).
+
+**What's stored:** The complete desktops array including widget positions, sizes, hort assignments, and ordering. Server decides which llmings *exist*; client decides *where* they appear.
+
+**Default presets:** On first load (no saved layout), 4 desktops are created matching the reference mockup: Home (15 widgets), SAP Finance (3 widgets), HR Dashboard (empty), Smart Home (5 widgets). These presets include hort group assignments (sandboxed, public, sap) for demonstrating security boundary visualization.
+
+**Save trigger:** Debounced 2-second save on any widget/desktop change via `whScheduleSave()`.
 
 ### Widget Data Model
 
 ```javascript
 {
-  id: 'w_abc123',
-  type: 'terminal' | 'extension' | 'extension-sub' | 'quick-chat' | 'clock',
+  id: 'w_101',
+  type: 'terminal' | 'extension' | 'quick-chat',
   extId: 'system-monitor',    // extension ID (null for terminals)
-  subId: 'tmux:claude',       // sub-element ID
-  size: '1x1',                // grid span
-  order: 0,                   // sort position
-  config: {}                  // widget-specific
+  subId: 'claude_dev',        // terminal name (null for extensions)
+  size: '1x1',                // grid span: 1x1, 2x1, 1x2, 2x2
+  hpiort: 'sandboxed',        // hort group assignment (null = inherit from desktop)
+  hortConnections: [],         // multi-hort bridges (for chat widgets)
+  pos: { c: -1, r: 0 },      // center-relative grid position (see below)
+  c: {                        // display config
+    title: 'System Monitor',
+    iconClass: 'ph ph-cpu',
+  }
 }
 ```
 
-## Responsive Behavior
+### Center-Relative Positioning
 
-### Orientation Change
+Every widget has an absolute position in the grid, expressed as **center-relative coordinates**:
 
-CSS Grid reflows automatically via `--grid-cols` media queries. No JavaScript needed. Widgets maintain their span values.
+```
+pos: { c: -2, r: 0 }   // 2 columns left of center, row 0
+pos: { c: 0, r: 1 }    // center column, row 1
+pos: { c: 1, r: 3 }    // 1 column right of center, row 3
+```
+
+The center of the screen is `c=0`. This means:
+- When the user resizes the browser **horizontally**, widgets stay anchored to the center — columns are added/removed at the edges, not in the middle.
+- When the user resizes **vertically**, nothing changes — vertical scroll handles overflow.
+
+**Column offset:** At runtime, the grid has `N` columns. Column index 0 in CSS grid maps to center-relative `c = -(N/2)`. The display function maps `pos.c` → CSS grid column via `gridColumn = pos.c + floor(N/2) + 1`.
+
+### Responsive Reflow (Temporary Positions)
+
+When the column count changes drastically (e.g., portrait → landscape rotation), stored positions may not fit the new grid. The system handles this with **temporary positions**:
+
+1. **Column count changes** → `whComputePositions()` runs.
+2. For each widget, try to place it at its stored `pos`. If the position fits (within column bounds, no overlap), use it.
+3. If the position doesn't fit, **auto-reflow**: place the widget in the next available cell, preserving the original ordering.
+4. These reflowed positions are **temporary** — they are NOT persisted to IndexedDB. If the user rotates back, the original positions are restored from the saved layout.
+5. **However**, if the user manually drags ANY widget in the reflowed layout, ALL current positions (including temporary ones) are persisted as the new canonical layout for this device class. This "commits" the temporary layout.
+
+This means:
+- Quick orientation changes are non-destructive — rotate and rotate back, everything returns to where it was.
+- Intentional rearrangement in a new orientation is respected — one manual drag commits the whole layout.
 
 ### Foldable Support (Samsung ZFold)
 
-Inner display (700-820px) gets 3 columns. Unfolded landscape gets 4 columns. Grid adapts via media queries targeting these width ranges.
-
-### Desktop Centering
-
-On screens ≥1024px, the grid is centered with `max-width` and `margin: 0 auto`. Prevents the "squeezed into top-left corner" look.
+Inner display (700-820px) gets 3 columns. Unfolded landscape gets 4+. The center-relative coordinate system ensures widgets stay centered across these transitions.
 
 ## Swipe & Gesture Details
 

@@ -33,11 +33,11 @@
       </span>
       <span class="sysmon-legend-item">
         <span class="sysmon-dot" style="background:#a78bfa"></span>
-        RAM {{ Math.round(mem) }}%
+        {{ Math.round(mem) }}% RAM
       </span>
       <span class="sysmon-legend-item sysmon-dim">
         <i class="ph ph-hard-drives sysmon-disk-icon"></i>
-        Disk {{ Math.round(disk) }}%
+        {{ Math.round(disk) }}%
       </span>
     </div>
   </div>
@@ -94,6 +94,7 @@ const memFillPoints = computed(() => toFillPoints(memHistory.value))
   padding: 12px;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   text-align: left;
 }
 
@@ -101,7 +102,6 @@ const memFillPoints = computed(() => toFillPoints(memHistory.value))
   display: flex;
   align-items: baseline;
   gap: 1px;
-  margin-bottom: 6px;
 }
 
 .sysmon-cpu-value {
@@ -119,9 +119,8 @@ const memFillPoints = computed(() => toFillPoints(memHistory.value))
 
 .sysmon-spark {
   width: 100%;
-  height: 28px;
+  height: 52px;
   flex-shrink: 0;
-  margin-bottom: 8px;
 }
 
 .sysmon-legend {

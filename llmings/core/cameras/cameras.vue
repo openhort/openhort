@@ -56,7 +56,7 @@ function isMotion(key) {
   position: relative;
   overflow: hidden;
   border-radius: 6px;
-  background: #000;
+  background: #0a0a0a;
 }
 
 .cam-video {
@@ -68,11 +68,8 @@ function isMotion(key) {
 
 .cam-gradient {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 40%;
-  background: linear-gradient(transparent, rgba(0,0,0,.7));
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 60%, rgba(0, 0, 0, .5));
   pointer-events: none;
 }
 
@@ -89,7 +86,7 @@ function isMotion(key) {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: rgba(255, 60, 60, .8);
+  background: rgba(255, 50, 50, .7);
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
