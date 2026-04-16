@@ -24,12 +24,8 @@
 import { ref, computed } from 'vue'
 import { vaultRef } from 'llming'
 
-const events = vaultRef('calendar', 'state.events', [
-  { id: 1, title: 'Sprint Review', time: '10:30 AM', location: 'Room 4B', color: '#3b82f6', hasVideo: true },
-  { id: 2, title: '1:1 with Sarah', time: '2:00 PM', location: 'Zoom', color: '#a855f7', hasVideo: true },
-  { id: 3, title: 'Design Sync', time: '4:30 PM', location: 'Slack Huddle', color: '#22c55e', hasVideo: false }
-])
-const minutesToNext = vaultRef('calendar', 'state.minutesToNext', 23)
+const events = vaultRef('calendar', 'state.events', [])
+const minutesToNext = vaultRef('calendar', 'state.minutesToNext', 0)
 </script>
 
 <style scoped>

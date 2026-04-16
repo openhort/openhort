@@ -55,9 +55,9 @@
 import { ref, computed } from 'vue'
 import { vaultRef } from 'llming'
 
-const solarRef = vaultRef('energy', 'state.solar', 3.2)
-const usageRef = vaultRef('energy', 'state.usage', 2.1)
-const batteryRef = vaultRef('energy', 'state.battery', 87)
+const solarRef = vaultRef('energy', 'state.solar', 0)
+const usageRef = vaultRef('energy', 'state.usage', 0)
+const batteryRef = vaultRef('energy', 'state.battery', 0)
 
 const solar = computed(() => solarRef.value || 0)
 const usage = computed(() => usageRef.value || 0)

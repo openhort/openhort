@@ -32,15 +32,10 @@
 import { ref, computed } from 'vue'
 import { vaultRef } from 'llming'
 
-const temp = vaultRef('weather', 'state.temp', 18)
-const condition = vaultRef('weather', 'state.condition', 'Partly cloudy')
+const temp = vaultRef('weather', 'state.temp', 0)
+const condition = vaultRef('weather', 'state.condition', '')
 const icon = vaultRef('weather', 'state.icon', 'day')
-const forecast = vaultRef('weather', 'state.forecast', [
-  { t: '12p', v: 19 },
-  { t: '3p', v: 17 },
-  { t: '6p', v: 14 },
-  { t: '9p', v: 11 }
-])
+const forecast = vaultRef('weather', 'state.forecast', [])
 
 const weatherIcon = computed(() => {
   return icon.value === 'night'

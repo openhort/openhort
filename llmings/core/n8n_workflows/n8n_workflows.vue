@@ -35,13 +35,13 @@
 import { ref, computed, watch } from 'vue'
 import { vaultRef } from 'llming'
 
-const passed  = vaultRef('n8n-workflows', 'state.passed', 12)
+const passed  = vaultRef('n8n-workflows', 'state.passed', 0)
 const failed  = vaultRef('n8n-workflows', 'state.failed', 0)
-const running = vaultRef('n8n-workflows', 'state.running', 2)
+const running = vaultRef('n8n-workflows', 'state.running', 0)
 
-const passedHistory  = ref(Array(10).fill(12))
+const passedHistory  = ref(Array(10).fill(0))
 const failedHistory  = ref(Array(10).fill(0))
-const runningHistory = ref(Array(10).fill(2))
+const runningHistory = ref(Array(10).fill(0))
 
 watch(passed, (v) => {
   passedHistory.value = [...passedHistory.value.slice(-9), v]

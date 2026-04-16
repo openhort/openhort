@@ -16,12 +16,12 @@
 import { computed } from 'vue'
 import { vaultRef } from 'llming'
 
-const clipCount = vaultRef('clipboard-history', 'state.count', 12)
-const clip1Text = vaultRef('clipboard-history', 'state.clip1', 'const handler = async (req, ...')
-const clip2Text = vaultRef('clipboard-history', 'state.clip2', 'github.com/openhort/openhort/pull/42')
-const clip3Text = vaultRef('clipboard-history', 'state.clip3', 'Refactor the session manager to us...')
-const clip1Type = vaultRef('clipboard-history', 'state.clip1_type', 'code')
-const clip2Type = vaultRef('clipboard-history', 'state.clip2_type', 'url')
+const clipCount = vaultRef('clipboard-history', 'state.count', 0)
+const clip1Text = vaultRef('clipboard-history', 'state.clip1', '')
+const clip2Text = vaultRef('clipboard-history', 'state.clip2', '')
+const clip3Text = vaultRef('clipboard-history', 'state.clip3', '')
+const clip1Type = vaultRef('clipboard-history', 'state.clip1_type', 'text')
+const clip2Type = vaultRef('clipboard-history', 'state.clip2_type', 'text')
 const clip3Type = vaultRef('clipboard-history', 'state.clip3_type', 'text')
 
 const count = computed(() => clipCount.value)

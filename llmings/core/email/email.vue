@@ -31,12 +31,8 @@
 import { ref, computed } from 'vue'
 import { vaultRef } from 'llming'
 
-const emails = vaultRef('email', 'state.emails', [
-  { id: 1, from: 'Alex Chen', subject: 'PR Review: Session refactor', unread: true, avatar: '/static/vendor/demo/face-alex.jpg' },
-  { id: 2, from: 'Lisa Park', subject: 'Q2 roadmap draft attached', unread: true, avatar: '/static/vendor/demo/face-lisa.jpg' },
-  { id: 3, from: 'Sarah Kim', subject: 'Q2 OKR draft for review', unread: false, avatar: '/static/vendor/demo/face-sarah.jpg' }
-])
-const unreadCount = vaultRef('email', 'state.unreadCount', 2)
+const emails = vaultRef('email', 'state.emails', [])
+const unreadCount = vaultRef('email', 'state.unreadCount', 0)
 </script>
 
 <style scoped>

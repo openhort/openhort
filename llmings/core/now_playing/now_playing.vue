@@ -37,12 +37,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { vaultRef } from 'llming'
 
-const track    = vaultRef('now-playing', 'state.track', 'Midnight City')
-const artist   = vaultRef('now-playing', 'state.artist', 'M83')
-const album    = vaultRef('now-playing', 'state.album', "Hurry Up, We're Dreaming")
-const playing  = vaultRef('now-playing', 'state.playing', true)
-const position = vaultRef('now-playing', 'state.position', 158)
-const duration = vaultRef('now-playing', 'state.duration', 243)
+const track    = vaultRef('now-playing', 'state.track', '')
+const artist   = vaultRef('now-playing', 'state.artist', '')
+const album    = vaultRef('now-playing', 'state.album', '')
+const playing  = vaultRef('now-playing', 'state.playing', false)
+const position = vaultRef('now-playing', 'state.position', 0)
+const duration = vaultRef('now-playing', 'state.duration', 1)
 
 let timer = null
 

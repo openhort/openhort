@@ -23,12 +23,7 @@
 import { ref, computed } from 'vue'
 import { vaultRef } from 'llming'
 
-const roomData = vaultRef('openclaw', 'state.rooms', [
-  { id: 'living', name: 'Living Room', icon: 'ph-fill ph-lamp', lightOn: true, temp: 22 },
-  { id: 'bedroom', name: 'Bedroom', icon: 'ph-fill ph-bed', lightOn: false, temp: 19 },
-  { id: 'kitchen', name: 'Kitchen', icon: 'ph-fill ph-cooking-pot', lightOn: true, temp: 21 },
-  { id: 'office', name: 'Office', icon: 'ph-fill ph-desk', lightOn: false, temp: 20 },
-])
+const roomData = vaultRef('openclaw', 'state.rooms', [])
 
 const rooms = computed(() => roomData.value || [])
 </script>

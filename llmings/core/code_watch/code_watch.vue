@@ -37,18 +37,18 @@
 import { computed } from 'vue'
 import { vaultRef } from 'llming'
 
-const heroName     = vaultRef('code-watch', 'state.hero_name', 'claude_dev')
-const heroActive   = vaultRef('code-watch', 'state.hero_active', true)
-const heroDuration = vaultRef('code-watch', 'state.hero_duration', '23m')
-const heroOutput   = vaultRef('code-watch', 'state.hero_output', '> Building project...\n  Compiling 42 modules\n  Tests: 18 passed')
-const tokenUsed    = vaultRef('code-watch', 'state.token_used', 14200)
-const tokenMax     = vaultRef('code-watch', 'state.token_max', 20000)
-const sess1Name    = vaultRef('code-watch', 'state.sess1_name', 'claude_test')
-const sess1Status  = vaultRef('code-watch', 'state.sess1_status', 'idle 4m')
+const heroName     = vaultRef('code-watch', 'state.hero_name', '')
+const heroActive   = vaultRef('code-watch', 'state.hero_active', false)
+const heroDuration = vaultRef('code-watch', 'state.hero_duration', '')
+const heroOutput   = vaultRef('code-watch', 'state.hero_output', '')
+const tokenUsed    = vaultRef('code-watch', 'state.token_used', 0)
+const tokenMax     = vaultRef('code-watch', 'state.token_max', 0)
+const sess1Name    = vaultRef('code-watch', 'state.sess1_name', '')
+const sess1Status  = vaultRef('code-watch', 'state.sess1_status', '')
 const sess1Color   = vaultRef('code-watch', 'state.sess1_color', '#666')
-const sess2Name    = vaultRef('code-watch', 'state.sess2_name', 'claude_fix')
-const sess2Status  = vaultRef('code-watch', 'state.sess2_status', 'done 8m')
-const sess2Color   = vaultRef('code-watch', 'state.sess2_color', 'var(--success)')
+const sess2Name    = vaultRef('code-watch', 'state.sess2_name', '')
+const sess2Status  = vaultRef('code-watch', 'state.sess2_status', '')
+const sess2Color   = vaultRef('code-watch', 'state.sess2_color', '#666')
 
 const tokenPct = computed(() => {
   if (!tokenMax.value) return 0

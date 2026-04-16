@@ -30,11 +30,7 @@ const cams = [
   { name: 'Garage', key: 'garage', short: 'Garage' },
 ]
 
-const camState = vaultRef('cameras', 'state.cameras', [
-  { id: 'frontdoor', motion: false },
-  { id: 'backyard', motion: false },
-  { id: 'garage', motion: false },
-])
+const camState = vaultRef('cameras', 'state.cameras', [])
 
 function isMotion(key) {
   const cameras = camState.value || []
