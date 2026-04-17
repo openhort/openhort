@@ -835,7 +835,142 @@
     LlmingClient.navigate(path);
   };
 
+  // ---- useStream: ACK-based flow control for binary streams ----
+
+  /**
+   * Reactive stream composable for cards.
+   *
+   * Works identically in real mode (server pushes frames) and demo mode
+   * (demo.js pushes frames through vault). The card doesn't know which.
+   *
+   * @param {string} channel - Stream channel name, e.g. "cameras:frontdoor"
+   * @param {object} [opts] - { displayWidth, displayHeight }
+   * @returns {{ frame: Ref<string|null>, active: Ref<boolean> }}
+   */
+  const _activeStreams = new Map(); // channel -> { subscribers, lastBlobUrl }
+
+  function useStream(channel, opts) {
+    const frame = Vue.ref(null);
+    const active = Vue.ref(false);
+    const options = opts || {};
+    var _ready = true;  // ACK gate: only accept next frame when ready
+    var _pending = null; // holds the latest frame if not ready yet
+
+    // Subscribe: tell the server/demo we want frames on this channel
+    const entry = {
+      ref: frame,
+      onFrame(blobUrlOrDataUrl) {
+        if (!_ready) {
+          // Not ready — hold latest, drop older (single-slot)
+          _pending = blobUrlOrDataUrl;
+          return;
+        }
+        _deliverFrame(blobUrlOrDataUrl);
+      }
+    };
+
+    function _deliverFrame(url) {
+      _ready = false;
+      // Revoke previous blob URL
+      if (frame.value && typeof frame.value === 'string' && frame.value.startsWith('blob:')) {
+        URL.revokeObjectURL(frame.value);
+      }
+      frame.value = url;
+      active.value = true;
+      // ACK after the frame is rendered (next animation frame)
+      requestAnimationFrame(function() {
+        _ready = true;
+        // ACK to server
+        if (window.hortWS) {
+          window.hortWS.send({ type: 'stream.ack', channel: channel });
+        }
+        // If a newer frame arrived while we were busy, deliver it now
+        if (_pending) {
+          var p = _pending;
+          _pending = null;
+          _deliverFrame(p);
+        }
+      });
+    }
+
+    // Register in the stream subscriber map
+    if (!_activeStreams.has(channel)) {
+      _activeStreams.set(channel, { subscribers: [] });
+      // Subscribe via WS for server-side streams
+      if (window.hortWS) {
+        window.hortWS.request({
+          type: 'stream.subscribe',
+          channel: channel,
+          displayWidth: options.displayWidth || 320,
+          displayHeight: options.displayHeight || 180,
+        });
+      }
+    }
+    _activeStreams.get(channel).subscribers.push(entry);
+
+    // Also watch the vault path for demo mode compatibility
+    // Demo.js pushes frames to vault at "state.frames.{subChannel}"
+    var parts = channel.split(':');
+    if (parts.length >= 2) {
+      var owner = parts[0];
+      var subKey = parts.slice(1).join(':');
+      var vaultEntry = {
+        ref: Vue.ref(null), // dummy ref — we use onFrame instead
+        extract: function(d) {
+          if (!d || !d.frames) return null;
+          return d.frames[subKey] || null;
+        },
+        lastJson: 'null',
+        onChange: function(nv) {
+          if (nv) entry.onFrame(nv); // goes through the ACK gate
+        }
+      };
+      LlmingClient._watchVault(owner, 'state', vaultEntry);
+      entry._vaultCleanup = function() {
+        LlmingClient._unwatchVault(owner, 'state', vaultEntry);
+      };
+    }
+
+    // Cleanup on unmount
+    Vue.onUnmounted(function() {
+      const info = _activeStreams.get(channel);
+      if (info) {
+        const idx = info.subscribers.indexOf(entry);
+        if (idx >= 0) info.subscribers.splice(idx, 1);
+        if (!info.subscribers.length) {
+          _activeStreams.delete(channel);
+          // Unsubscribe from server
+          if (window.hortWS) {
+            window.hortWS.send({ type: 'stream.unsubscribe', channel });
+          }
+        }
+      }
+      if (entry._vaultCleanup) entry._vaultCleanup();
+      // Revoke last blob URL
+      if (frame.value && frame.value.startsWith('blob:')) {
+        URL.revokeObjectURL(frame.value);
+      }
+    });
+
+    return { frame, active };
+  }
+
+  /**
+   * Handle incoming stream frame from server.
+   * Called by the WS message handler when a stream.frame message arrives.
+   * @internal
+   */
+  LlmingClient._handleStreamFrame = function(channel, data) {
+    const info = _activeStreams.get(channel);
+    if (!info || !info.subscribers.length) return;
+    // data is a blob URL or base64 data URL
+    for (const entry of info.subscribers) {
+      entry.onFrame(data);
+    }
+  };
+
   // Expose globally
   root.LlmingClient = LlmingClient;
+  root.useStream = useStream;
 
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -4,6 +4,51 @@ Rules for all code in openhort and its libraries (llming-com, etc.).
 
 ## Python Style
 
+### Always use type annotations
+
+Every function, method, parameter, and return value MUST have type annotations. No exceptions.
+
+```python
+# BAD
+def get_metrics(self, data):
+    cpu = data.get("cpu")
+    return {"cpu": cpu}
+
+# GOOD
+def get_metrics(self, data: dict) -> dict:
+    cpu: float = data.get("cpu", 0.0)
+    return {"cpu": cpu}
+
+# GOOD — callbacks with dict
+@power("status")
+async def get_status(self, data: dict) -> dict:
+    ...
+
+# GOOD — callbacks with Pydantic (framework auto-converts)
+@power("status")
+async def get_status(self, data: StatusRequest) -> StatusResponse:
+    ...
+```
+
+### Callback data convention
+
+All callbacks (powers, pulses, streams) take `self` + one data parameter. Never multiple positional args.
+
+**Transport is always dict/JSON.** The framework auto-converts between dict and Pydantic models based on the type annotation:
+
+- Annotated as `dict` → passed as-is
+- Annotated as `BaseModel` subclass → framework parses `Model(**dict)` before calling
+- Return annotated as `BaseModel` → framework calls `.model_dump()` before sending
+
+```python
+# Both are valid — transport is identical (JSON dict on the wire)
+@pulse("alert")
+async def on_alert(self, data: dict) -> None: ...
+
+@pulse("alert")
+async def on_alert(self, data: AlertEvent) -> None: ...  # AlertEvent is a Pydantic model
+```
+
 ### No private attribute access from outside the class
 
 Never access `_private` attributes on objects you don't own. Use public properties or methods.

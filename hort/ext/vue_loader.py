@@ -307,6 +307,9 @@ def _generate_setup(
           const useLlming = () => $llming;
           Vue.provide('llming', $llming);
 
+          // useStream — ACK-based reactive stream (cameras, screen capture, etc.)
+          const useStream = window.useStream || function() {{ return {{ frame: Vue.ref(null), active: Vue.ref(false) }}; }};
+
           // vaultRef — push-based reactive binding to vault values
           function vaultRef(owner, path, defaultValue, options) {{
             const opts = options || {{}};
@@ -513,6 +516,9 @@ def _generate_app_setup(
         }} : {{ name: '{component_id}', vault: {{ async get() {{ return {{}}; }}, async set() {{}} }}, subscribe() {{}}, call() {{}}, callOn() {{}}, connected: false }};
         const useLlming = () => $llming;
         Vue.provide('llming', $llming);
+
+        // useStream — ACK-based reactive stream
+        const useStream = window.useStream || function() {{ return {{ frame: Vue.ref(null), active: Vue.ref(false) }}; }};
 
         // vaultRef — push-based reactive binding to vault values
         function vaultRef(owner, path, defaultValue, options) {{

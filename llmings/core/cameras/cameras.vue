@@ -1,42 +1,44 @@
 <template>
   <div class="cameras-root">
-    <div v-for="cam in cams" :key="cam.key" class="cam-feed">
-      <video
-        :src="`/static/vendor/demo/cam-${cam.key}.mp4`"
-        autoplay loop muted playsinline
-        class="cam-video"
-      />
+    <div v-for="cam in camList" :key="cam.id" class="cam-feed">
+      <img v-if="cam.frame" :src="cam.frame" class="cam-canvas" />
+      <div v-else class="cam-placeholder">
+        <i class="ph ph-security-camera" style="font-size:20px;opacity:.3"></i>
+      </div>
       <div class="cam-gradient" />
-      <div class="cam-rec">
+      <div v-if="cam.frame" class="cam-rec">
         <span class="rec-dot" />
         <span class="rec-label">REC</span>
       </div>
-      <div
-        v-if="isMotion(cam.key)"
-        class="cam-motion"
-      >MOTION</div>
-      <div class="cam-name">{{ cam.short }}</div>
+      <div v-if="cam.motion" class="cam-motion">MOTION</div>
+      <div class="cam-name">{{ cam.name }}</div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { vaultRef } from 'llming'
 
-const cams = [
-  { name: 'Front Door', key: 'frontdoor', short: 'Front' },
-  { name: 'Backyard', key: 'backyard', short: 'Back' },
-  { name: 'Garage', key: 'garage', short: 'Garage' },
-]
+// Camera metadata (list + motion state) from vault
+const cameras = vaultRef('cameras', 'state.cameras', [])
 
-const camState = vaultRef('cameras', 'state.cameras', [])
-
-function isMotion(key) {
-  const cameras = camState.value || []
-  const cam = cameras.find(c => c.id === key)
-  return cam ? cam.motion : false
+// Each camera gets its own stream via useStream
+const streams = {}
+const knownIds = ['frontdoor', 'backyard', 'garage']
+for (const id of knownIds) {
+  streams[id] = useStream('cameras:' + id, { displayWidth: 160, displayHeight: 90 })
 }
+
+const camList = computed(() => {
+  const cams = cameras.value || []
+  return cams.map(c => ({
+    id: c.id,
+    name: c.name || c.id,
+    motion: c.motion || false,
+    frame: streams[c.id]?.frame?.value || null,
+  }))
+})
 </script>
 
 <style scoped>
@@ -55,11 +57,20 @@ function isMotion(key) {
   background: #0a0a0a;
 }
 
-.cam-video {
+.cam-canvas {
   width: 100%;
   height: 100%;
   object-fit: cover;
   filter: saturate(.4) brightness(.7) contrast(1.1);
+}
+
+.cam-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
 }
 
 .cam-gradient {

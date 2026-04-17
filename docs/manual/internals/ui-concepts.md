@@ -368,3 +368,335 @@ Visual indicator shows during pull: animated arrow that flips and turns blue whe
 - Auto-closes when pointer moves >15px (prevents stale menus during accidental drags)
 - Positioned at click point, clamped to viewport bounds
 - Escape closes all menus
+
+## Demo Data — Strict Separation
+
+**Rule: Demo data NEVER comes from the UI.** All sample/mock data is provided exclusively by the llming backend (demo.js), never hardcoded in card.vue templates.
+
+- Card.vue uses `vaultRef('name', 'key', EMPTY_DEFAULT)` — empty arrays, zeros, empty strings
+- demo.js provides all sample data via its `vault:` section and `simulate()` function
+- The card renders whatever the vault contains — it doesn't know or care if the data is real or demo
+- When demo mode is off and no real llming is running, the card shows the empty default state
+
+**This also applies to media.** Camera feeds, audio streams, or any binary content must come from the backend, not from hardcoded `<video src>` or `<img src>` in the template. The card template renders frames from a pulse channel — same code path for real cameras and demo playback.
+
+## Three Communication Patterns
+
+OpenHORT has three distinct ways data flows from llming to UI. Each serves a different purpose. Don't mix them.
+
+### 1. Vault — State Snapshots
+
+**What:** Key-value state. Current value matters, history doesn't.
+
+**Examples:** Room light on/off, CPU percentage, playlist metadata, email list, calendar events.
+
+**Behavior:**
+- Producer writes whenever state changes: `self.vault.set("state", data)`
+- Consumer reads reactively: `vaultRef('system-monitor', 'state.cpu_percent', 0)`
+- Multiple writes between client reads → only latest delivered (coalesced)
+- No subscriber awareness needed. Producer writes regardless. Framework only sends over the wire if watchers exist.
+
+**Not for:** High-frequency data, binary blobs, anything where individual updates matter.
+
+### 2. Pulse — Events (Pub/Sub)
+
+**What:** Fire-and-forget events. Every event matters, but the producer doesn't customize per subscriber.
+
+**Examples:** "motion detected", "workflow failed", "new email arrived", "song changed", log lines, chat messages.
+
+**Behavior:**
+- Producer emits: `self.emit("motion_detected", { camera: "front" })`
+- Consumer subscribes: `@pulse("motion_detected")` or `self.channels["motion_detected"].subscribe(handler)`
+- Every subscriber gets every event, same data, no filtering
+- Producer does NOT know who is listening or how many
+- Producer does NOT produce custom data per listener
+- If no subscribers, the event is simply not delivered over the wire (but still emitted internally for cross-llming use)
+
+**Not for:** Continuous streams, binary data, anything requiring flow control or per-subscriber adaptation.
+
+### 3. Streams — Continuous Binary/Frame Delivery
+
+**What:** High-frequency, potentially large payloads where the producer is aware of its consumers and adapts.
+
+**Two sub-types:**
+
+#### 3a. Frame Streams (skippable)
+
+**Examples:** Camera feeds, screen capture, video thumbnails, waveform visualization.
+
+**Key property:** Individual frames can be skipped. Only the latest matters. The producer knows its subscribers and can optimize.
+
+**Behavior:**
+- Consumer subscribes with hints: `useStream('cameras:frontdoor', { displayWidth: 320 })`
+- **Producer receives subscriber list** with parameters (display size, ACK speed)
+- **Producer decides** capture rate and resolution. Zero subscribers → stop capturing entirely. One thumbnail subscriber → 2fps at 160px. Fullscreen viewer → 30fps at source resolution.
+- **ACK-paced delivery**: client ACKs after rendering. Next frame only after ACK. Frames arriving while un-ACKed → single-slot buffer (latest wins, stale dropped).
+- **Per-subscriber optimization**: screen capture can send different viewport crops to different viewers. Camera can encode at different resolutions.
+
+**Client API:**
+```javascript
+const { frame, active } = useStream('cameras:frontdoor', {
+  displayWidth: 320,
+  displayHeight: 180,
+})
+// frame — reactive ref (blob URL), updates after each ACK cycle
+// active — true when receiving
+```
+
+#### 3b. Continuous Streams (non-skippable)
+
+**Examples:** Audio playback, voice chat, real-time sensor data logging.
+
+**Key property:** Data must be delivered in order and continuously. Gaps are audible/visible. But when sync is lost (network hiccup, buffer overflow), it's better to **drop everything and restart cleanly** than to buffer and introduce latency.
+
+**Behavior:**
+- Continuous ordered delivery while connection is healthy
+- If consumer falls behind (buffer exceeds threshold) → **hard reset**: drop all buffered data, signal producer to restart from current position
+- Latency between creation and playback is minimized — never accumulates
+- After reset, playback resumes from "now", not from where it left off
+
+**Drop-and-restart** is fundamentally different from frame streams: frame streams silently skip stale frames one at a time. Continuous streams either flow perfectly or hard-reset to re-sync. There's no gradual degradation.
+
+### Data Types
+
+Frame streams and continuous streams are NOT limited to images and audio. Any data type works:
+
+| Data | Pattern | Example payload |
+|------|---------|----------------|
+| Camera feed | Frame stream | WebP image blob |
+| Screen capture | Frame stream | WebP image blob, per-subscriber viewport crop |
+| Sensor readings | Frame stream | `{ temp: 22.3, humidity: 45, pressure: 1013 }` |
+| Graph/chart data | Frame stream | `{ points: [...], timestamp: ... }` |
+| Waveform visualization | Frame stream | `Float32Array` of amplitude samples |
+| Audio playback | Continuous stream | Opus/PCM audio chunks |
+| Voice chat | Continuous stream | Opus audio chunks |
+| Live log tail | Continuous stream | Text lines (every line matters, reset on overflow) |
+| Realtime sensor log | Continuous stream | Binary sensor packets |
+
+The distinction is **skippable vs non-skippable**, not image vs audio vs data.
+
+### Decorator API
+
+#### Vault (existing)
+```python
+class SystemMonitor(Llming):
+    def activate(self, config):
+        self.vault.set("state", {"cpu": 0, "mem": 0})
+
+    @pulse("tick:1hz")
+    async def poll(self, data):
+        self.vault.set("state", {"cpu": get_cpu(), "mem": get_mem()})
+```
+
+#### Pulse (existing)
+```python
+class Cameras(Llming):
+    async def on_motion(self, camera_id):
+        await self.emit("motion_detected", {"camera": camera_id})
+```
+
+#### Producer Side — `@stream` decorator
+
+Producers declare streams. Subscriber params are **generic dicts** — the producer defines what it accepts, the framework passes through whatever the subscriber sends.
+
+```python
+from hort.llming import Llming, stream
+
+class Cameras(Llming):
+    @stream("frame")
+    async def capture(self, subscribers):
+        """Called by framework, paced by fastest subscriber's ACK.
+
+        subscribers: list of dicts — each subscriber's self-declared params.
+            The producer decides what params to expect. Framework just passes through.
+        """
+        if not subscribers:
+            return None  # nobody watching → don't capture
+
+        # Camera-specific: look for width hint (subscribers chose to send it)
+        max_w = max((s.get('width', 160) for s in subscribers), default=160)
+        frame = self.camera.capture(width=max_w)
+        return encode_webp(frame, quality=70)
+
+class SensorHub(Llming):
+    @stream("readings")
+    async def poll(self, subscribers):
+        if not subscribers:
+            return None
+        # Sensor-specific: subscriber might request sample_rate
+        rate = max((s.get('sample_rate', 1) for s in subscribers), default=1)
+        return {"temp": read_temp(), "humidity": read_humidity()}
+
+class ScreenCapture(Llming):
+    @stream("viewport")
+    async def capture(self, subscribers):
+        if not subscribers:
+            return None
+        # Screen-specific: each subscriber has viewport region + resolution
+        # Producer can optimize: send different crops to different viewers
+        for sub in subscribers:
+            region = sub.get('region', 'full')
+            width = sub.get('width', 1280)
+            yield sub['id'], self.capture_region(region, width)
+```
+
+**Continuous streams** (`continuous=True`):
+```python
+class AudioPlayer(Llming):
+    @stream("playback", continuous=True)
+    async def audio_output(self, chunk_callback):
+        """Runs while subscribers exist. Restarts on desync."""
+        decoder = self.open_audio()
+        try:
+            while True:
+                chunk = await decoder.read(1024)
+                await chunk_callback(chunk)  # blocks on backpressure
+        except StreamReset:
+            pass  # consumer fell behind → loop restarts from "now"
+
+class LogTail(Llming):
+    @stream("output", continuous=True)
+    async def tail(self, chunk_callback):
+        proc = await asyncio.create_subprocess_exec("tail", "-f", "/var/log/app.log", stdout=asyncio.subprocess.PIPE)
+        try:
+            async for line in proc.stdout:
+                await chunk_callback(line)
+        except StreamReset:
+            pass
+```
+
+#### Consumer Side — `@stream` on receivers
+
+Llmings can also **consume** streams from other llmings using the same decorator. The callback receives a **single data object** — never positional args. This is the same convention as `@pulse` and `@power`: one `self`, one data object. Keeps it extensible (add fields without breaking existing handlers).
+
+```python
+class SecurityDashboard(Llming):
+    @stream("cameras:frame")
+    async def on_camera_frame(self, event):
+        """event.data — frame bytes
+           event.channel — "cameras:frame"
+           event.metadata — producer-attached metadata (timestamp, format, ...)
+        """
+        await self.analyze_motion(event.data)
+
+    @stream("sensors:readings")
+    async def on_sensor_data(self, event):
+        if event.data.get('temp', 0) > 40:
+            await self.emit("temp_alert", event.data)
+```
+
+For **cards** (client-side), `useStream()` is the consumer API:
+
+```javascript
+// Frame stream — generic params, producer decides what to do with them
+const cam = useStream('cameras:frame', { width: 320, height: 180 })
+const sensor = useStream('sensors:readings', { sample_rate: 10 })
+const screen = useStream('screen:viewport', { region: 'top-left', width: 640 })
+
+// Continuous stream
+const audio = useStream('player:playback', { continuous: true })
+const logs = useStream('claude:output', { continuous: true })
+```
+
+The params object is **freeform** — the card sends whatever the producer expects. No framework-imposed schema.
+
+### Callback Convention (all patterns)
+
+All llming callbacks — powers, pulses, streams — follow the same rule: **`self` + one data parameter**. Never positional args. Always type-annotated.
+
+**Transport is always JSON/dict.** On the wire, between processes, across IPC — data is always a plain dict. Packages are decoupled (hort framework, llmings, llming-com don't import each other), so no shared types cross boundaries.
+
+**Automatic Pydantic conversion.** The framework inspects the callback's type annotation. If the parameter type is a Pydantic model, the framework parses the incoming dict into it before calling. If the return type is a Pydantic model, the framework calls `.model_dump()` on the result before sending. The developer just writes typed code — the framework handles serialization.
+
+```python
+# Simple — dict in, dict out (no conversion)
+@power("get_status")
+async def get_status(self, data: dict) -> dict:
+    return {"cpu": get_cpu()}
+
+# Typed — framework auto-parses dict → Model, auto-dumps Model → dict
+from pydantic import BaseModel
+
+class StatusRequest(BaseModel):
+    include_disks: bool = False
+
+class StatusResponse(BaseModel):
+    cpu: float
+    mem: float
+    disks: list[dict] = []
+
+@power("get_status")
+async def get_status(self, data: StatusRequest) -> StatusResponse:
+    return StatusResponse(
+        cpu=get_cpu(),
+        mem=get_mem(),
+        disks=get_disks() if data.include_disks else [],
+    )
+```
+
+Both styles work. The transport is identical — JSON dict on the wire either way. The framework checks `if annotation is not dict and issubclass(annotation, BaseModel)` and converts automatically.
+
+**Same for all patterns:**
+
+```python
+# Pulse — dict (simple)
+@pulse("motion_detected")
+async def on_motion(self, data: dict) -> None:
+    camera_id = data.get("camera", "")
+    await self.alert(camera_id)
+
+# Pulse — Pydantic (framework parses automatically)
+class MotionEvent(BaseModel):
+    camera: str
+    confidence: float = 0.0
+
+@pulse("motion_detected")
+async def on_motion(self, data: MotionEvent) -> None:
+    if data.confidence > 0.8:
+        await self.alert(data.camera)
+
+# Stream producer — dict
+@stream("frame")
+async def capture(self, data: dict) -> bytes | None:
+    subs = data.get("subscribers", [])
+    if not subs:
+        return None
+    return self.camera.capture()
+
+# Stream consumer — Pydantic
+class FrameEvent(BaseModel):
+    data: bytes
+    timestamp: float = 0.0
+    format: str = "webp"
+
+@stream("cameras:frame")
+async def on_frame(self, data: FrameEvent) -> None:
+    await self.analyze(data.data)
+```
+
+**Rules:**
+- Parameter annotation is `dict` → passed as-is
+- Parameter annotation is a `BaseModel` subclass → framework calls `Model(**incoming_dict)`
+- Return annotation is `dict` → sent as-is
+- Return annotation is a `BaseModel` subclass → framework calls `result.model_dump()`
+- No annotation → treated as `dict` (but violates the type annotation rule — always annotate)
+
+### Summary
+
+| | Vault | Pulse | `@stream` | `@stream(continuous)` |
+|-|-------|-------|-----------|----------------------|
+| Decorator | `self.vault.set()` | `self.emit()` | `@stream("name")` | `@stream("name", continuous=True)` |
+| Data type | JSON | JSON | Any (binary, JSON, text) | Any (binary, JSON, text) |
+| Skippable | Latest wins | No | Yes (latest wins) | No (reset on overflow) |
+| Producer sees subscribers | No | No | **Yes** — list with params | **Yes** — via callback backpressure |
+| Latency model | Eventual | Best-effort | ACK-paced + small pre-buffer | Zero-accumulation, drop+restart |
+| Client API | `vaultRef()` | `@pulse()` handler | `useStream()` | `useStream()` |
+
+### Demo Mode
+
+All four patterns work identically in demo mode:
+- **Vault**: demo.js calls `ctx.vault.set()`
+- **Pulse**: demo.js calls `ctx.emit()`
+- **Streams**: demo.js calls `ctx.stream()` which pushes through the same `useStream` ACK gate on the client
+
+The card uses the same API regardless of whether data comes from a real llming or demo simulation.

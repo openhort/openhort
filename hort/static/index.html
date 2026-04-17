@@ -2842,11 +2842,21 @@
             </button>
 
             <!-- Debug simulation FAB (bottom-left) -->
-            <button class="fab-debug" @click.stop="state.debugMenuOpen = !state.debugMenuOpen">
-              <i class="ph ph-flask" style="font-size:18px"></i>
+            <button class="fab-debug" @click.stop="state.debugMenuOpen = !state.debugMenuOpen" :style="{borderColor: currentMode==='demo' ? '#b45309' : ''}">
+              <i :class="currentMode==='demo' ? 'ph ph-play-circle' : 'ph ph-flask'" style="font-size:18px" :style="{color: currentMode==='demo' ? '#b45309' : ''}"></i>
             </button>
-            <div v-if="state.debugMenuOpen" class="notif-bell-dropdown" style="position:fixed;bottom:52px;left:12px;top:auto;right:auto;z-index:200" @click.stop>
-              <span class="sim-label">Simulate</span>
+            <div v-if="state.debugMenuOpen" class="notif-bell-dropdown" style="position:fixed;bottom:52px;left:12px;top:auto;right:auto;z-index:200;min-width:220px" @click.stop>
+              <!-- Mode switcher -->
+              <div style="padding:10px 14px 6px;display:flex;gap:4px">
+                <button @click="switchMode('real')" :style="{flex:1,padding:'6px 0',borderRadius:'8px',border:'1px solid',fontSize:'11px',fontWeight:600,cursor:'pointer',background:currentMode==='real'?'var(--primary)':'var(--bg)',color:currentMode==='real'?'#fff':'var(--dim)',borderColor:currentMode==='real'?'var(--primary)':'var(--border)'}">
+                  <i class="ph ph-plugs-connected" style="margin-right:4px"></i>Real
+                </button>
+                <button @click="switchMode('demo')" :style="{flex:1,padding:'6px 0',borderRadius:'8px',border:'1px solid',fontSize:'11px',fontWeight:600,cursor:'pointer',background:currentMode==='demo'?'#b45309':'var(--bg)',color:currentMode==='demo'?'#fff':'var(--dim)',borderColor:currentMode==='demo'?'#b45309':'var(--border)'}">
+                  <i class="ph ph-play-circle" style="margin-right:4px"></i>Demo
+                </button>
+              </div>
+              <div class="notif-bell-sep"></div>
+              <span class="sim-label">Simulate Events</span>
               <div class="notif-bell-item" @click="simNotifIntruder();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F6A8;</span> Intruder!</div>
               <div class="notif-bell-item" @click="simNotifDoorbell();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F514;</span> Doorbell</div>
               <div class="notif-bell-item" @click="simNotifClaudeDone();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x2705;</span> Claude done</div>
@@ -2856,6 +2866,9 @@
               <div class="notif-bell-item" @click="simNotifWashing();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F9FA;</span> Washing done</div>
               <div class="notif-bell-item" @click="simNotifSong();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F3B5;</span> Song changed</div>
               <div class="notif-bell-item" @click="simNotifBackup();state.debugMenuOpen=false"><span style="width:18px;text-align:center">&#x1F4BE;</span> Backup OK</div>
+              <div class="notif-bell-sep"></div>
+              <span class="sim-label">Layout</span>
+              <div class="notif-bell-item" @click="resetLayout();state.debugMenuOpen=false"><i class="ph ph-arrow-counter-clockwise" style="width:18px;text-align:center"></i> Reset to defaults</div>
             </div>
 
             <!-- Bottom bar with page dots -->
@@ -4925,6 +4938,24 @@
         pushNotification({ source: 'System', sourceIcon: 'ph ph-hard-drives', sourceColor: 'var(--dim)', severity: 'low', title: 'Backup Complete', message: 'Daily backup finished successfully', widgetExtId: 'system-monitor' });
       }
 
+      // ── Mode switcher ──
+      const currentMode = computed(() => {
+        if (typeof HortDemo !== 'undefined' && HortDemo.active) return 'demo';
+        return 'real';
+      });
+      function switchMode(mode) {
+        const isDemo = typeof HortDemo !== 'undefined' && HortDemo.active;
+        if (mode === 'demo' && !isDemo) {
+          if (typeof HortDemo !== 'undefined') HortDemo.toggle();
+        } else if (mode === 'real' && isDemo) {
+          if (typeof HortDemo !== 'undefined') HortDemo.toggle();
+        }
+      }
+      function resetLayout() {
+        indexedDB.deleteDatabase('hort-widget-layout');
+        state.desktops = whDefaultDesktops();
+      }
+
       // ── Keyboard handler ──
       function _onKey(e) {
         if (e.key === 'Escape') {
@@ -5076,6 +5107,7 @@
         switchToWidget, buzzWidget, openNotifSource, clearAllNotifs,
         simNotifIntruder, simNotifDoorbell, simNotifClaudeDone, simNotifTempAlert,
         simNotifEmail, simNotifWashing, simNotifSong, simNotifBackup,
+        currentMode, switchMode, resetLayout,
         // Shared globals
         whGetWidgets, whWidgetGridStyle, hortGroups, getHortGroup, getDefaultSize,
       };
