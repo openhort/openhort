@@ -6,7 +6,6 @@ export default {
         { id: 'backyard', name: 'Back', motion: false },
         { id: 'garage', name: 'Garage', motion: false },
       ],
-      frames: {}
     }
   },
 
@@ -14,10 +13,13 @@ export default {
     const camKeys = ['frontdoor', 'backyard', 'garage'];
     const videos = {};
     const canvas = document.createElement('canvas');
-    canvas.width = 160;
-    canvas.height = 90;
+    canvas.width = 640;
+    canvas.height = 360;
     const drawCtx = canvas.getContext('2d');
+    drawCtx.imageSmoothingEnabled = true;
+    drawCtx.imageSmoothingQuality = 'high';
     const blobUrls = {};
+    const streams = {};
 
     for (const key of camKeys) {
       const video = document.createElement('video');
@@ -29,6 +31,7 @@ export default {
       document.body.appendChild(video);
       video.play().catch(() => {});
       videos[key] = video;
+      streams[key] = ctx.stream('cameras:' + key);
     }
 
     // Pull-based: capture next frame only after previous blob is created.
@@ -44,20 +47,16 @@ export default {
         ctx.timeout(() => captureLoop(key), 200);
         return;
       }
-      drawCtx.drawImage(video, 0, 0, 160, 90);
+      drawCtx.drawImage(video, 0, 0, 640, 360);
       canvas.toBlob(blob => {
         if (!blob) { ctx.timeout(() => captureLoop(key), 100); return; }
         if (blobUrls[key]) URL.revokeObjectURL(blobUrls[key]);
         blobUrls[key] = URL.createObjectURL(blob);
-        const state = ctx.vault.get('state') || {};
-        ctx.vault.set('state', {
-          ...state,
-          frames: { ...(state.frames || {}), [key]: blobUrls[key] }
-        });
-        // Next frame: requestAnimationFrame aligns with display refresh,
-        // naturally adapts to device capability
+        // Push through the same stream API a real backend would use —
+        // never via the vault. The ACK gate on the consumer paces us.
+        streams[key].emit(blobUrls[key]);
         requestAnimationFrame(() => captureLoop(key));
-      }, 'image/webp', 0.5);
+      }, 'image/webp', 0.7);
     }
 
     // Motion simulation

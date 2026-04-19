@@ -204,6 +204,42 @@
     } catch (e) { return null; }
   }
 
+  // ===== APP PREFERENCES (IndexedDB) =====
+  // Persisted across reloads: demo mode toggle, future UI prefs.
+  const _PREFS_DB = 'hort-prefs';
+  const _PREFS_STORE = 'prefs';
+
+  function _openPrefsDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(_PREFS_DB, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(_PREFS_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function _getPref(key) {
+    try {
+      const db = await _openPrefsDB();
+      return new Promise(resolve => {
+        const tx = db.transaction(_PREFS_STORE, 'readonly');
+        const req = tx.objectStore(_PREFS_STORE).get(key);
+        req.onsuccess = () => { db.close(); resolve(req.result); };
+        req.onerror = () => { db.close(); resolve(undefined); };
+      });
+    } catch (e) { return undefined; }
+  }
+
+  async function _setPref(key, value) {
+    try {
+      const db = await _openPrefsDB();
+      const tx = db.transaction(_PREFS_STORE, 'readwrite');
+      tx.objectStore(_PREFS_STORE).put(value, key);
+      db.close();
+    } catch (e) { /* unavailable */ }
+  }
+  window.__hortPrefs = { get: _getPref, set: _setPref };
+
   // ===== SHARED STATE =====
   const state = reactive({
     // Connection
@@ -865,6 +901,18 @@
         // Server-pushed vault change → route to vaultRef watchers
         if (typeof LlmingClient !== 'undefined' && msg.owner && msg.key && msg.data) {
           LlmingClient._notifyVaultUpdate(msg.owner, msg.key, msg.data);
+        }
+        break;
+      case 'stream.frame':
+        // Server-pushed frame stream → route to useStream subscribers
+        if (typeof LlmingClient !== 'undefined' && msg.channel) {
+          LlmingClient._handleStreamFrame(msg.channel, msg.data);
+        }
+        break;
+      case 'stream.chunk':
+        // Server-pushed continuous stream chunk
+        if (typeof LlmingClient !== 'undefined' && msg.channel) {
+          LlmingClient._handleStreamFrame(msg.channel, msg.data);
         }
         break;
       case 'demo.toggle':
@@ -5417,10 +5465,8 @@
   // =============================================
   const HortApp = {
     template: `
-      <!-- ===== DEMO BANNER ===== -->
-      <div v-if="demoMode" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#b45309;color:#fff;text-align:center;font-size:11px;font-weight:700;letter-spacing:2px;padding:2px 0;cursor:pointer;text-transform:uppercase" @click="onLogoClick();onLogoClick();onLogoClick();onLogoClick();onLogoClick()">
-        DEMO MODE
-      </div>
+      <!-- ===== DEMO INDICATOR (subtle dot, bottom-right) ===== -->
+      <div v-if="demoMode" title="Demo mode — click 5x to disable" style="position:fixed;bottom:8px;right:8px;z-index:9999;width:10px;height:10px;border-radius:50%;background:#f97316;box-shadow:0 0 6px rgba(249,115,22,.7);cursor:pointer" @click="onLogoClick();onLogoClick();onLogoClick();onLogoClick();onLogoClick()"></div>
       <!-- ===== WIDGET MODE NAVBAR (rendered by HortApp but hidden — navbar moved into picker) ===== -->
       <div v-if="false" class="wh-navbar">
         <button class="nav-btn" @click="state.whDrawer = true"><i class="ph ph-list"></i></button>
@@ -5618,7 +5664,7 @@
           </div>
         </div>
         <div v-show="!fw.minimized" class="hort-float-body">
-          <component :is="fw.widgetName" />
+          <component :is="fw.widgetName" v-bind="fw.props || {}" />
         </div>
       </div>
 
@@ -5663,6 +5709,8 @@
         HortDemo._onToggle = (active) => {
           demoMode.value = active;
           demoEpoch.value = HortDemo._epoch;
+          // Persist across reloads (restored at boot — see app.mount section)
+          if (window.__hortPrefs) window.__hortPrefs.set('demoMode', active);
         };
       }
       Vue.provide('demoEpoch', demoEpoch);
@@ -6055,6 +6103,14 @@
       if (typeof LlmingClient !== 'undefined') LlmingClient.activateAll(app, Quasar, {});
       pluginsLoaded.value++;
       setTimeout(() => { pluginsLoaded.value++; }, 2000);
+
+      // Restore demo mode preference (after plugins are available so demo.js files load)
+      if (typeof HortDemo !== 'undefined' && window.__hortPrefs) {
+        try {
+          const saved = await window.__hortPrefs.get('demoMode');
+          if (saved && !HortDemo.active) await HortDemo.toggle();
+        } catch (e) { /* noop */ }
+      }
     });
   }
 

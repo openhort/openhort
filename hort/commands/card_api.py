@@ -176,6 +176,97 @@ def remove_viewer(session_id: str) -> None:
     """Clean up all subscriptions when a viewer disconnects."""
     _viewer_subscriptions.pop(session_id, None)
     _vault_watchers.pop(session_id, None)
+    # Also clean up stream subscriptions
+    try:
+        from hort.llming.stream_bus import StreamBus
+        StreamBus.get().remove_subscriber_from_all(session_id)
+    except Exception:
+        pass
+
+
+# ---- Stream handlers ----
+
+
+@router.handler("stream.subscribe")
+async def card_stream_subscribe(controller: Any, channel: str = "", **params: Any) -> dict[str, Any]:
+    """Subscribe to a stream channel. Producer is notified of new subscriber."""
+    if not channel:
+        return {"error": "channel required"}
+    sid: str = getattr(controller, "session_id", "")
+    try:
+        from hort.llming.stream_bus import StreamBus
+        bus = StreamBus.get()
+        # Auto-declare on subscribe (producer may declare later or not at all)
+        handle = bus.declare(channel)
+        await handle.add_subscriber(sid, params)
+        return {"ok": True, "channel": channel}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.handler("stream.unsubscribe")
+async def card_stream_unsubscribe(controller: Any, channel: str = "") -> dict[str, Any]:
+    """Unsubscribe from a stream channel."""
+    sid: str = getattr(controller, "session_id", "")
+    try:
+        from hort.llming.stream_bus import StreamBus
+        handle = StreamBus.get().get_channel(channel)
+        if handle:
+            await handle.remove_subscriber(sid)
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@router.handler("stream.ack")
+async def card_stream_ack(controller: Any, channel: str = "") -> dict[str, Any]:
+    """ACK from viewer — ready for next frame on this stream."""
+    sid: str = getattr(controller, "session_id", "")
+    try:
+        from hort.llming.stream_bus import StreamBus
+        handle = StreamBus.get().get_channel(channel)
+        if handle:
+            handle.ack(sid)
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+# ---- Stream delivery ----
+
+
+async def push_stream_frame(channel: str, session_ids: list[str], data: Any) -> None:
+    """Push a frame to specific viewer sessions (frame-mode stream)."""
+    try:
+        from hort.session import HortRegistry
+        registry = HortRegistry.get()
+        msg: dict[str, Any] = {"type": "stream.frame", "channel": channel, "data": data}
+        for sid in session_ids:
+            try:
+                entry = registry.get_session(sid)
+                if entry and hasattr(entry, "controller") and entry.controller:
+                    await entry.controller.send(msg)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+async def push_stream_chunk(channel: str, session_ids: list[str], chunk: Any) -> None:
+    """Push a chunk to all subscribers (continuous-mode stream)."""
+    try:
+        from hort.session import HortRegistry
+        registry = HortRegistry.get()
+        msg: dict[str, Any] = {"type": "stream.chunk", "channel": channel, "data": chunk}
+        for sid in session_ids:
+            try:
+                entry = registry.get_session(sid)
+                if entry and hasattr(entry, "controller") and entry.controller:
+                    await entry.controller.send(msg)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 # ---- Vault change push (throttled) ----

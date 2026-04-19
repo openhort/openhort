@@ -277,6 +277,94 @@ def collect_subscriptions(instance: object) -> list[tuple[str, Callable]]:
     return subs
 
 
+# ── @stream decorator — subscribe to a stream from another llming (receiver only) ──
+
+
+@dataclass(frozen=True)
+class StreamSubMeta:
+    """Metadata attached to a @stream-decorated receiver method."""
+
+    channel: str  # full channel "owner:sub" e.g. "cameras:frame"
+    input_model: Type[BaseModel] | None  # for auto Pydantic conversion of incoming data
+
+
+def stream(channel: str) -> Callable:
+    """Subscribe a method to a stream channel from another llming.
+
+    Decorators are receiver-only. Producers push streams via the framework's
+    push API (`self.streams["name"].emit(data)`), not via decorators.
+
+    The framework handles ACK gating — this method is called once per data
+    item the consumer is ready to process. Frame streams: latest data only.
+    Continuous streams: ordered chunks until reset.
+
+    Auto-conversion: if the data parameter is annotated as a Pydantic model,
+    the framework parses dict → Model before calling.
+
+    Args:
+        channel: Full stream channel "owner_llming:sub_name", e.g.
+            "cameras:frame", "audio:playback", "sensors:readings".
+    """
+    def decorator(fn: Callable) -> Callable:
+        hints = _safe_get_hints(fn)
+        params = list(inspect.signature(fn).parameters.values())
+
+        input_model = None
+        non_self = [p for p in params if p.name != "self"]
+        if non_self:
+            hint = hints.get(non_self[0].name)
+            if hint and isinstance(hint, type) and issubclass(hint, BaseModel):
+                input_model = hint
+
+        if not hasattr(fn, "_stream_sub_meta"):
+            fn._stream_sub_meta = []  # type: ignore[attr-defined]
+        fn._stream_sub_meta.append(StreamSubMeta(  # type: ignore[attr-defined]
+            channel=channel,
+            input_model=input_model,
+        ))
+        return fn
+    return decorator
+
+
+def collect_stream_subscriptions(instance: object) -> list[tuple[str, Callable, StreamSubMeta]]:
+    """Collect all @stream-decorated receiver methods from an instance.
+
+    Returns [(channel, bound_method, meta), ...].
+    """
+    subs: list[tuple[str, Callable, StreamSubMeta]] = []
+    for attr_name in dir(type(instance)):
+        try:
+            attr = getattr(type(instance), attr_name)
+        except Exception:
+            continue
+        metas = getattr(attr, "_stream_sub_meta", None)
+        if not metas:
+            continue
+        bound = getattr(instance, attr_name)
+        for meta in metas:
+            subs.append((meta.channel, bound, meta))
+    return subs
+
+
+async def invoke_stream_receiver(
+    handler: Callable, meta: StreamSubMeta, data: dict[str, Any]
+) -> None:
+    """Invoke a stream receiver with auto Pydantic conversion of incoming data."""
+    is_async = asyncio.iscoroutinefunction(handler)
+
+    if meta.input_model is not None:
+        parsed = meta.input_model(**data)
+        if is_async:
+            await handler(parsed)
+        else:
+            await asyncio.to_thread(handler, parsed)
+    else:
+        if is_async:
+            await handler(data)
+        else:
+            await asyncio.to_thread(handler, data)
+
+
 # ── @on_ready decorator ──
 
 

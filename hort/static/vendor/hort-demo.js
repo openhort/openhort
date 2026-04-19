@@ -158,6 +158,21 @@
         timers.push({ type: 'timeout', id });
         return id;
       },
+
+      // Streams — same API shape as the server-side producer.
+      // ctx.stream(channel).emit(payload) pushes through the SAME entry
+      // point that production WS uses (LlmingClient._handleStreamFrame),
+      // so demo and real backends share one delivery path. Demo MUST NOT
+      // push frames through the vault.
+      stream(channel) {
+        return {
+          emit(payload) {
+            if (typeof LlmingClient !== 'undefined' && LlmingClient._handleStreamFrame) {
+              LlmingClient._handleStreamFrame(channel, payload);
+            }
+          },
+        };
+      },
     };
 
     return { ctx, timers };

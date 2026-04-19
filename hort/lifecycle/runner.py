@@ -197,11 +197,13 @@ class GroupRunner(Worker):
         name = manifest.get("name", "unknown")
 
         from hort.llming.handles import Vault, VaultHandleMap
+        from hort.llming.stream_bus import StreamBus, StreamHandleMap
 
         instance._instance_name = name
         instance._class_name = name
         instance.vault = Vault(name)
         instance.vaults = VaultHandleMap()
+        instance.streams = StreamHandleMap(StreamBus.get(), name)
         instance._config = {}
         instance._logger = logging.getLogger(f"hort.llming.{name}")
 

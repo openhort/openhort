@@ -140,6 +140,56 @@ def _transform_imports(code: str) -> tuple[str, set[str], set[str]]:
     return "\n".join(lines), vue_imports, quasar_imports
 
 
+# ---- defineProps Macro Extraction ----
+
+
+def _extract_define_props(code: str) -> tuple[str, str]:
+    """Extract `defineProps({...})` macro from <script setup> body.
+
+    Vue's compiler normally promotes defineProps to a component-level `props:`
+    declaration. We're a hand-rolled loader, so we do the same here.
+
+    Returns (modified_code, props_object_js).
+    - modified_code: defineProps call replaced with reference to injected __props
+    - props_object_js: the literal arg to defineProps (object or array), or '' if none
+    """
+    pattern = re.compile(r"(const|let)\s+(\w+)\s*=\s*defineProps\s*\(", re.MULTILINE)
+    m = pattern.search(code)
+    if not m:
+        return code, ""
+
+    # Walk balanced parens to find the end of the defineProps argument
+    depth = 1
+    i = m.end()
+    in_str: str | None = None
+    prev = ""
+    while i < len(code) and depth > 0:
+        ch = code[i]
+        if in_str:
+            if ch == in_str and prev != "\\":
+                in_str = None
+        elif ch in ("\"", "'", "`"):
+            in_str = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        prev = ch
+        i += 1
+    if depth != 0:
+        return code, ""
+
+    arg = code[m.end() : i - 1].strip()
+    end = i
+    if end < len(code) and code[end] == ";":
+        end += 1
+
+    var_name = m.group(2)
+    replacement = f"const {var_name} = __props;"
+    new_code = code[: m.start()] + replacement + code[end:]
+    return new_code, arg
+
+
 # ---- Binding Collection ----
 
 
@@ -229,7 +279,13 @@ def _generate_setup(
 ) -> str:
     """Generate JS for <script setup> components."""
     code, vue_imports, quasar_imports = _transform_imports(script_body)
+    code, props_decl = _extract_define_props(code)
     bindings = _collect_setup_bindings(code)
+
+    # defineProps/defineEmits/defineExpose are compiler macros, not Vue exports
+    vue_imports.discard("defineProps")
+    vue_imports.discard("defineEmits")
+    vue_imports.discard("defineExpose")
 
     # Vue destructure
     vue_line = ""
@@ -293,8 +349,9 @@ def _generate_setup(
 
       app.component('{panel_name}', {{
         template: `{template_escaped}`,
+        props: {props_decl or '{}'},
 
-        setup() {{
+        setup(__props) {{
           // Llming API — optional, use via $llming, inject('llming'), or useLlming()
           const $llming = {{
             name: '{component_id}',

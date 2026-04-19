@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from hort.ext.scheduler import PluginScheduler
     from hort.llming.decorators import PowerMeta
     from hort.llming.handles import ChannelHandleMap, LlmingHandleMap, Vault, VaultHandleMap
+    from hort.llming.stream_bus import StreamHandleMap
 
 
 class Llming:
@@ -62,6 +63,7 @@ class Llming:
     llmings: "LlmingHandleMap"    # self.llmings["name"].call("power")
     vaults: "VaultHandleMap"      # self.vaults["name"].get("key")
     channels: "ChannelHandleMap"  # self.channels["name"].subscribe(handler)
+    streams: "StreamHandleMap"    # self.streams["name"].emit(data)
 
     # ── Injected services ──
 

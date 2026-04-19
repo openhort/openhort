@@ -547,6 +547,53 @@
   };
 
   /**
+   * Open a "subapp" — a secondary window opened from within an app.
+   *
+   * Subapps share the same window class as main app float windows. They get
+   * a unique id, can pass props to their component, and are closed/managed
+   * the same way as main app windows. Use cases: full-resolution camera
+   * detail view, expanded chart, settings dialog.
+   *
+   * @param {string} parentId  - id of the parent app/llming (for grouping)
+   * @param {string} widgetName - registered Vue component name to render
+   * @param {object} props     - props to pass to the component
+   * @param {object} opts      - { title, width_pct, height_pct, min_width, min_height }
+   * @returns {object} the created window
+   */
+  LlmingClient.openSubapp = function (parentId, widgetName, props, opts) {
+    const o = opts || {};
+    // Generate unique subapp id so multiple subapps from same parent can coexist
+    const subId = parentId + ':sub:' + (crypto.randomUUID ? crypto.randomUUID() : Date.now());
+    const vw = window.innerWidth || 800;
+    const vh = window.innerHeight || 600;
+    const wpct = o.width_pct || 50;
+    const hpct = o.height_pct || 70;
+    const minW = o.min_width || 400;
+    const minH = o.min_height || 400;
+    const fw = Math.max(minW, Math.min(Math.round(vw * wpct / 100), vw - 40));
+    const fh = Math.max(minH, Math.min(Math.round(vh * hpct / 100), vh - 40));
+    // Slight cascade offset if other subapps from same parent are open
+    const existing = LlmingClient.getFloatWindows().filter(w => w.id.startsWith(parentId + ':sub:')).length;
+    const offset = existing * 28;
+    const cx = Math.round((vw - fw) / 2) + offset;
+    const cy = Math.round((vh - fh) / 2) + offset;
+    const win = {
+      id: subId, widgetName,
+      title: o.title || widgetName,
+      props: props || {},
+      isSubapp: true,
+      parentId,
+      width: fw, height: fh,
+      minWidth: minW, minHeight: minH,
+      minimized: false,
+      x: cx, y: cy,
+    };
+    _floatWindows.set(subId, win);
+    if (LlmingClient._floatChangeCallback) LlmingClient._floatChangeCallback();
+    return win;
+  };
+
+  /**
    * Promote a floating window to fullscreen.
    * Closes the float and opens the llming in fullscreen view via the router.
    */
@@ -908,29 +955,6 @@
     }
     _activeStreams.get(channel).subscribers.push(entry);
 
-    // Also watch the vault path for demo mode compatibility
-    // Demo.js pushes frames to vault at "state.frames.{subChannel}"
-    var parts = channel.split(':');
-    if (parts.length >= 2) {
-      var owner = parts[0];
-      var subKey = parts.slice(1).join(':');
-      var vaultEntry = {
-        ref: Vue.ref(null), // dummy ref — we use onFrame instead
-        extract: function(d) {
-          if (!d || !d.frames) return null;
-          return d.frames[subKey] || null;
-        },
-        lastJson: 'null',
-        onChange: function(nv) {
-          if (nv) entry.onFrame(nv); // goes through the ACK gate
-        }
-      };
-      LlmingClient._watchVault(owner, 'state', vaultEntry);
-      entry._vaultCleanup = function() {
-        LlmingClient._unwatchVault(owner, 'state', vaultEntry);
-      };
-    }
-
     // Cleanup on unmount
     Vue.onUnmounted(function() {
       const info = _activeStreams.get(channel);
@@ -945,7 +969,6 @@
           }
         }
       }
-      if (entry._vaultCleanup) entry._vaultCleanup();
       // Revoke last blob URL
       if (frame.value && frame.value.startsWith('blob:')) {
         URL.revokeObjectURL(frame.value);

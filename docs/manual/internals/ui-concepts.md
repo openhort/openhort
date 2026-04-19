@@ -369,6 +369,75 @@ Visual indicator shows during pull: animated arrow that flips and turns blue whe
 - Positioned at click point, clamped to viewport bounds
 - Escape closes all menus
 
+## Apps and Subapps
+
+Two kinds of windowed UI exist on top of the widget grid. Both use the **same underlying float window class** — same drag, same close, same z-index, same backdrop. The distinction is only conceptual.
+
+### App
+
+The main float window opened from a card. One per llming. Triggered by clicking a widget. URL gets `?app=name`. Backdrop click / Escape / Back closes it.
+
+```javascript
+LlmingClient.openLlming('cameras')   // opens the cameras app
+```
+
+### Subapp
+
+A secondary window opened from inside an app or card. Use cases:
+- Click a single camera in the cameras app → fullscreen detail view
+- Click a chart in a dashboard → expanded interactive view
+- Click an email row → reply composer
+- Settings dialog inside an app
+
+Subapps **stack** on top of their parent app. Each gets a unique id (parent id + UUID), so multiple subapps from the same parent can coexist (cascade-positioned). Closing the parent does NOT close subapps automatically — subapps are independent windows.
+
+```javascript
+LlmingClient.openSubapp(parentId, componentName, props, opts)
+
+// Example: open a single-camera detail subapp
+LlmingClient.openSubapp('cameras', 'cameras-card', { camId: 'frontdoor', camName: 'Front' }, {
+  title: 'Front Door',
+  width_pct: 60,
+  height_pct: 75,
+  min_width: 480,
+  min_height: 360,
+})
+```
+
+Props are passed to the rendered Vue component. The same component can render differently based on props — e.g., the `cameras-card` component renders the multi-camera grid by default, but renders a single-camera detail view when `camId` is set.
+
+### Unified Window Class
+
+Both apps and subapps render through the same `floatWindows` reactive list and the same `<div class="hort-float-window">` template. They share:
+- Drag handles, position, size, min-width/min-height
+- Minimize / close buttons
+- Backdrop dimming
+- Escape / browser-back closes the topmost
+- Resize handle at bottom-right
+
+The only window-class difference: subapps have `isSubapp: true` and a `parentId` reference. The framework can use this for grouping (e.g., "close all subapps of cameras") but the rendering and lifecycle are identical.
+
+## App Preferences (IndexedDB)
+
+UI preferences that should persist across reloads (demo mode toggle, future settings) live in IndexedDB:
+
+- **Database:** `hort-prefs`
+- **Store:** `prefs`
+- **Access:** `window.__hortPrefs.get(key)` / `window.__hortPrefs.set(key, value)`
+
+### Demo Mode Persistence
+
+Toggling demo mode (5x logo click, debug FAB switch, or `HortDemo.toggle()`) writes the new state to `prefs.demoMode`. On page reload, the boot sequence reads it and re-enables demo mode automatically — the user never has to re-toggle.
+
+```javascript
+// In page boot
+window.__hortPrefs.get('demoMode').then(saved => {
+  if (saved && !HortDemo.active) HortDemo.toggle();
+});
+```
+
+This means a developer working on UI mockups can refresh the page freely without losing their demo session.
+
 ## Demo Data — Strict Separation
 
 **Rule: Demo data NEVER comes from the UI.** All sample/mock data is provided exclusively by the llming backend (demo.js), never hardcoded in card.vue templates.
@@ -378,7 +447,15 @@ Visual indicator shows during pull: animated arrow that flips and turns blue whe
 - The card renders whatever the vault contains — it doesn't know or care if the data is real or demo
 - When demo mode is off and no real llming is running, the card shows the empty default state
 
-**This also applies to media.** Camera feeds, audio streams, or any binary content must come from the backend, not from hardcoded `<video src>` or `<img src>` in the template. The card template renders frames from a pulse channel — same code path for real cameras and demo playback.
+**This also applies to media.** Camera feeds, audio streams, or any binary content must come from the backend, not from hardcoded `<video src>` or `<img src>` in the template. The card template renders frames from a stream channel — same code path for real cameras and demo playback.
+
+**One delivery path per pattern.** Demo and production share the same client-side delivery code:
+
+- Vault: `vaultSet(owner, key, data)` → `LlmingClient._notifyVaultUpdate` (same notifier the WS dispatcher uses).
+- Pulse: `ctx.emit(channel, payload)` → same handler dispatch as WS-delivered pulses.
+- Stream: `ctx.stream(channel).emit(payload)` → `LlmingClient._handleStreamFrame` (same entrypoint as `stream.frame` over WS).
+
+Demo MUST NOT push frames through the vault. Streams have their own dedicated channel — using the vault as a side-channel for binary data couples two unrelated patterns and creates two delivery paths the consumer has to handle. Keep them separate.
 
 ## Three Communication Patterns
 
@@ -495,94 +572,81 @@ class Cameras(Llming):
         await self.emit("motion_detected", {"camera": camera_id})
 ```
 
-#### Producer Side — `@stream` decorator
+#### Producer Side — Active push API
 
-Producers declare streams. Subscriber params are **generic dicts** — the producer defines what it accepts, the framework passes through whatever the subscriber sends.
+**Producers don't use decorators.** The `@stream` decorator is consumer-only (like `@pulse`). Producers actively manage their stream — they decide when to capture, what to send, and how to adapt to subscribers. The framework gives them subscriber awareness via `self.streams[name]`.
 
 ```python
-from hort.llming import Llming, stream
+from hort.llming import Llming
 
 class Cameras(Llming):
-    @stream("frame")
-    async def capture(self, subscribers):
-        """Called by framework, paced by fastest subscriber's ACK.
+    async def activate(self) -> None:
+        # Declare the stream channel
+        self.streams.declare("frame")
+        # Watch for subscriber changes (framework calls when count or params change)
+        self.streams["frame"].on_subscribers_changed(self._on_subs_changed)
 
-        subscribers: list of dicts — each subscriber's self-declared params.
-            The producer decides what params to expect. Framework just passes through.
-        """
+    async def _on_subs_changed(self, subscribers: list[dict]) -> None:
+        """Called by framework when subscribers join/leave/change params."""
         if not subscribers:
-            return None  # nobody watching → don't capture
-
-        # Camera-specific: look for width hint (subscribers chose to send it)
+            self._stop_capture_loop()
+            return
         max_w = max((s.get('width', 160) for s in subscribers), default=160)
-        frame = self.camera.capture(width=max_w)
-        return encode_webp(frame, quality=70)
+        self._start_capture_loop(width=max_w)
 
-class SensorHub(Llming):
-    @stream("readings")
-    async def poll(self, subscribers):
-        if not subscribers:
-            return None
-        # Sensor-specific: subscriber might request sample_rate
-        rate = max((s.get('sample_rate', 1) for s in subscribers), default=1)
-        return {"temp": read_temp(), "humidity": read_humidity()}
-
-class ScreenCapture(Llming):
-    @stream("viewport")
-    async def capture(self, subscribers):
-        if not subscribers:
-            return None
-        # Screen-specific: each subscriber has viewport region + resolution
-        # Producer can optimize: send different crops to different viewers
-        for sub in subscribers:
-            region = sub.get('region', 'full')
-            width = sub.get('width', 1280)
-            yield sub['id'], self.capture_region(region, width)
+    async def _capture_loop(self) -> None:
+        while self._running:
+            frame = await self.camera.capture()
+            # Push to stream — framework handles per-subscriber ACK pacing
+            await self.streams["frame"].emit(frame)
+            # If no subscriber is ready, emit() returns immediately and the
+            # frame is dropped (frame stream = latest wins). On a fast LAN
+            # link, ACKs come back quickly and capture continues at full rate.
 ```
 
-**Continuous streams** (`continuous=True`):
+For **continuous streams** (audio, logs), the producer uses `emit_continuous()`:
+
 ```python
 class AudioPlayer(Llming):
-    @stream("playback", continuous=True)
-    async def audio_output(self, chunk_callback):
-        """Runs while subscribers exist. Restarts on desync."""
-        decoder = self.open_audio()
-        try:
-            while True:
-                chunk = await decoder.read(1024)
-                await chunk_callback(chunk)  # blocks on backpressure
-        except StreamReset:
-            pass  # consumer fell behind → loop restarts from "now"
+    async def activate(self) -> None:
+        self.streams.declare("playback", continuous=True)
+        self.streams["playback"].on_subscribers_changed(self._on_subs)
 
-class LogTail(Llming):
-    @stream("output", continuous=True)
-    async def tail(self, chunk_callback):
-        proc = await asyncio.create_subprocess_exec("tail", "-f", "/var/log/app.log", stdout=asyncio.subprocess.PIPE)
-        try:
-            async for line in proc.stdout:
-                await chunk_callback(line)
-        except StreamReset:
-            pass
+    async def _on_subs(self, subscribers: list[dict]) -> None:
+        if subscribers and not self._playing:
+            self._playing = True
+            asyncio.create_task(self._play_loop())
+        elif not subscribers:
+            self._playing = False
+
+    async def _play_loop(self) -> None:
+        decoder = self.open_audio()
+        while self._playing:
+            chunk = await decoder.read(1024)
+            try:
+                # blocks on backpressure; raises StreamReset on consumer desync
+                await self.streams["playback"].emit_continuous(chunk)
+            except StreamReset:
+                # Consumer fell behind — skip ahead to current time, restart cleanly
+                decoder.seek_to_now()
 ```
 
-#### Consumer Side — `@stream` on receivers
+Subscriber params are **generic dicts** — the producer defines what it accepts (width, region, sample_rate, etc.). Framework passes them through unchanged.
 
-Llmings can also **consume** streams from other llmings using the same decorator. The callback receives a **single data object** — never positional args. This is the same convention as `@pulse` and `@power`: one `self`, one data object. Keeps it extensible (add fields without breaking existing handlers).
+#### Consumer Side — `@stream` decorator
+
+Llmings consume streams from other llmings via the `@stream` decorator. Receiver-only. The callback receives a single data dict (or auto-parsed Pydantic model).
 
 ```python
 class SecurityDashboard(Llming):
     @stream("cameras:frame")
-    async def on_camera_frame(self, event):
-        """event.data — frame bytes
-           event.channel — "cameras:frame"
-           event.metadata — producer-attached metadata (timestamp, format, ...)
-        """
-        await self.analyze_motion(event.data)
+    async def on_camera_frame(self, data: dict) -> None:
+        await self.analyze_motion(data["frame"])
 
     @stream("sensors:readings")
-    async def on_sensor_data(self, event):
-        if event.data.get('temp', 0) > 40:
-            await self.emit("temp_alert", event.data)
+    async def on_sensor_data(self, data: dict) -> None:
+        if data.get('temp', 0) > 40:
+            await self.emit("temp_alert", data)
 ```
 
 For **cards** (client-side), `useStream()` is the consumer API:
@@ -655,24 +719,23 @@ async def on_motion(self, data: MotionEvent) -> None:
     if data.confidence > 0.8:
         await self.alert(data.camera)
 
-# Stream producer — dict
-@stream("frame")
-async def capture(self, data: dict) -> bytes | None:
-    subs = data.get("subscribers", [])
-    if not subs:
-        return None
-    return self.camera.capture()
+# Stream consumer — dict (decorators are receiver-only)
+@stream("cameras:frame")
+async def on_frame(self, data: dict) -> None:
+    await self.analyze(data["frame"])
 
-# Stream consumer — Pydantic
+# Stream consumer — Pydantic (framework auto-parses)
 class FrameEvent(BaseModel):
-    data: bytes
+    frame: bytes
     timestamp: float = 0.0
     format: str = "webp"
 
 @stream("cameras:frame")
 async def on_frame(self, data: FrameEvent) -> None:
-    await self.analyze(data.data)
+    await self.analyze(data.frame)
 ```
+
+(Stream producers don't use decorators — they push via `self.streams[name].emit()`.)
 
 **Rules:**
 - Parameter annotation is `dict` → passed as-is
@@ -683,20 +746,34 @@ async def on_frame(self, data: FrameEvent) -> None:
 
 ### Summary
 
-| | Vault | Pulse | `@stream` | `@stream(continuous)` |
-|-|-------|-------|-----------|----------------------|
-| Decorator | `self.vault.set()` | `self.emit()` | `@stream("name")` | `@stream("name", continuous=True)` |
+| | Vault | Pulse | Frame Stream | Continuous Stream |
+|-|-------|-------|-------------|--------------------|
+| Producer API | `self.vault.set(key, data)` | `self.emit(channel, data)` | `self.streams[name].emit(data)` | `self.streams[name].emit_continuous(chunk)` |
+| Producer declares | `vault` is implicit | implicit on first emit | `self.streams.declare("name")` | `self.streams.declare("name", continuous=True)` |
+| Producer sees subscribers | No | No | **Yes** — `on_subscribers_changed()` | **Yes** — `on_subscribers_changed()` |
+| Consumer (Llming) | `vault_ref()` descriptor | `@pulse("channel")` | `@stream("owner:name")` | `@stream("owner:name")` |
+| Consumer (Card) | `vaultRef('owner', 'key')` | `@pulse` handler in card | `useStream('owner:name')` | `useStream('owner:name')` |
 | Data type | JSON | JSON | Any (binary, JSON, text) | Any (binary, JSON, text) |
 | Skippable | Latest wins | No | Yes (latest wins) | No (reset on overflow) |
-| Producer sees subscribers | No | No | **Yes** — list with params | **Yes** — via callback backpressure |
-| Latency model | Eventual | Best-effort | ACK-paced + small pre-buffer | Zero-accumulation, drop+restart |
-| Client API | `vaultRef()` | `@pulse()` handler | `useStream()` | `useStream()` |
+| Latency model | Eventual | Best-effort | ACK-paced + pre-buffer | Zero-accumulation, drop+restart |
 
 ### Demo Mode
 
-All four patterns work identically in demo mode:
-- **Vault**: demo.js calls `ctx.vault.set()`
-- **Pulse**: demo.js calls `ctx.emit()`
-- **Streams**: demo.js calls `ctx.stream()` which pushes through the same `useStream` ACK gate on the client
+All four patterns work identically in demo mode — and crucially, each pattern has **one** delivery path on the client. Demo writes through the same notifier/dispatcher the WS handler uses; it does not piggyback on a different pattern.
 
-The card uses the same API regardless of whether data comes from a real llming or demo simulation.
+| Pattern | Demo producer | Client entrypoint (shared with WS) |
+|---|---|---|
+| Vault | `ctx.vault.set(key, data)` | `LlmingClient._notifyVaultUpdate(owner, key, data)` |
+| Pulse | `ctx.emit(channel, payload)` | per-channel handler dispatch |
+| Frame stream | `ctx.stream(channel).emit(blobUrl)` | `LlmingClient._handleStreamFrame(channel, payload)` (ACK gate runs here) |
+| Continuous stream | `ctx.stream(channel).emit(chunk)` | `LlmingClient._handleStreamFrame(channel, payload)` |
+
+```js
+// cameras/demo.js — pushing frames through the stream API, not the vault
+const stream = ctx.stream('cameras:frontdoor');
+canvas.toBlob(blob => {
+  stream.emit(URL.createObjectURL(blob));
+}, 'image/webp', 0.7);
+```
+
+The card uses the same `useStream`/`vaultRef`/`@pulse` API regardless of whether data comes from a real llming or a demo simulation. Do not write frames into the vault as a workaround — the consumer has exactly one code path per pattern, and that path is the production path.
