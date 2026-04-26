@@ -1,13 +1,4 @@
-export default {
-  setup() {
-    localStorage.setItem('pomodoro', JSON.stringify({
-      remaining: 1500,
-      duration: 25,
-      running: true,
-    }));
-  },
-
-  teardown() {
-    localStorage.removeItem('pomodoro');
-  }
-}
+// Pomodoro state lives in the card's $llming.local (device-local,
+// host-IndexedDB-backed). Demo mode doesn't need to pre-seed anything —
+// the card boots with its own default state.
+export default {}

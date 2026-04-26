@@ -125,6 +125,7 @@ nav:
     - Tool System: internals/tool-system.md
     - Terminal Rendering: internals/terminal-rendering.md
     - UI Concepts: internals/ui-concepts.md
+    - URL Parameters: internals/url-params.md
     - New UI Concept: internals/new-ui-concept.md
     - Export / Import: internals/export-import.md
     - Permissions: internals/permissions.md
@@ -157,6 +158,7 @@ nav:
       - Boundary Filters: internals/security/boundary-filters.md
       - Safety Rails: internals/security/safety-rails.md
       - Group Isolation: internals/security/group-isolation.md
+      - Card Sandbox: internals/security/card-sandbox.md
       - Unified Access: internals/security/unified-access.md
       - Credential Provisioning: internals/security/credential-provisioning.md
       - Error Handling: internals/security/error-handling.md

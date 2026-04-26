@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>card-host</title>
+<base target="_top">
+<link rel="stylesheet" href="vendor/phosphor/regular.css">
+<link rel="stylesheet" href="vendor/phosphor/fill.css">
+<link rel="stylesheet" href="hort.css">
+<style>
+  html, body, #app { width: 100%; height: 100%; margin: 0; background: transparent; overflow: hidden; }
+  body { color: var(--text); font-family: -apple-system, system-ui, sans-serif; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* Forward console output to parent so we can debug sandboxed cards from
+ * the host's devtools (the iframe's own console is opaque-origin and
+ * doesn't surface in some tooling). Comment this block to silence. */
+(function () {
+  for (const lvl of ['log', 'warn', 'error']) {
+    const orig = console[lvl].bind(console);
+    console[lvl] = function (...args) {
+      try {
+        window.parent.postMessage({
+          op: 'card.console', level: lvl,
+          args: args.map(a => { try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch { return String(a); } }),
+        }, '*');
+      } catch {}
+      orig(...args);
+    };
+  }
+  window.addEventListener('error', (e) => {
+    try { window.parent.postMessage({ op: 'card.console', level: 'error', args: ['[uncaught]', e.message, e.filename + ':' + e.lineno] }, '*'); } catch {}
+  });
+})();
+</script>
+<script src="vendor/vue.global.prod.js"></script>
+<script src="vendor/card-shim.js"></script>
+<script>
+/* The host page sends an init message after creating this iframe:
+ *   { op: 'init', llmingId, scriptUrl, widget, props, capabilities }
+ * We load the card script (which calls LlmingClient.register), then
+ * mount the named widget with the supplied props. */
+
+(function () {
+  const params = new URL(location.href).searchParams;
+  const inlineLlmingId = params.get('llming') || '';
+  let mounted = false;
+
+  function loadScript(url) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.body.appendChild(s);
+    });
+  }
+
+  const _tInline = performance.now();  // inline init runs (after vue + shim parsed)
+  let _tHandshake = 0, _tInitRecv = 0;
+
+  async function init(cfg) {
+    if (mounted) return;
+    mounted = true;
+    _tInitRecv = performance.now();
+    const _t0 = _tInitRecv;
+
+    // Stash llming id on the shim so it knows its own identity
+    LlmingClientShim._setLlmingId(cfg.llmingId);
+
+    // Bundled mode: cards.js was inlined and self-registered. Skip the
+    // network fetch — it would just be a duplicate.
+    const alreadyLoaded = LlmingClient.getRegistry && LlmingClient.getRegistry().size > 0;
+    if (!alreadyLoaded && cfg.scriptUrl) {
+      try { await loadScript(cfg.scriptUrl); }
+      catch (e) { console.error('[card-host] failed to load card script', e); return; }
+    }
+    const _tScript = performance.now();
+
+    const widgetName = cfg.widget;
+    if (!widgetName) {
+      document.getElementById('app').textContent = 'no widget specified';
+      return;
+    }
+
+    const app = Vue.createApp({
+      template: `<component :is="widgetName" v-bind="props" />`,
+      setup() { return { widgetName, props: cfg.props || {} }; },
+    });
+
+    // Cards register themselves via LlmingClient.register; activate them.
+    if (window.LlmingClientShim && window.LlmingClientShim.activateInto) {
+      window.LlmingClientShim.activateInto(app, null);
+    }
+
+    app.mount('#app');
+
+    // Handshake: tell parent we're ready
+    const _tMount = performance.now();
+    window.parent.postMessage({
+      op: 'card.ready', llmingId: cfg.llmingId,
+      _perf: {
+        inline_at: Math.round(_tInline),                     // when card-host's inline scripts started
+        handshake_sent_at: Math.round(_tHandshake),          // when iframe sent handshake
+        init_recv_at: Math.round(_tInitRecv),                // when init message arrived
+        wait_for_init: Math.round(_tInitRecv - _tHandshake), // host bridge round-trip
+        script: Math.round(_tScript - _t0),                  // loadScript(cards.js) duration
+        mount: Math.round(_tMount - _tScript),
+      },
+    }, '*');
+  }
+
+  // Wait for the host's init message
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || m.op !== 'init') return;
+    if (e.source !== window.parent) return;  // only accept from parent
+    init(m).catch(err => console.error('[card-host] init failed', err));
+  });
+
+  // Forward "background" clicks to parent so the host's widget-click
+  // handler (open app / detail) still fires when the user taps on
+  // non-interactive parts of the card. Buttons, inputs, links, and
+  // anything with role=button or data-stop stay local to the iframe.
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('button, input, select, textarea, a, label, [role=button], [data-stop]')) return;
+    try { window.parent.postMessage({ op: 'card.click' }, '*'); } catch {}
+  });
+
+  // Forward Escape to the parent so the host's close-app shortcut works
+  // when focus happens to be inside a card's iframe.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    try { window.parent.postMessage({ op: 'app.escape' }, '*'); } catch {}
+  });
+
+  // Tell parent we're ready to receive init
+  _tHandshake = performance.now();
+  window.parent.postMessage({ op: 'card.handshake', llming: inlineLlmingId }, '*');
+})();
+</script>
+</body>
+</html>

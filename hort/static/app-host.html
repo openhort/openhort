@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>app-host</title>
+<base target="_top">
+<link rel="stylesheet" href="vendor/quasar.prod.css">
+<link rel="stylesheet" href="vendor/phosphor/regular.css">
+<link rel="stylesheet" href="vendor/phosphor/bold.css">
+<link rel="stylesheet" href="vendor/phosphor/fill.css">
+<link rel="stylesheet" href="hort.css">
+<style>
+  html, body, #app { width: 100%; height: 100%; margin: 0; background: transparent; overflow: hidden; }
+  body { color: var(--text); font-family: -apple-system, system-ui, sans-serif; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+(function () {
+  for (const lvl of ['log', 'warn', 'error']) {
+    const orig = console[lvl].bind(console);
+    console[lvl] = function (...args) {
+      try {
+        window.parent.postMessage({
+          op: 'card.console', level: lvl,
+          args: args.map(a => { try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch { return String(a); } }),
+        }, '*');
+      } catch {}
+      orig(...args);
+    };
+  }
+  window.addEventListener('error', (e) => {
+    try { window.parent.postMessage({ op: 'card.console', level: 'error', args: ['[uncaught]', e.message, e.filename + ':' + e.lineno] }, '*'); } catch {}
+  });
+})();
+</script>
+<script src="vendor/vue.global.prod.js"></script>
+<script src="vendor/quasar.umd.prod.js"></script>
+<script src="vendor/card-shim.js"></script>
+<script>
+/* App host — same protocol as card-host.html but loads Quasar so app
+ * authors can use the full UI library. The host sends an init message
+ * with up to TWO scripts: an app script (preferred) and a card script
+ * (fallback). The app component name is `<llming>-app`; if that's not
+ * registered we fall back to the card component `<llming>-card`. */
+
+(function () {
+  const params = new URL(location.href).searchParams;
+  const inlineLlmingId = params.get('llming') || '';
+  let mounted = false;
+
+  function loadScript(url) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.body.appendChild(s);
+    });
+  }
+
+  async function init(cfg) {
+    if (mounted) return;
+    mounted = true;
+
+    LlmingClientShim._setLlmingId(cfg.llmingId);
+
+    // Load every script the parent gave us (app + card; load order matters
+    // when the card script defines components the app uses).
+    const urls = [cfg.scriptUrl, cfg.appScriptUrl].filter(Boolean);
+    for (const url of urls) {
+      try { await loadScript(url); }
+      catch (e) { console.warn('[app-host] failed to load', url, e); }
+    }
+
+    const widgetName = cfg.widget;
+    if (!widgetName) {
+      document.getElementById('app').textContent = 'no widget specified';
+      return;
+    }
+
+    const app = Vue.createApp({
+      template: `<component :is="widgetName" v-bind="props" />`,
+      setup() { return { widgetName, props: cfg.props || {} }; },
+    });
+
+    if (window.LlmingClientShim && window.LlmingClientShim.activateInto) {
+      window.LlmingClientShim.activateInto(app, Quasar);
+    }
+
+    app.use(Quasar, { config: { dark: true } });
+    app.mount('#app');
+
+    window.parent.postMessage({ op: 'card.ready', llmingId: cfg.llmingId }, '*');
+  }
+
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || m.op !== 'init') return;
+    if (e.source !== window.parent) return;
+    init(m).catch(err => console.error('[app-host] init failed', err));
+  });
+
+  // Click forwarding is NOT enabled in apps — apps own their click handling.
+
+  // Forward Escape to the parent so the host's close-app shortcut works
+  // even when focus is inside the iframe. Apps can intercept first via
+  // $llming.onBeforeClose() — that contract still applies.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    try { window.parent.postMessage({ op: 'app.escape' }, '*'); } catch {}
+  });
+
+  window.parent.postMessage({ op: 'card.handshake', llming: inlineLlmingId }, '*');
+})();
+</script>
+</body>
+</html>

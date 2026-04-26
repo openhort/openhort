@@ -91,10 +91,11 @@
 <script src="static/vendor/xterm-addon-webgl.min.js"></script>
 <script src="static/vendor/vue.global.prod.js"></script>
 <script src="static/vendor/quasar.umd.prod.js"></script>
-<script src="static/vendor/hort-ext.js?v=8"></script>
+<script src="static/vendor/hort-ext.js?v=13"></script>
 <script src="static/vendor/hort-router.js?v=2"></script>
 <script src="static/vendor/hort-widgets.js"></script>
-<script src="static/vendor/hort-llmings-ui.js"></script>
+<script src="static/vendor/hort-llmings-ui.js?v=5"></script>
+<script src="static/vendor/hort-card-bridge.js?v=12"></script>
 <script src="static/vendor/hort-demo.js"></script>
 <!-- Connector extension panels -->
 <script src="ext/lan_connector/static/cards.js"></script>
@@ -702,6 +703,12 @@
   }
 
   function sendControlRequest(msg) {
+    // Offline / demo bundle: there is no control WS. Route through the
+    // mock that HortDemo installed on window.hortWS so closure-bound
+    // callers (refreshSpirits, etc.) don't time out waiting for nothing.
+    if (window.__LLMING_OFFLINE__ && window.hortWS && window.hortWS.request !== sendControlRequest) {
+      return window.hortWS.request(msg);
+    }
     return new Promise((resolve) => {
       const id = ++requestId;
       pendingRequests[id] = resolve;
@@ -802,6 +809,31 @@
   // migrated to clean paths by HortRouter.init().
 
   async function initSession() {
+    // Offline / single-file demo bundle — no backend, no session, no WS.
+    // HortDemo provides the entire data plane via the in-memory vault and
+    // stream mocks that share the same client-side delivery code. We fire
+    // the same _hortOnConnect callbacks the WS path would (plugin
+    // discovery, activation, demo restore) so the rest of the app boots
+    // without caring whether it's online.
+    if (window.__LLMING_OFFLINE__) {
+      state.sessionId = 'offline';
+      state.isLocal = true;
+      // Activate demo FIRST so the mock WS is installed and every llming's
+      // initial vault is seeded — then fire the WS-connect callbacks that
+      // load card scripts and read those vaults via the mock. Finally
+      // bump the demo epoch so the widget grid re-evaluates dynamic
+      // `<component :is>` lookups now that the registry is populated.
+      if (typeof HortDemo !== 'undefined' && !HortDemo.active) {
+        await HortDemo.toggle();
+      }
+      const cbs = window._hortOnConnect || [];
+      for (const cb of cbs) { try { await cb(); } catch (e) { console.error('[offline]', e); } }
+      // No manual re-render bumps — spiritCardComponent / spiritWidgetName
+      // read LlmingClient.registryVersion as a reactive dependency, so the
+      // widget grid re-resolves dynamic <component :is> automatically when
+      // activateAll registers the cards above.
+      return;
+    }
     try {
       const resp = await fetch(apiUrl('/api/session'), { method: 'POST' });
       const data = await resp.json();
@@ -1581,35 +1613,58 @@
   // ===== SPIRIT FULLSCREEN (shared between picker and root) =====
   const fullscreenSpirit = ref(null);
   function openSpiritFullscreen(name) {
-    // Delegate to LlmingClient.openLlming which handles float vs fullscreen
-    if (typeof LlmingClient !== 'undefined') {
-      LlmingClient.openLlming(name);
-      // Push browser history so back button closes the app
-      history.pushState({ _whFloat: true, app: name }, '', '?app=' + encodeURIComponent(name));
-    }
+    // URL-driven open: push the deep-link, then let the parser do the work.
+    // Using URL as the source of truth keeps history navigation, deep
+    // linking, and the float-close path coherent.
+    const url = new URL(location.href);
+    url.searchParams.set('app', name);
+    if (!url.searchParams.has('mode')) url.searchParams.set('mode', 'window');
+    history.pushState({ _whFloat: true }, '', url.pathname + url.search + url.hash);
+    if (window._applyHortUrlParams) window._applyHortUrlParams();
   }
-  function floatClose(id) {
-    if (typeof LlmingClient !== 'undefined') LlmingClient.closeFloat(id);
-    // Clean URL if no more floats open
-    const remaining = LlmingClient.getFloatWindows ? LlmingClient.getFloatWindows() : [];
-    if (remaining.length <= 1) { // 1 because the one being closed is still in the list
-      history.replaceState({}, '', location.pathname);
-    }
-  }
-  // Back button closes float/spirit
-  window.addEventListener('popstate', (e) => {
-    if (typeof LlmingClient !== 'undefined') {
-      const floats = LlmingClient.getFloatWindows ? LlmingClient.getFloatWindows() : [];
-      if (floats && floats.length > 0) {
-        LlmingClient.closeFloat(floats[floats.length - 1].id);
-        return;
+
+  // Single URL-aware close path used by every X button, escape key, and
+  // backdrop click.
+  //
+  // Apps can VETO the close by registering $llming.onBeforeClose(handler)
+  // inside the iframe — useful for "unsaved changes" dialogs. The bridge
+  // asks every iframe of `id` for permission (timeout 250 ms, default =
+  // allow, so a missing or buggy handler can never trap the user).
+  // When the app handled its own confirm and is ready to close, it calls
+  // $llming.closeSelf() — the bridge sets a one-shot bypass flag so the
+  // beforeClose negotiation is skipped on the next call.
+  //
+  // Once permission is granted: if we pushed the URL ourselves
+  // (state._whFloat), history.back() — that fires popstate →
+  // _applyHortUrlParams → close. Otherwise (deep-link entry, no in-app
+  // history) strip ?app/?mode in place and re-parse.
+  window.__hortCloseApp = async function (id) {
+    if (window.HortCardBridge && id) {
+      const bypass = window.HortCardBridge._consumeBypass && window.HortCardBridge._consumeBypass();
+      if (!bypass && window.HortCardBridge.requestClose) {
+        const allowed = await window.HortCardBridge.requestClose(id);
+        if (!allowed) return;  // app owns the close flow; will call closeSelf when ready
       }
     }
-    if (state.view === 'spirit-fullscreen') {
-      if (window.__hort && window.__hort.closeSpiritFullscreen) window.__hort.closeSpiritFullscreen();
-      else state.view = 'picker';
+    // Built-in (non-iframe) floats and any float whose id doesn't match the
+    // URL deep-link key need an explicit close — the URL parser only
+    // touches floats whose id matches `?app=`. Calling closeFloat here is
+    // idempotent for sandboxed apps too (the parser's close is a no-op).
+    if (id && typeof LlmingClient !== 'undefined' && LlmingClient.closeFloat) {
+      LlmingClient.closeFloat(id);
     }
-  });
+    if (history.state && history.state._whFloat) {
+      history.back();
+      return;
+    }
+    const url = new URL(location.href);
+    url.searchParams.delete('app');
+    url.searchParams.delete('mode');
+    history.replaceState({}, '', url.pathname + url.search + url.hash);
+    if (window._applyHortUrlParams) window._applyHortUrlParams();
+  };
+
+  function floatClose(id) { window.__hortCloseApp(id); }
   function floatToggleMin(id) { if (typeof LlmingClient !== 'undefined') LlmingClient.toggleMinimize(id); }
   function floatDragStart(e, fw) {
     const startX = e.clientX, startY = e.clientY;
@@ -2836,13 +2891,16 @@
                           </div>
                         </template>
 
-                        <!-- Extension widget (rendered by llming card component) -->
+                        <!-- Extension widget — every card runs in a sandboxed iframe.
+                             Wait for plugin manifests before mounting, otherwise
+                             the first mount races discovery and ends up with an
+                             empty widgetName. -->
                         <template v-else-if="w.type === 'extension'">
-                          <component v-if="spiritCardComponent(w.extId)"
-                                     :is="spiritCardComponent(w.extId)" :key="w.extId + '-' + demoEpoch" />
+                          <hort-card-frame v-if="spiritCardComponent(w.extId)"
+                                           :llming-id="w.extId" :widget-name="spiritCardComponent(w.extId)"
+                                           :props="{}" :key="w.extId + '-' + demoEpoch" />
                           <div v-else class="widget-thumb">
-                            <i :class="w.c && w.c.iconClass || 'ph ph-puzzle-piece'" style="font-size:32px;color:var(--dim)"></i>
-                            <span style="font-size:11px;color:var(--dim);margin-top:4px">{{ w.c && w.c.title || w.extId }}</span>
+                            <div class="widget-loading-spinner"></div>
                           </div>
                         </template>
 
@@ -3951,8 +4009,18 @@
         }
       });
 
-      // Map plugin name → widget component name (if registered)
+      // Map plugin name → widget component name (if registered).
+      // Both lookups read LlmingClient.registryVersion.value so Vue tracks
+      // the registry as a reactive dependency — when card scripts register
+      // (or activateAll runs), templates that depend on these helpers
+      // re-render automatically. No manual epoch bumps required.
+      function _trackRegistry() {
+        if (typeof LlmingClient !== 'undefined' && LlmingClient.registryVersion) {
+          void LlmingClient.registryVersion.value;
+        }
+      }
       function spiritWidgetName(pluginName) {
+        _trackRegistry();
         if (typeof LlmingClient === 'undefined') return '';
         for (const [id, ExtClass] of LlmingClient.getRegistry()) {
           if (id === pluginName && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
@@ -3962,12 +4030,21 @@
         return '';
       }
       function spiritCardComponent(pluginName) {
+        _trackRegistry();
+        // Cards run sandboxed — their classes are NOT registered in the
+        // host's LlmingClient registry. Derive the component name from
+        // the manifest's ui_widgets so the iframe knows what to mount.
+        const manifest = (window.HortPlugins && window.HortPlugins.getPlugins() || []).find(p => p.name === pluginName);
+        if (manifest && manifest.ui_widgets && manifest.ui_widgets.length) return manifest.ui_widgets[0];
+        // Fall back to the in-page registry for chrome-level extensions
+        // (connectors etc.) that legitimately load inline.
         if (typeof LlmingClient === 'undefined') return '';
         for (const [id, ExtClass] of LlmingClient.getRegistry()) {
           if (id === pluginName && ExtClass.cardComponent) return ExtClass.cardComponent;
         }
         return '';
       }
+      function spiritIsSandboxed(_pluginName) { return true; }
 
       async function toggleSpiritFeature(pluginId, feature, enabled) {
         await sendControlRequest({ type: 'llmings.feature', name: pluginId, feature, enabled });
@@ -4742,10 +4819,34 @@
         if (swipeDrag.value || _sw) return;
         if (w.type === 'terminal' && w.subId) {
           const term = state.terminals.find(t => t.terminal_id === w.subId);
-          if (term) openTerminal(term.terminal_id);
+          if (term) { openTerminal(term.terminal_id); return; }
+          // No live backend (demo mode etc.) — open the widget's content
+          // in a hovering window via the built-in viewer.
+          openBuiltinFloat('__builtin:terminal', {
+            title: (w.c && w.c.title) || w.subId || 'Terminal',
+            output: (w.c && w.c.output) || '',
+            state: (w.c && w.c.state) || '',
+            idle: (w.c && w.c.idle) || 0,
+          });
         } else if (w.type === 'extension' && w.extId) {
           const sp = (spiritsList.value || []).find(s => s.name === w.extId);
           if (sp) openSpiritFullscreen(w.extId);
+        } else if (w.type === 'quick-chat') {
+          openBuiltinFloat('__builtin:chat', { title: 'Quick Chat' });
+        }
+      }
+
+      // Open a host-rendered (non-iframe) float window for built-in widget
+      // types like terminal and quick-chat that have no backing llming UI.
+      // The float template handles `__builtin:*` widget names inline.
+      // These are ephemeral (live data, not deep-linkable) so we don't
+      // touch the URL — the float opens directly and closes via the same
+      // X / Esc / backdrop path as any other window.
+      function openBuiltinFloat(name, props) {
+        const id = name + ':' + Date.now();
+        if (typeof LlmingClient !== 'undefined' && LlmingClient.openFloat) {
+          const win = LlmingClient.openFloat(id, name, { title: props.title || id });
+          win.props = props;
         }
       }
 
@@ -5007,20 +5108,25 @@
       // ── Keyboard handler ──
       function _onKey(e) {
         if (e.key === 'Escape') {
-          // Close topmost float window first
+          // Close topmost float window first — route through __hortCloseApp
+          // so URL stays in sync AND the app can intercept (unsaved-changes
+          // dialog, text editor, etc.).
           if (typeof LlmingClient !== 'undefined') {
             const floats = LlmingClient.getFloatWindows ? LlmingClient.getFloatWindows() : [];
             if (floats && floats.length > 0) {
-              LlmingClient.closeFloat(floats[floats.length - 1].id);
-              if (history.state?._whFloat) history.back();
+              const topId = floats[floats.length - 1].id;
+              if (window.__hortCloseApp) window.__hortCloseApp(topId);
+              else LlmingClient.closeFloat(topId);
               return;
             }
           }
-          // Then close fullscreen spirit
+          // Then close fullscreen spirit (also URL-aware via the close path).
           if (state.view === 'spirit-fullscreen') {
-            if (typeof closeSpiritFullscreen === 'function') closeSpiritFullscreen();
-            else { state.view = 'picker'; }
-            if (history.state?._whFloat) history.back();
+            if (window.__hortCloseApp && fullscreenSpirit.value) {
+              window.__hortCloseApp(fullscreenSpirit.value);
+            } else if (typeof closeSpiritFullscreen === 'function') {
+              closeSpiritFullscreen();
+            } else { state.view = 'picker'; }
             return;
           }
           if (state.deviceView) { state.deviceView = false; return; }
@@ -5035,6 +5141,12 @@
 
       // ── Lifecycle ──
       Vue.onMounted(() => {
+        // Expose desktop state so deep-link URL params can drive it.
+        // Run the URL parser once now that state.desktops is populated —
+        // the earlier call from _hortOnConnect may have raced this mount
+        // and skipped the desktop= clause when state wasn't yet exposed.
+        if (window.__hort) window.__hort.state = state;
+        if (window._applyHortUrlParams) window._applyHortUrlParams();
         setTimeout(() => snapTrack(), 50);
         document.addEventListener('keydown', _onKey);
         document.addEventListener('click', _closeBellMenu);
@@ -5116,6 +5228,12 @@
         }
       });
 
+      // Re-apply URL deep-link params whenever desktops finish loading,
+      // so /?desktop=N takes effect after the IndexedDB layout resolves.
+      watch(() => state.desktops.length, (n) => {
+        if (n > 0 && window._applyHortUrlParams) window._applyHortUrlParams();
+      });
+
       // Save layout on widget/desktop changes
       watch(() => JSON.stringify(state.desktops.map(d => ({ id: d.id, name: d.name, tint: d.tint, wc: d.widgets.length }))),
         () => { whScheduleSave(); }, { deep: false });
@@ -5132,7 +5250,7 @@
         configScreen, generalConfig, toggleGeneral,
         selectedSpirit, selectedPlugin, toggleSpiritFeature,
         revokeAuth, submitToken, startOAuth, startDeviceCode, showTokenInput, tokenInputValue,
-        spiritStoreKeys, spiritUIVisible, toggleSpiritUI, spiritWidgetName, spiritCardComponent,
+        spiritStoreKeys, spiritUIVisible, toggleSpiritUI, spiritWidgetName, spiritCardComponent, spiritIsSandboxed,
         unifiedGridItems, touch, lastInteraction, pluginThumbs,
         favorites, toggleFavorite, isFavorite,
         fullscreenSpirit, openSpiritFullscreen, closeSpiritFullscreen,
@@ -5641,8 +5759,9 @@
       </teleport>
 
       <!-- Float window backdrop — click outside to close -->
-      <div v-if="floatWindows.length" style="position:fixed;inset:0;z-index:499;background:rgba(0,0,0,.3)"
-           @click="floatWindows.length && floatClose(floatWindows[floatWindows.length-1].id)"></div>
+      <div v-if="floatWindows.some(f => !f.minimized)"
+           style="position:fixed;inset:0;z-index:499;background:rgba(0,0,0,.3)"
+           @click="closeTopFloat"></div>
       <!-- Float windows (rendered by Vue so components mount correctly) -->
       <div v-for="fw in floatWindows" :key="fw.id" class="hort-float-window" @click.stop
            :style="{position:'fixed', left: fw.x+'px', top: fw.y+'px',
@@ -5664,7 +5783,41 @@
           </div>
         </div>
         <div v-show="!fw.minimized" class="hort-float-body">
-          <component :is="fw.widgetName" v-bind="fw.props || {}" />
+          <div v-if="fw.widgetName === '__placeholder__'"
+               style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--el-text-dim);text-align:center;padding:24px">
+            <i class="ph ph-ghost" style="font-size:48px;opacity:0.5;margin-bottom:12px"></i>
+            <div style="font-size:14px">{{ fw.placeholderText || (fw.id + ' has no UI yet') }}</div>
+            <div style="font-size:11px;margin-top:8px;opacity:0.7">Add a card.vue or app.vue to give this llming a window.</div>
+          </div>
+          <!-- Built-in terminal viewer (no live backend) -->
+          <div v-else-if="fw.widgetName === '__builtin:terminal'"
+               style="display:flex;flex-direction:column;height:100%;background:#0a0e1a;color:#e0e7ff;font-family:'SF Mono',Menlo,monospace;font-size:12px;padding:16px;overflow:auto;white-space:pre-wrap">
+            <div style="opacity:.85;line-height:1.7">{{ fw.props?.output || '(no output)' }}</div>
+            <div v-if="fw.props?.state" style="margin-top:auto;padding-top:12px;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dim);border-top:1px solid var(--border)">
+              <span class="pdot" :class="fw.props.state" style="width:8px;height:8px;border-radius:50%"></span>
+              <span :style="{color: fw.props.state === 'thinking' ? 'var(--purple)' : 'var(--dim)'}">{{ fw.props.state.toUpperCase() }}</span>
+              <span v-if="fw.props.idle" style="margin-left:auto;opacity:.6">{{ fw.props.idle }}s idle</span>
+            </div>
+          </div>
+          <!-- Built-in quick-chat viewer (no chat backend) -->
+          <div v-else-if="fw.widgetName === '__builtin:chat'"
+               style="display:flex;flex-direction:column;height:100%;padding:16px">
+            <div style="flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px">
+              <div style="align-self:flex-end;background:var(--el-primary);color:#fff;padding:8px 14px;border-radius:18px 18px 4px 18px;max-width:75%;font-size:13px">Turn on living room lights</div>
+              <div style="align-self:flex-start;background:rgba(148,163,184,0.15);color:var(--text);padding:8px 14px;border-radius:18px 18px 18px 4px;max-width:75%;font-size:13px">Done! Lights on at 80%.</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+              <input placeholder="Message..."
+                style="flex:1;padding:10px 14px;background:var(--el-surface);color:var(--text);border:1px solid var(--border);border-radius:20px;font-size:13px">
+              <button style="padding:10px 12px;background:var(--el-primary);color:#fff;border:none;border-radius:50%;cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center">
+                <i class="ph-fill ph-paper-plane-right"></i>
+              </button>
+            </div>
+          </div>
+          <hort-app-frame v-else
+                          :llming-id="floatLlmingId(fw)"
+                          :widget-name="fw.widgetName"
+                          :props="fw.props || {}" />
         </div>
       </div>
 
@@ -5674,7 +5827,10 @@
            :style="{ overflow: isFullscreenCapable ? 'hidden' : 'auto' }">
         <div style="flex:1;display:flex;overflow:hidden">
           <div style="width:100%;height:100%">
-            <component v-if="fullscreenSpiritWidget" :is="fullscreenSpiritWidget" />
+            <hort-app-frame v-if="fullscreenSpiritWidget"
+                            :llming-id="fullscreenSpirit"
+                            :widget-name="fullscreenSpiritWidget"
+                            :props="{}" />
           </div>
         </div>
       </div>
@@ -5691,7 +5847,28 @@
           floatWindows.value = LlmingClient.getFloatWindows ? [...LlmingClient.getFloatWindows()] : [];
         };
       }
-      function floatClose(id) { if (typeof LlmingClient !== 'undefined') LlmingClient.closeFloat(id); }
+      function floatClose(id) {
+        if (window.__hortCloseApp) window.__hortCloseApp(id);
+        else if (typeof LlmingClient !== 'undefined') LlmingClient.closeFloat(id);
+      }
+      // Backdrop click handler — closes the topmost non-minimized float.
+      // Must be a real handler (not an inline IIFE) so Vue doesn't run it
+      // during template evaluation; @click="closeTopFloat" passes the
+      // function reference, not a call.
+      function closeTopFloat() {
+        const top = [...floatWindows.value].reverse().find(f => !f.minimized);
+        if (top) floatClose(top.id);
+      }
+      function _llmingIsSandboxed(name) {
+        if (!name) return false;
+        const m = (window.HortPlugins && window.HortPlugins.getPlugins() || []).find(p => p.name === name);
+        return !!(m && m.trust === 'sandboxed');
+      }
+      function spiritIsSandboxed(name) { return _llmingIsSandboxed(name); }
+      // Resolve a float window back to the llming whose card it shows.
+      // Subapps carry parentId; top-level floats use their own id.
+      function floatLlmingId(fw) { return fw && (fw.parentId || fw.llmingId || fw.id) || ''; }
+      function floatIsSandboxed(fw) { return _llmingIsSandboxed(floatLlmingId(fw)); }
       function floatToggleMin(id) { if (typeof LlmingClient !== 'undefined') LlmingClient.toggleMinimize(id); }
       function floatDragStart(e, fw) {
         const startX = e.clientX, startY = e.clientY;
@@ -6047,7 +6224,8 @@
         state, viewer, onSelectWindow,
         fullscreenSpirit, fullscreenSpiritWidget, isFullscreenCapable, closeSpiritFullscreen,
         guideUrl, hortmapUrl, openHelp,
-        floatWindows, floatClose, floatToggleMin, floatDragStart,
+        floatWindows, floatClose, closeTopFloat, floatToggleMin, floatDragStart,
+        floatIsSandboxed, floatLlmingId, spiritIsSandboxed,
         toolbarViewerTitle, toolbarNavCounter, toolbarTerminalTitle,
         demoMode, demoEpoch, onLogoClick,
         whActiveDesktop, importantNotifs, importantNotifCount, openNotifSource, editDesktopName,
@@ -6066,6 +6244,172 @@
   app.component('hort-overview', HortOverview);
   app.component('hort-group-modal', HortGroupModal);
   app.component('hort-terminal', HortTerminal);
+
+  // Sandboxed-card iframe host. Registers identity synchronously at mount
+  // time, then sends `init` either when the iframe load fires OR when the
+  // iframe sends its `card.handshake` (whichever wins) — that handles the
+  // race where a fast-cached iframe is already loaded before we bind the
+  // listener.
+  app.component('hort-card-frame', {
+    props: {
+      llmingId: { type: String, required: true },
+      widgetName: { type: String, default: '' },
+      props: { type: Object, default: () => ({}) },
+    },
+    setup(p) {
+      const frameRef = Vue.ref(null);
+      const _onCleanup = [];
+      Vue.onUnmounted(() => { for (const fn of _onCleanup) try { fn(); } catch {} });
+      Vue.onMounted(() => {
+        const iframe = frameRef.value;
+        if (!iframe) return;
+        const plain = (v) => { try { return JSON.parse(JSON.stringify(v ?? {})); } catch { return {}; } };
+        // The picker only renders <hort-card-frame> when spiritCardComponent
+        // returns a name (manifests loaded), so by the time we get here,
+        // plugin data is guaranteed.
+        if (window.HortCardBridge && window.HortCardBridge.registerPending) {
+          window.HortCardBridge.registerPending(iframe, p.llmingId, p.widgetName, plain(p.props));
+        }
+        _onCleanup.push(() => {
+          if (window.HortCardBridge && window.HortCardBridge.unregisterPending) {
+            window.HortCardBridge.unregisterPending(iframe);
+          }
+        });
+        iframe.src = '/_card_host?v=2&llming=' + encodeURIComponent(p.llmingId);
+      });
+      return { frameRef };
+    },
+    template: `<iframe ref="frameRef"
+                       sandbox="allow-scripts"
+                       style="width:100%;height:100%;border:0;background:transparent;display:block"></iframe>`,
+  });
+
+  // ── Warm app-iframe pool ──────────────────────────────────────────
+  //
+  // App iframes load Vue + Quasar (~700 KB to parse) on first use, which
+  // makes the FIRST app open feel laggy. We keep one warm iframe ready
+  // off-screen at all times — its Vue/Quasar context is fully parsed and
+  // it's just waiting for an `init` message. When the user opens an app,
+  // we hand the warm iframe over (instant mount), then create a new warm
+  // one in the background for the next open.
+  //
+  // The iframe is NEVER re-parented (Chrome reloads iframes on parent
+  // change). Instead it lives at body level with `position: fixed`. The
+  // hort-app-frame component renders a slot div; on mount the iframe is
+  // moved into the slot's bounding rect via CSS coords, kept in sync via
+  // requestAnimationFrame while the float is open.
+  window._HortAppPool = (function () {
+    const APP_HOST_URL = '/static/app-host.html?v=3';
+    let _warm = null;
+    let _creating = false;
+
+    function _create() {
+      if (_creating || _warm) return;
+      _creating = true;
+      const f = document.createElement('iframe');
+      f.sandbox = 'allow-scripts';
+      f.style.cssText = 'position:fixed;left:-9999px;top:0;width:600px;height:400px;border:0;background:transparent;visibility:hidden;z-index:1';
+      // No llming param → handshake is sent with empty id and the bridge
+      // ignores it (no pending entry). Iframe sits idle waiting for init.
+      f.src = APP_HOST_URL;
+      document.body.appendChild(f);
+      f.addEventListener('load', () => { _warm = f; _creating = false; }, { once: true });
+    }
+
+    function acquire() {
+      if (_warm) {
+        const f = _warm;
+        _warm = null;
+        // Refill the pool in the background so the next open is also fast.
+        setTimeout(_create, 50);
+        return { iframe: f, warm: true };
+      }
+      // No warm iframe yet (page just loaded) — create on the fly.
+      const f = document.createElement('iframe');
+      f.sandbox = 'allow-scripts';
+      f.style.cssText = 'position:fixed;left:-9999px;top:0;width:600px;height:400px;border:0;background:transparent;visibility:hidden;z-index:1';
+      f.src = APP_HOST_URL;
+      document.body.appendChild(f);
+      return { iframe: f, warm: false };
+    }
+
+    function scheduleWarm() {
+      // Wait until the browser is genuinely idle so we don't compete with
+      // widget-grid cold load (19 card iframes parsing Vue × 19 contexts).
+      // No timeout — if the user clicks an app before warm exists, acquire()
+      // falls back to a cold-create on demand. The pool is an optimisation,
+      // not a requirement.
+      if ('requestIdleCallback' in window) requestIdleCallback(_create);
+      else setTimeout(_create, 3000);
+    }
+
+    return { acquire, scheduleWarm };
+  })();
+
+  // Warm the pool only after the widget grid has had time to settle —
+  // otherwise the warm iframe's Vue + Quasar parse competes with the 19
+  // card iframes for V8 main-thread time and adds ~2 s to cold load.
+  window.addEventListener('load', () => setTimeout(() => window._HortAppPool.scheduleWarm(), 2500), { once: true });
+
+  // hort-app-frame — renders a slot inside the float body, then drives
+  // a warm iframe to overlay the slot. Iframe stays at body level so its
+  // Vue/Quasar context is preserved across float open/close cycles in
+  // the pool.
+  app.component('hort-app-frame', {
+    props: {
+      llmingId: { type: String, required: true },
+      widgetName: { type: String, default: '' },
+      props: { type: Object, default: () => ({}) },
+    },
+    setup(p) {
+      const slotRef = Vue.ref(null);
+      let _iframe = null;
+      let _rafId = 0;
+
+      function _sync() {
+        if (!_iframe || !slotRef.value) return;
+        const r = slotRef.value.getBoundingClientRect();
+        // Hidden parent / 0 size → nothing to show.
+        if (r.width === 0 || r.height === 0) {
+          _iframe.style.visibility = 'hidden';
+        } else {
+          _iframe.style.cssText = 'position:fixed;left:' + r.left + 'px;top:' + r.top
+            + 'px;width:' + r.width + 'px;height:' + r.height
+            + 'px;border:0;background:transparent;visibility:visible;z-index:501';
+        }
+        _rafId = requestAnimationFrame(_sync);
+      }
+
+      Vue.onMounted(() => {
+        const plain = (v) => { try { return JSON.parse(JSON.stringify(v ?? {})); } catch { return {}; } };
+        const acq = window._HortAppPool.acquire();
+        _iframe = acq.iframe;
+        const arm = () => {
+          if (window.HortCardBridge && window.HortCardBridge.acquireWarm) {
+            window.HortCardBridge.acquireWarm(_iframe, p.llmingId, p.widgetName, plain(p.props));
+          }
+          _sync();
+        };
+        // The warm iframe finished loading already (init handler installed);
+        // a cold one needs us to wait for load before posting init.
+        if (acq.warm) arm();
+        else _iframe.addEventListener('load', arm, { once: true });
+      });
+
+      Vue.onUnmounted(() => {
+        if (_rafId) cancelAnimationFrame(_rafId);
+        if (_iframe && window.HortCardBridge && window.HortCardBridge.destroyAcquired) {
+          window.HortCardBridge.destroyAcquired(_iframe, p.llmingId);
+        }
+        _iframe = null;
+        // Refill the pool so the NEXT open is instant.
+        window._HortAppPool.scheduleWarm();
+      });
+
+      return { slotRef };
+    },
+    template: `<div ref="slotRef" style="width:100%;height:100%"></div>`,
+  });
 
   app.use(Quasar, {
     config: {
@@ -6086,6 +6430,58 @@
   app.config.globalProperties.__hort = window.__hort;
   app.config.globalProperties.HortDemo = window.HortDemo;
 
+  // ── Deep-link URL params ────────────────────────────────────
+  //
+  // Supported query params (see docs/manual/internals/url-params.md):
+  //   ?desktop=N           — switch to desktop index N (0-based)
+  //   ?app=NAME            — open the named llming as a hovering window
+  //   ?app=NAME&mode=fullscreen  — open the llming in fullscreen view
+  //   ?app=NAME&mode=window      — open as float (default for ?app)
+  //   ?app=NAME&mode=widget      — no-op (just stay on the grid)
+  //
+  // applyHortUrlParams runs once after plugins discover (so manifests are
+  // available) and again on every back/forward navigation. Keep it
+  // idempotent — opening the same app twice is a no-op.
+  let _appliedAppKey = '';
+  window._applyHortUrlParams = function () {
+    try {
+      const p = new URL(location.href).searchParams;
+      // Desktop index — applied as soon as state.desktops is populated.
+      const dRaw = p.get('desktop');
+      if (dRaw != null && window.__hort && window.__hort.state && window.__hort.state.desktops && window.__hort.state.desktops.length) {
+        const di = parseInt(dRaw, 10);
+        if (!isNaN(di)) {
+          const max = window.__hort.state.desktops.length - 1;
+          window.__hort.state.activeDesktopIdx = Math.max(0, Math.min(di, max));
+        }
+      }
+      // App + mode — only act once manifests are loaded; otherwise wait
+      // for the next call (from HortPicker.onMounted or popstate).
+      const appName = p.get('app');
+      const mode = p.get('mode') || '';
+      const key = appName ? (appName + '|' + mode) : '';
+      const manifestsReady = !!(window.HortPlugins && window.HortPlugins.getPlugins
+        && window.HortPlugins.getPlugins().length > 0);
+      if (key === _appliedAppKey) return;
+      // URL transitioned away from the app we last opened — close the float.
+      if (_appliedAppKey && typeof LlmingClient !== 'undefined') {
+        const prevApp = _appliedAppKey.split('|')[0];
+        if (prevApp && LlmingClient.isFloatOpen && LlmingClient.isFloatOpen(prevApp)) {
+          LlmingClient.closeFloat(prevApp);
+        }
+      }
+      if (appName && manifestsReady) {
+        _appliedAppKey = key;
+        if (typeof LlmingClient !== 'undefined' && LlmingClient.openLlming) {
+          LlmingClient.openLlming(appName, null, { mode: mode });
+        }
+      } else if (!appName) {
+        _appliedAppKey = '';
+      }
+    } catch (e) { console.warn('[url-params] apply failed', e); }
+  };
+  window.addEventListener('popstate', () => window._applyHortUrlParams && window._applyHortUrlParams());
+
   // Activate any registered LlmingClients
   if (typeof LlmingClient !== 'undefined') {
     LlmingClient.activateAll(app, Quasar, {});
@@ -6103,6 +6499,10 @@
       if (typeof LlmingClient !== 'undefined') LlmingClient.activateAll(app, Quasar, {});
       pluginsLoaded.value++;
       setTimeout(() => { pluginsLoaded.value++; }, 2000);
+
+      // Apply deep-link URL params now that manifests are known. See
+      // docs/manual/internals/url-params.md for the contract.
+      _applyHortUrlParams();
 
       // Restore demo mode preference (after plugins are available so demo.js files load)
       if (typeof HortDemo !== 'undefined' && window.__hortPrefs) {

@@ -106,7 +106,86 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     is_dev = dev_mode if dev_mode is not None else DEV_MODE
     app = FastAPI(title="openhort", version="0.1.0")
     app.state.dev_mode = is_dev
+
+    # Sandboxed (opaque-origin) iframes treat same-origin asset fetches as
+    # cross-origin, so fonts loaded via @font-face require CORS headers.
+    # Mark all static + ext responses as CORS-allowed for any origin.
+    @app.middleware("http")
+    async def _allow_cors_for_static(request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/static/") or path.startswith("/ext/") or path.startswith("/sample-data/"):
+            response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    # Bundled card-host: inline Vue + card-shim + per-llming cards.js +
+    # CSS into a single HTML document so each sandboxed iframe needs ONE
+    # HTTP request instead of 7+. With Chrome cache partitioning per
+    # opaque-origin iframe and HTTP/1.1's 6-conn limit, the unbundled
+    # version serialises 19 iframes × 7 requests into multi-second queues.
+    _bundle_per_llming: dict[str, tuple[float, bytes]] = {}
+
+    def _build_bundle_for(llming: str) -> bytes:
+        host = STATIC_DIR / "card-host.html"
+        vue_js = STATIC_DIR / "vendor" / "vue.global.prod.js"
+        shim_js = STATIC_DIR / "vendor" / "card-shim.js"
+        hort_css = STATIC_DIR / "hort.css"
+        ph_reg = STATIC_DIR / "vendor" / "phosphor" / "regular.css"
+        ph_fill = STATIC_DIR / "vendor" / "phosphor" / "fill.css"
+        files = [host, vue_js, shim_js, hort_css, ph_reg, ph_fill]
+        vp = _vue_routes.get(llming.replace("-", "_"))
+        if vp is not None:
+            files.append(vp)
+        max_mt = max(f.stat().st_mtime for f in files)
+        cached = _bundle_per_llming.get(llming)
+        if cached and cached[0] == max_mt:
+            return cached[1]
+
+        # Compile cards.js (cached) for this llming.
+        card_js_inline = ""
+        if vp is not None:
+            try:
+                from hort.ext.vue_loader import compile_vue as _cv
+                card_js_inline = _vue_cache.get(llming.replace("-", "_"), (0, None))[1] or _cv(vp, llming.replace("-", "_"))
+            except Exception:
+                card_js_inline = ""
+
+        # Rewrite Phosphor font URLs to absolute paths so the inlined CSS
+        # works regardless of the iframe's URL.
+        def _rewrite_font_urls(css: str) -> str:
+            return css.replace('url("./Phosphor', 'url("/static/vendor/phosphor/Phosphor').replace("url('./Phosphor", "url('/static/vendor/phosphor/Phosphor")
+
+        html = host.read_text()
+        # Inline external scripts.
+        html = html.replace(
+            '<script src="vendor/vue.global.prod.js"></script>',
+            "<script>" + vue_js.read_text() + "</script>",
+        )
+        html = html.replace(
+            '<script src="vendor/card-shim.js"></script>',
+            "<script>" + shim_js.read_text() + "</script>",
+        )
+        # Replace external stylesheets with inline <style>.
+        for tag, path in [
+            ('<link rel="stylesheet" href="vendor/phosphor/regular.css">', ph_reg),
+            ('<link rel="stylesheet" href="vendor/phosphor/fill.css">', ph_fill),
+            ('<link rel="stylesheet" href="hort.css">', hort_css),
+        ]:
+            html = html.replace(tag, "<style>" + _rewrite_font_urls(path.read_text()) + "</style>")
+        # Inline cards.js — runs AFTER the shim so LlmingClient.register works.
+        if card_js_inline:
+            html = html.replace("</body>", "<script>/* inline cards.js */\n" + card_js_inline + "\n</script>\n</body>")
+        out = html.encode()
+        _bundle_per_llming[llming] = (max_mt, out)
+        return out
+
+    @app.get("/_card_host")
+    async def _card_host_bundle_handler(llming: str = "") -> Response:
+        if not llming:
+            llming = "weather"  # any default for the warm-pool's empty request
+        return Response(content=_build_bundle_for(llming), media_type="text/html")
 
     # Serve compiled .vue files as JS ({name}.vue → /ext/{name}/static/cards.js)
     _llmings_root = Path(__file__).parent.parent / "llmings"
@@ -140,10 +219,24 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
         from hort.ext.vue_loader import compile_vue
 
         # Register a dedicated route per vue llming (not a catch-all)
+        # Mtime-keyed in-memory cache so 19 sandboxed iframes hitting the
+        # same cards.js endpoint don't recompile the .vue source 19 times.
+        # In dev, mtime change naturally invalidates on file edit.
+        _vue_cache: dict[str, tuple[float, str]] = {}
+
+        def _cached_compile(vp: Path, vn: str) -> str:
+            mt = vp.stat().st_mtime
+            cached = _vue_cache.get(vn)
+            if cached and cached[0] == mt:
+                return cached[1]
+            js = compile_vue(vp, vn)
+            _vue_cache[vn] = (mt, js)
+            return js
+
         for _vue_name, _vue_path in _vue_routes.items():
             def _make_handler(vp: Path, vn: str) -> Any:
                 async def handler() -> Response:
-                    js = compile_vue(vp, vn)
+                    js = _cached_compile(vp, vn)
                     return Response(content=js, media_type="application/javascript")
                 return handler
             app.get(f"/ext/{_vue_name}/static/cards.js")(_make_handler(_vue_path, _vue_name))
@@ -166,10 +259,21 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     if _app_routes:
         from hort.ext.vue_loader import compile_vue as _compile_app
 
+        _app_cache: dict[str, tuple[float, str]] = {}
+
+        def _cached_compile_app(vp: Path, vn: str) -> str:
+            mt = vp.stat().st_mtime
+            cached = _app_cache.get(vn)
+            if cached and cached[0] == mt:
+                return cached[1]
+            js = _compile_app(vp, vn, mode="app")
+            _app_cache[vn] = (mt, js)
+            return js
+
         for _app_name, _app_path in _app_routes.items():
             def _make_app_handler(vp: Path, vn: str) -> Any:
                 async def handler() -> Response:
-                    js = _compile_app(vp, vn, mode="app")
+                    js = _cached_compile_app(vp, vn)
                     return Response(content=js, media_type="application/javascript")
                 return handler
             app.get(f"/ext/{_app_name}/static/app.js")(_make_app_handler(_app_path, _app_name))

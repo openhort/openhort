@@ -63,8 +63,10 @@
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
               <input type="color" :value="color" @input="setColor($event.target.value)"
                 style="width:48px;height:48px;border:none;cursor:pointer" />
-              <q-input v-model="color" dense outlined dark style="flex:1" />
-              <q-btn icon="favorite" color="pink" flat @click="saveColor" />
+              <input type="text" v-model="color" @change="setColor(color)"
+                style="flex:1;padding:8px 10px;background:var(--el-surface);color:var(--el-text);border:1px solid var(--border);border-radius:6px;font-family:monospace" />
+              <button @click="saveColor"
+                style="padding:8px 12px;background:transparent;color:#ec4899;border:none;cursor:pointer;font-size:18px">♥</button>
             </div>
             <div v-if="saved.length" style="display:flex;flex-wrap:wrap;gap:6px">
               <div v-for="(c, i) in saved" :key="i" @click="setColor(c)"

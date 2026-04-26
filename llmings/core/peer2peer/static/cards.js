@@ -65,7 +65,7 @@ class HolepunchPanel extends LlmingClient {
           Run STUN Discovery
         </button>
 
-        <q-separator class="q-my-md"></q-separator>
+        <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
 
         <h6 class="text-subtitle1 q-mb-sm">Azure Test VM</h6>
         <div class="q-mb-md" style="font-family: monospace; font-size: 13px;">
@@ -80,7 +80,7 @@ class HolepunchPanel extends LlmingClient {
         </div>
 
         ${punch.success !== null && punch.success !== undefined ? `
-          <q-separator class="q-my-md"></q-separator>
+          <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
           <h6 class="text-subtitle1 q-mb-sm">Punch Result</h6>
           <div style="font-family: monospace; font-size: 13px;">
             <div>Status: <b style="color: ${punch.success ? '#66bb6a' : '#ef5350'}">${punch.success ? 'SUCCESS' : 'FAILED'}</b></div>

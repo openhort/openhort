@@ -27,12 +27,46 @@
 
   async function discoverAndLoadPlugins() {
     try {
+      // Offline bundle: manifests and card/app scripts are pre-embedded.
+      const bundle = window.__LLMING_BUNDLE__;
+      if (window.__LLMING_OFFLINE__ && bundle) {
+        _pluginsData = bundle.manifests || [];
+        for (const p of _pluginsData) {
+          if (p.name && p.provider) LlmingClient.setProvider(p.name, p.provider);
+        }
+        const cards = bundle.cardScripts || {};
+        const apps = bundle.appScripts || {};
+        for (const [name, src] of Object.entries(cards)) _evalScript(src, '[card:' + name + ']');
+        for (const [name, src] of Object.entries(apps))  _evalScript(src, '[app:'  + name + ']');
+        return;
+      }
+
       if (!window.hortWS) { console.warn('[plugins] WS not ready'); return; }
       const msg = await window.hortWS.request({ type: 'llmings.list' });
       _pluginsData = msg ? msg.data : [];
+      // Notify reactive consumers (spiritCardComponent reads
+      // LlmingClient.registryVersion to gate sandboxed-card mounting).
+      if (typeof LlmingClient !== 'undefined' && LlmingClient._bumpRegistryVersion) {
+        LlmingClient._bumpRegistryVersion();
+      }
       const bp = LlmingClient.basePath;
       const promises = [];
+      // Pre-fetch sandboxed card scripts into the disk cache so the per-card
+      // iframes don't have to wait in the HTTP/1.1 connection queue when
+      // they request them (19 iframes × cards.js + vue + css = ~100 reqs
+      // queued on 6 connections without this). `fetch()` is plenty —
+      // browsers reuse cached responses for subsequent <script src=> tags.
       for (const p of _pluginsData) {
+        if (p.ui_widgets && p.ui_widgets.length && p.ui_script_url) {
+          fetch(bp + p.ui_script_url, { cache: 'force-cache' }).catch(() => {});
+        }
+      }
+      for (const p of _pluginsData) {
+        // Cards with ui_widgets run sandboxed inside per-card iframes;
+        // their scripts must NEVER load into the host page (would defeat
+        // the sandbox). Only chrome-level extensions without ui_widgets
+        // (connectors etc.) load inline here.
+        if (p.ui_widgets && p.ui_widgets.length) continue;
         if (p.loaded && p.ui_script_url && !_loadedScripts.has(p.ui_script_url)) {
           const url = bp + p.ui_script_url;  // prefix with basePath for proxy support
           promises.push(_loadScript(url));
@@ -59,6 +93,11 @@
     } catch (e) {
       console.warn('[plugins] Discovery failed:', e);
     }
+  }
+
+  function _evalScript(src, label) {
+    try { (0, eval)(src); }
+    catch (e) { console.error('[plugins] eval failed', label, e); }
   }
 
   function _loadScript(url) {

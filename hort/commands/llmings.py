@@ -47,6 +47,27 @@ async def llmings_list(controller: Any) -> dict[str, Any]:
         p["app_script_url"] = f"/ext/{dir_name}/static/app.js" if _has_file(dir_name, "app.vue") else ""
         # Demo script
         p["demo_url"] = f"/ext/{dir_name}/demo.js" if _has_file(dir_name, "demo.js") else ""
+        # Card sandbox: expose trust + needs so the host can stamp the
+        # per-iframe capability table. Also infer ui_widgets from a
+        # sibling <name>.vue or card.vue if the manifest didn't declare it
+        # explicitly — the presence of the source file is what makes a
+        # llming a card-bearing one. Without this, vue_loader-generated
+        # cards would still load inline (defeating the sandbox).
+        if manifest:
+            p["trust"] = manifest.trust
+            p["needs"] = manifest.needs
+            if manifest.local_quota_mb:
+                p["local_quota_mb"] = manifest.local_quota_mb
+            # vue_loader always emits a component named "<name>-card",
+            # so when a .vue source exists we use that — overriding any
+            # stale manifest declaration left over from earlier conversions.
+            # Manifests without a .vue source keep whatever they declare
+            # (they're hand-rolled cards.js with their own component names).
+            if _has_file(dir_name, f"{dir_name}.vue") or _has_file(dir_name, "card.vue"):
+                p["ui_widgets"] = [manifest.name.replace("_", "-") + "-card"]
+        else:
+            p["trust"] = "sandboxed"
+            p["needs"] = {}
     return {"data": llmings}
 
 

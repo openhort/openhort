@@ -18,6 +18,32 @@
 (function (root) {
   'use strict';
 
+  // ---- Offline bundle helpers ----
+  // The build script (tools/build_demo_bundle.py) injects:
+  //   window.__LLMING_OFFLINE__ = true
+  //   window.__LLMING_BUNDLE__ = { manifests, assets, shared, demoModules, cardScripts }
+  // When present, fetches are replaced by lookups into this map so the
+  // demo works as a single self-contained HTML file with no backend.
+  function _bundle() { return root.__LLMING_BUNDLE__ || null; }
+  function _bundledAsset(llmingId, path) {
+    const b = _bundle();
+    return (b && b.assets && b.assets[llmingId] && b.assets[llmingId][path]) || null;
+  }
+  function _bundledShared(path) {
+    const b = _bundle();
+    return (b && b.shared && b.shared[path]) || null;
+  }
+  function _isTextPath(path) {
+    return /\.(txt|md|csv|html|js|css|svg|xml)$/i.test(path);
+  }
+  function _dataUrlToText(dataUrl) {
+    const comma = dataUrl.indexOf(',');
+    const meta = dataUrl.slice(5, comma);
+    const body = dataUrl.slice(comma + 1);
+    if (meta.endsWith(';base64')) return atob(body);
+    return decodeURIComponent(body);
+  }
+
   // ---- In-memory vault store ----
   // Shared across all llmings: { "owner:key": data }
   const _vaultStore = new Map();
@@ -52,6 +78,17 @@
     return {
       request(msg) {
         const type = msg.type;
+
+        // Offline bundle: serve llmings.list from the embedded manifests so
+        // every consumer (HortPlugins, refreshSpirits, openLlming, etc.)
+        // sees the same view of the world.
+        if (type === 'llmings.list') {
+          const b = _bundle();
+          return Promise.resolve({ data: (b && b.manifests) || [] });
+        }
+        if (type === 'llmings.store') {
+          return Promise.resolve({ data: { keys: [] } });
+        }
 
         if (type === 'card.vault.read') {
           return Promise.resolve({ data: vaultGet(msg.owner, msg.key) });
@@ -132,6 +169,12 @@
       },
 
       async load(path) {
+        const bundled = _bundledAsset(llmingId, path);
+        if (bundled) {
+          if (path.endsWith('.json')) return JSON.parse(_dataUrlToText(bundled));
+          if (_isTextPath(path)) return _dataUrlToText(bundled);
+          return bundled; // binary → return data URL as-is (caller can use it as a src)
+        }
         const url = basePath + '/ext/' + llmingId.replace(/-/g, '_') + '/static/' + path;
         const resp = await fetch(url);
         const ct = resp.headers.get('content-type') || '';
@@ -140,11 +183,32 @@
       },
 
       async shared(path) {
+        const bundled = _bundledShared(path);
+        if (bundled) {
+          if (path.endsWith('.json')) return JSON.parse(_dataUrlToText(bundled));
+          if (_isTextPath(path)) return _dataUrlToText(bundled);
+          return bundled;
+        }
         const url = basePath + '/sample-data/' + path;
         const resp = await fetch(url);
         const ct = resp.headers.get('content-type') || '';
         if (ct.includes('json')) return resp.json();
         return resp.text();
+      },
+
+      // assetUrl — return a usable URL for binary assets (images, video,
+      // audio). Stable across dev (real /ext/ URL) and offline bundle
+      // (data URL from window.__LLMING_BUNDLE__).
+      assetUrl(path) {
+        const bundled = _bundledAsset(llmingId, path);
+        if (bundled) return bundled;
+        return basePath + '/ext/' + llmingId.replace(/-/g, '_') + '/static/' + path;
+      },
+
+      sharedAssetUrl(path) {
+        const bundled = _bundledShared(path);
+        if (bundled) return bundled;
+        return basePath + '/sample-data/' + path;
       },
 
       interval(fn, ms) {
@@ -247,25 +311,38 @@
     // Activate — discover and load demo.js files
     const basePath = (typeof LlmingClient !== 'undefined' && LlmingClient.basePath) || '';
 
-    // Save real WS and install mock
-    if (root.hortWS && !root._realHortWS) {
+    // Save real WS and install mock. In offline-bundle mode there IS no
+    // real WS — keep _realHortWS null so the mock returns empty responses
+    // for unhandled message types instead of recursing back through the
+    // page's closure-bound sendControlRequest (which then routes to the
+    // mock → stack overflow).
+    if (!root.__LLMING_OFFLINE__ && root.hortWS && !root._realHortWS) {
       root._realHortWS = root.hortWS;
     }
     root.hortWS = createMockWS();
 
-    // Discover llmings with demo.js
+    // Discover llmings — bundle first, otherwise WS query
     let llmings = [];
-    try {
-      const msg = await (root._realHortWS || root.hortWS).request({ type: 'llmings.list' });
-      llmings = (msg && msg.data) || [];
-    } catch (e) {
-      console.warn('[demo] Could not list llmings:', e);
+    const b = _bundle();
+    if (b && Array.isArray(b.manifests)) {
+      llmings = b.manifests;
+    } else {
+      try {
+        const msg = await (root._realHortWS || root.hortWS).request({ type: 'llmings.list' });
+        llmings = (msg && msg.data) || [];
+      } catch (e) {
+        console.warn('[demo] Could not list llmings:', e);
+      }
     }
 
     for (const p of llmings) {
-      if (!p.demo_url) continue;
+      const bundledUrl = b && b.demoModules && b.demoModules[p.name];
+      if (!p.demo_url && !bundledUrl) continue;
       try {
-        const url = basePath + p.demo_url;
+        // Offline → data: URL embedded in the bundle. Online → real
+        // module URL. Either way it's a normal ES module import — no
+        // string munging, no thunks, full language support.
+        const url = bundledUrl || (basePath + p.demo_url);
         const module = await import(url);
         const config = module.default || module;
         await activateDemo(p.name, config, basePath);

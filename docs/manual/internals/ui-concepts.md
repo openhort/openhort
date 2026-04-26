@@ -214,6 +214,41 @@ When a widget is clicked, its app opens as a float window (desktop) or fullscree
 
 **Backdrop:** A semi-transparent dark overlay (`rgba(0,0,0,.3)`) appears behind float windows. Click it to close. The float window itself has `@click.stop` to prevent close on internal clicks.
 
+### Built-in widget viewers
+
+Some widgets aren't backed by a llming with a card.vue / app.vue — the home grid renders them inline using a fixed template. Today these are:
+
+- **Terminal widget** (`type: 'terminal'`) — claude_dev, sap_agent, etc. Inline body shows the output stream + status row.
+- **Quick-chat widget** (`type: 'quick-chat'`) — the demo "Turn on living room lights" panel.
+
+Clicking such a widget opens a host-rendered float (no iframe — these aren't sandboxed). The float window template carries inline `<template v-if="fw.widgetName === '__builtin:terminal'">` / `__builtin:chat` blocks that render a larger version of the same content. The float has its own X button and obeys Esc / backdrop close like any other app, but it does NOT change the URL — these floats are ephemeral (live data, not deep-linkable).
+
+If a real terminal backend is connected, the click goes through `openTerminal(subId)` instead and routes to the full PTY-backed terminal view.
+
+### Deep-Link URL Parameters
+
+The home grid honours three query params on initial load and on every history navigation (back/forward). They're applied **after** llming manifests are discovered, so the open-app target is always resolvable. Apply order is `desktop` → `app`.
+
+| Param | Value | Behaviour |
+|---|---|---|
+| `desktop` | integer (0-based) | Switch to that desktop. Out-of-range values are clamped. |
+| `app` | llming id (e.g. `weather`) | Open the named llming. Default mode = window for non-fullscreen-capable, fullscreen otherwise. |
+| `mode` | `window` \| `fullscreen` \| `widget` | **window** = always a hovering float (overrides `fullscreenCapable`). **fullscreen** = always navigate to the full-screen llming view. **widget** = no-op for opening — caller wants the widget on the grid only (used by share links that already include the desktop). |
+
+Examples:
+
+- `/?desktop=2` — open the third desktop on load
+- `/?app=weather` — open weather as a hovering window
+- `/?app=llming-lens&mode=fullscreen` — force fullscreen even on desktop monitors
+- `/?desktop=1&app=cameras&mode=window` — switch to desktop 1 and pop the cameras window
+- `/?app=hort-chief&mode=widget` — equivalent to `/` (no float opens)
+
+**Idempotency:** the parser tracks the last-applied `app|mode` key, so an already-open window is not re-opened on duplicate parses (back-button replays the same URL fires `popstate`, but no extra window appears).
+
+**Llmings without a UI:** if a manifest exists but declares no `ui_widgets` and no `app.vue`, `openLlming` still opens a small placeholder float ("this llming has no UI yet") instead of failing silently. This matters for connector-only llmings like `claude-cli-ext` that the user might still try to open from a share link.
+
+Implementation: `_applyHortUrlParams()` in `hort/static/index.html`, called from the `_hortOnConnect` callback after `HortPlugins.discoverAndLoadPlugins()` and on every `popstate`.
+
 ## Navbar
 
 Minimal: `[☰] [OpenHORT] [Desktop name] [spacer] [Lemming icon] [+] [Viewers]`

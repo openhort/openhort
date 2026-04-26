@@ -311,6 +311,25 @@
     static register(ExtClass) {
       if (!ExtClass.id) throw new Error('Extension must define static id');
       _registry.set(ExtClass.id, ExtClass);
+      LlmingClient._bumpRegistryVersion();
+    }
+
+    /**
+     * Reactive trigger for registry/instance changes. Templates that resolve
+     * a component name from the registry (e.g. via ``spiritCardComponent``)
+     * should ``void LlmingClient.registryVersion.value`` inside their lookup
+     * so Vue tracks this ref as a dependency. Bumped whenever a card script
+     * registers or ``activateAll`` runs.
+     */
+    static get registryVersion() {
+      if (!LlmingClient._registryVersionRef) {
+        LlmingClient._registryVersionRef = (typeof Vue !== 'undefined') ? Vue.ref(0) : { value: 0 };
+      }
+      return LlmingClient._registryVersionRef;
+    }
+
+    static _bumpRegistryVersion() {
+      try { LlmingClient.registryVersion.value++; } catch (e) { /* pre-Vue load */ }
     }
 
     // ---- Vault watcher registry (push-based vaultRef) ----
@@ -384,17 +403,21 @@
      */
     static activateAll(app, Quasar, configs) {
       const cfgs = configs || {};
+      let activated = 0;
       for (const [id, ExtClass] of _registry) {
         if (_instances.has(id)) continue; // skip already activated
         const instance = new ExtClass();
         instance.config = cfgs[id] || {};
         instance.setup(app, Quasar);
         _instances.set(id, instance);
+        activated++;
         // If WS already connected, fire onConnect immediately
         if (window.hortWS) {
           try { instance.onConnect(); } catch (e) { console.error('[ext:connect]', id, e); }
         }
       }
+      // Notify reactive consumers that new components are now resolvable.
+      if (activated) LlmingClient._bumpRegistryVersion();
     }
 
     /**
@@ -865,21 +888,61 @@
    * @param {string} id - Extension id (e.g. 'llming-wire')
    * @param {string} [sub] - Optional sub-route
    */
-  LlmingClient.openLlming = function (id, sub) {
+  /**
+   * Open a llming.
+   *
+   * @param {string} id   - llming id (e.g. 'weather')
+   * @param {string} [sub] - sub-route (forces fullscreen navigation)
+   * @param {{mode?: 'window'|'fullscreen'|'widget'}} [opts]
+   *   mode='window'     → always open as a hovering float (default for non-fullscreen-capable llmings)
+   *   mode='fullscreen' → always navigate full-screen, even on big monitors
+   *   mode='widget'     → no-op for opening — caller wants the widget on the grid only
+   *   When omitted, the llming's `fullscreenCapable` static decides.
+   */
+  LlmingClient.openLlming = function (id, sub, opts) {
+    opts = opts || {};
+    if (opts.mode === 'widget') return;  // explicit no-op
+    // Sandboxed cards never register on the host, so the registry is empty
+    // for most llmings. Read the manifest from HortPlugins instead — that
+    // tells us the widget name (card or app) and the title.
+    var manifest = null;
+    if (window.HortPlugins && window.HortPlugins.getPlugins) {
+      var ps = window.HortPlugins.getPlugins() || [];
+      for (var i = 0; i < ps.length; i++) { if (ps[i].name === id) { manifest = ps[i]; break; } }
+    }
     var ExtClass = _registry.get(id);
-    if (!sub && ExtClass && ExtClass.llmingWidgets && ExtClass.llmingWidgets.length) {
-      var mode = LlmingClient.resolveDisplayMode(ExtClass);
-      if (mode === 'float') {
-        LlmingClient.openFloat(id, ExtClass.llmingWidgets[0], {
-          title: ExtClass.llmingTitle || ExtClass.name || id,
-        });
+    var fullscreenCapable = !!(ExtClass && ExtClass.fullscreenCapable);
+    var wantFullscreen = opts.mode === 'fullscreen' || (!opts.mode && fullscreenCapable);
+    if (!sub && !wantFullscreen && manifest) {
+      // Prefer the app component if app.vue exists; fall back to the card.
+      var hasApp = !!manifest.app_script_url;
+      var widgetName = '';
+      if (manifest.ui_widgets && manifest.ui_widgets.length) widgetName = manifest.ui_widgets[0];
+      if (hasApp) widgetName = id.replace(/_/g, '-') + '-app';
+      if (widgetName) {
+        var title = (ExtClass && (ExtClass.llmingTitle || ExtClass.name)) || manifest.name || id;
+        LlmingClient.openFloat(id, widgetName, { title: title });
         return;
       }
+      // Manifest exists but no UI widget — still show a placeholder float so
+      // the user gets feedback ("this llming has no UI yet") instead of silence.
+      LlmingClient._openPlaceholderFloat(id, manifest);
+      return;
     }
     var provider = LlmingClient.getProvider(id);
     var path = '/llming/' + provider + '/' + id;
     if (sub != null) path += '/' + encodeURIComponent(String(sub));
     LlmingClient.navigate(path);
+  };
+
+  // Invisible placeholder float for llmings with no UI surface — keeps the
+  // open-app gesture from feeling broken. The Vue host renders this as a
+  // simple "no UI" panel via the llmingId 'no-ui' check.
+  LlmingClient._openPlaceholderFloat = function (id, manifest) {
+    var win = LlmingClient.openFloat(id, '__placeholder__', {
+      title: (manifest && (manifest.title || manifest.name)) || id,
+    });
+    win.placeholderText = (manifest && manifest.description) || (id + ' has no UI yet');
   };
 
   // ---- useStream: ACK-based flow control for binary streams ----
@@ -924,20 +987,28 @@
       }
       frame.value = url;
       active.value = true;
-      // ACK after the frame is rendered (next animation frame)
-      requestAnimationFrame(function() {
+      // ACK after the frame is rendered (next animation frame). Browsers
+      // throttle rAF heavily — to zero — when the tab is hidden, which
+      // would freeze the ACK gate forever and leak blob URLs into
+      // _pending. A setTimeout fallback keeps the gate moving while the
+      // tab is in the background; whichever fires first wins (idempotent
+      // via the _ready guard).
+      var fired = false;
+      function ack() {
+        if (fired) return;
+        fired = true;
         _ready = true;
-        // ACK to server
         if (window.hortWS) {
           window.hortWS.send({ type: 'stream.ack', channel: channel });
         }
-        // If a newer frame arrived while we were busy, deliver it now
         if (_pending) {
           var p = _pending;
           _pending = null;
           _deliverFrame(p);
         }
-      });
+      }
+      requestAnimationFrame(ack);
+      setTimeout(ack, 250);
     }
 
     // Register in the stream subscriber map

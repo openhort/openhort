@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class FeatureToggle(BaseModel):
@@ -98,6 +98,31 @@ class ExtensionManifest(BaseModel):
     # === UI ===
     ui_widgets: list[str] = Field(default_factory=list)
     ui_script: str = ""  # e.g. "static/cards.js"
+
+    # === Card sandbox (browser-side isolation) ===
+    # See docs/manual/internals/security/card-sandbox.md
+    # Every llming with `ui_widgets` runs sandboxed — there is no opt-out.
+    # The `trust` field is accepted only for backwards-readability and must
+    # be 'sandboxed' (or omitted). Setting it to anything else is a load-time
+    # error that points at the sandbox doc.
+    trust: str = "sandboxed"
+    # Cross-llming capability declarations enforced by the host bridge.
+    # Each entry is a "owner:keyOrGlob" spec. self:* is always implicit and
+    # need not be listed.
+    needs: dict[str, list[str]] = Field(default_factory=dict)
+    # Optional override of the per-llming device-local IndexedDB quota in MB
+    # (default 5 MB enforced by the host).
+    local_quota_mb: int = 0
+
+    @model_validator(mode="after")
+    def _enforce_sandbox(self) -> "ExtensionManifest":
+        if self.trust != "sandboxed":
+            raise ValueError(
+                f"Llming {self.name!r}: manifest.trust = {self.trust!r} is not allowed. "
+                f"Every card runs sandboxed. Remove the field or set it to 'sandboxed'. "
+                f"See docs/manual/internals/security/card-sandbox.md."
+            )
+        return self
 
     # === Dependencies ===
     depends_on: list[str] = Field(default_factory=list)

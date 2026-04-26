@@ -67,18 +67,14 @@
             <div v-if="lastRoll" style="font-size:24px;color:var(--el-primary);margin-bottom:16px">
               Total: {{ total }}
             </div>
-            <div style="margin-bottom:16px">
-              <q-btn-group>
-                <q-btn label="d4" @click="roll(4)" />
-                <q-btn label="d6" @click="roll(6)" color="primary" />
-                <q-btn label="d8" @click="roll(8)" />
-                <q-btn label="d10" @click="roll(10)" />
-                <q-btn label="d12" @click="roll(12)" />
-                <q-btn label="d20" @click="roll(20)" color="accent" />
-              </q-btn-group>
+            <div style="margin-bottom:16px;display:inline-flex;gap:4px;border-radius:6px;overflow:hidden">
+              <button v-for="s in [4,6,8,10,12,20]" :key="s" @click="roll(s)"
+                :style="{padding:'6px 12px',background:s===6||s===20?'var(--el-primary)':'var(--el-surface)',color:'var(--el-text)',border:'1px solid var(--border)',cursor:'pointer'}">d{{ s }}</button>
             </div>
-            <q-slider v-model="count" :min="1" :max="10" :step="1" label
-              :label-value="count + ' dice'" style="max-width:200px;margin:0 auto" />
+            <div style="max-width:200px;margin:0 auto">
+              <input type="range" v-model.number="count" min="1" max="10" step="1" style="width:100%">
+              <div style="font-size:12px;color:var(--el-text-dim)">{{ count }} dice</div>
+            </div>
             <div v-if="history.length" style="margin-top:16px;text-align:left;max-height:200px;overflow-y:auto">
               <div style="color:var(--el-text-dim);font-size:12px" v-for="r in history" :key="r.ts">
                 d{{ r.sides }}: [{{ r.rolls.join(', ') }}] = {{ r.total }}

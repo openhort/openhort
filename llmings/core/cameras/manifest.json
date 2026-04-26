@@ -8,5 +8,10 @@
   "author": "openhort",
   "llming_type": "tool",
   "ui_widgets": ["cameras-card"],
-  "ui_script": "static/cards.js"
+  "ui_script": "static/cards.js",
+  "trust": "sandboxed",
+  "needs": {
+    "vault": ["self:state"],
+    "stream": ["cameras:*"]
+  }
 }
