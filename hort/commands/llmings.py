@@ -32,9 +32,12 @@ router = WSRouter(prefix="llmings")
 @router.handler("list")
 async def llmings_list(controller: Any) -> dict[str, Any]:
     """List all llmings with status and UI script URLs."""
+    from hort.browser_isolation import load_browser_isolation_policy, should_isolate_widget
+
     registry = get_llming_registry()
     if registry is None:
-        return {"data": []}
+        return {"data": [], "browser_isolation": load_browser_isolation_policy()}
+    isolation_policy = load_browser_isolation_policy()
     llmings = registry.list_llmings()
     for p in llmings:
         manifest = registry.get_manifest(p["name"])
@@ -56,6 +59,8 @@ async def llmings_list(controller: Any) -> dict[str, Any]:
         if manifest:
             p["trust"] = manifest.trust
             p["needs"] = manifest.needs
+            p["browser_isolated"] = should_isolate_widget(manifest, isolation_policy)
+            p["browser_isolation_hint"] = manifest.browser_isolation
             if manifest.local_quota_mb:
                 p["local_quota_mb"] = manifest.local_quota_mb
             # vue_loader always emits a component named "<name>-card",
@@ -68,7 +73,9 @@ async def llmings_list(controller: Any) -> dict[str, Any]:
         else:
             p["trust"] = "sandboxed"
             p["needs"] = {}
-    return {"data": llmings}
+            p["browser_isolated"] = True
+            p["browser_isolation_hint"] = ""
+    return {"data": llmings, "browser_isolation": isolation_policy}
 
 
 @router.handler("feature")
@@ -107,31 +114,31 @@ async def llming_debug(controller: Any, name: str = "") -> dict[str, Any]:
         summary = []
         for inst_name in sorted(registry._instances.keys()):
             inst = registry.get_instance(inst_name)
-            info: dict[str, Any] = {"name": inst_name, "type": type(inst).__name__}
+            summary_info: dict[str, Any] = {"name": inst_name, "type": type(inst).__name__}
             if isinstance(inst, Llming):
-                info["class_name"] = inst.class_name
-                info["powers"] = [p.name for p in inst.get_powers()]
-                info["scheduler_jobs"] = inst._scheduler.running_jobs if inst._scheduler else []
-            summary.append(info)
+                summary_info["class_name"] = inst.class_name
+                summary_info["powers"] = [p.name for p in inst.get_powers()]
+                summary_info["scheduler_jobs"] = inst._scheduler.running_jobs if inst._scheduler else []
+            summary.append(summary_info)
         return {"data": summary}
 
     inst = registry.get_instance(name)
     if inst is None:
         return {"error": f"llming '{name}' not found"}
 
-    info: dict[str, Any] = {
+    detail_info: dict[str, Any] = {
         "name": name,
         "type": type(inst).__name__,
     }
     if isinstance(inst, Llming):
-        info["class_name"] = inst.class_name
-        info["instance_name"] = inst.instance_name
-        info["config"] = inst.config
-        info["powers"] = [{"name": p.name, "type": p.type.value} for p in inst.get_powers()]
-        info["scheduler_jobs"] = inst._scheduler.running_jobs if inst._scheduler else []
-        info["has_credentials"] = inst.credentials is not None
-        info["soul_length"] = len(inst.soul) if inst.soul else 0
-    return {"data": info}
+        detail_info["class_name"] = inst.class_name
+        detail_info["instance_name"] = inst.instance_name
+        detail_info["config"] = inst.config
+        detail_info["powers"] = [{"name": p.name, "type": p.type.value} for p in inst.get_powers()]
+        detail_info["scheduler_jobs"] = inst._scheduler.running_jobs if inst._scheduler else []
+        detail_info["has_credentials"] = inst.credentials is not None
+        detail_info["soul_length"] = len(inst.soul) if inst.soul else 0
+    return {"data": detail_info}
 
 
 @router.handler("execute_power")

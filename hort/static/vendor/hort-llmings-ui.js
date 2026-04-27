@@ -17,6 +17,7 @@
 
   let _pluginsData = [];
   let _loadedScripts = new Set();
+  let _browserIsolation = { mode: 'per_widget', isolate: [], share: [] };
 
   // Thumbnail canvases keyed by plugin id
   const _thumbCanvases = {};
@@ -31,6 +32,10 @@
       const bundle = window.__LLMING_BUNDLE__;
       if (window.__LLMING_OFFLINE__ && bundle) {
         _pluginsData = bundle.manifests || [];
+        _browserIsolation = bundle.browserIsolation || _browserIsolation;
+        for (const p of _pluginsData) {
+          if (p.browser_isolated === undefined) p.browser_isolated = false;
+        }
         for (const p of _pluginsData) {
           if (p.name && p.provider) LlmingClient.setProvider(p.name, p.provider);
         }
@@ -44,6 +49,7 @@
       if (!window.hortWS) { console.warn('[plugins] WS not ready'); return; }
       const msg = await window.hortWS.request({ type: 'llmings.list' });
       _pluginsData = msg ? msg.data : [];
+      _browserIsolation = (msg && msg.browser_isolation) || _browserIsolation;
       // Notify reactive consumers (spiritCardComponent reads
       // LlmingClient.registryVersion to gate sandboxed-card mounting).
       if (typeof LlmingClient !== 'undefined' && LlmingClient._bumpRegistryVersion) {
@@ -57,16 +63,17 @@
       // queued on 6 connections without this). `fetch()` is plenty —
       // browsers reuse cached responses for subsequent <script src=> tags.
       for (const p of _pluginsData) {
-        if (p.ui_widgets && p.ui_widgets.length && p.ui_script_url) {
+        if (p.browser_isolated && p.ui_widgets && p.ui_widgets.length && p.ui_script_url) {
           fetch(bp + p.ui_script_url, { cache: 'force-cache' }).catch(() => {});
         }
       }
       for (const p of _pluginsData) {
         // Cards with ui_widgets run sandboxed inside per-card iframes;
         // their scripts must NEVER load into the host page (would defeat
-        // the sandbox). Only chrome-level extensions without ui_widgets
-        // (connectors etc.) load inline here.
-        if (p.ui_widgets && p.ui_widgets.length) continue;
+        // the sandbox). If server config opts into shared_host rendering,
+        // browser_isolated is false and the script is intentionally loaded
+        // into the host for speed.
+        if (p.browser_isolated && p.ui_widgets && p.ui_widgets.length) continue;
         if (p.loaded && p.ui_script_url && !_loadedScripts.has(p.ui_script_url)) {
           const url = bp + p.ui_script_url;  // prefix with basePath for proxy support
           promises.push(_loadScript(url));
@@ -83,6 +90,7 @@
       // Load app scripts (app.vue) after card scripts
       const appPromises = [];
       for (const p of _pluginsData) {
+        if (p.browser_isolated && p.ui_widgets && p.ui_widgets.length) continue;
         if (p.loaded && p.app_script_url && !_loadedScripts.has(p.app_script_url)) {
           const url = bp + p.app_script_url;
           appPromises.push(_loadScript(url));
@@ -111,6 +119,7 @@
   }
 
   function getPlugins() { return _pluginsData; }
+  function getBrowserIsolation() { return _browserIsolation; }
 
   // ---- Thumbnail rendering ----
 
@@ -267,6 +276,7 @@
   root.HortPlugins = {
     discoverAndLoadPlugins,
     getPlugins,
+    getBrowserIsolation,
     registerPluginManager,
     renderAllThumbnails,
     getThumbnailUrl,

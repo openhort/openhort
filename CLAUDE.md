@@ -128,6 +128,7 @@ Use Playwright for visual verification; use the Chrome MCP tools or real browser
 - **[Coding Guidelines](docs/ai/coding-guidelines.md)** — MUST follow: no private access, no if/elif dispatch, config over hardcoding, WS-first, error handling
 - [UI Concepts](docs/manual/internals/ui-concepts.md) — widget home screen, desktops, spatial hierarchy, IndexedDB layout persistence, widget data model
 - [URL Parameters](docs/manual/internals/url-params.md) — `?desktop=N`, `?app=NAME`, `?mode=window|fullscreen|widget` deep-link contract
+- [Card Sandbox](docs/manual/internals/security/card-sandbox.md) — browser isolation policy (`ui.browser_isolation`), iframe bridge, shared-host performance tradeoff
 - [UX Guidelines](docs/manual/develop/ux-guidelines.md) — interaction model, fit modes, panning rules, resolution strategy
 - [Llming Development](docs/manual/develop/plugins.md) — creating llmings, storage, scheduler, MCP, intents, widgets
 - [Llming System](docs/manual/develop/extensions.md) — provider interfaces, manifest, registry, creating llmings

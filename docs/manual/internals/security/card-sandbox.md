@@ -17,17 +17,45 @@ A buggy or hostile card running in this context sees everything the host page se
 
 The card sandbox closes that gap by giving every card its own browser process, declaring its capability set in the manifest, and routing every cross-namespace operation through a host-controlled bridge that authorizes by **forge-proof identity**.
 
-## Sandbox is mandatory
+## Isolation Policy
 
-There is **no opt-out**. Every llming with a `ui_widgets` declaration runs sandboxed. The manifest no longer accepts a "trust tier" — historical `trust: 'first-party'` values are rejected at server load with a validation error pointing at this document.
+The safe default is **per-widget sandboxing**. Every llming with a
+`ui_widgets` declaration runs in its own sandboxed iframe unless the server
+configuration explicitly opts into a faster, coarser browser isolation mode.
+The manifest no longer accepts the old "trust tier" model — historical
+`trust: 'first-party'` values are rejected at server load with a validation
+error pointing at this document.
 
 Practical consequences:
 
-- Drop a llming under `llmings/<provider>/<name>/` with `ui_widgets`, no `card.vue` of yours will ever execute in the host page's JS context.
+- With the default policy, drop a llming under `llmings/<provider>/<name>/` with `ui_widgets`, no `card.vue` of yours will execute in the host page's JS context.
 - The audit script (`tools/audit_card_sandbox.py`) is a CI gate — any merge that introduces a forbidden pattern (raw `window.hortWS`, `localStorage`, `document.cookie`, etc.) fails before review.
-- "I'll just sandbox the third-party ones" was an earlier, weaker design and is no longer available. First-party cards run under exactly the same isolation as community cards. Maintainer-shipped llmings get audited like every other llming.
+- "Shared host" mode is an explicit performance tradeoff. Cards rendered in the host share the host page's JavaScript realm and are not protected from each other by the iframe bridge. Use it only for reviewed, mutually trusted llmings.
 
-The framework-level connector scripts (`lan_connector`, `cloud_connector`, `telegram_connector`) load inline because they extend the host chrome itself, not the widget grid. They do not have `ui_widgets`. If you find yourself wanting to bypass the sandbox for a "real" widget, you're trying to introduce a vector — find the vault/pulse/stream/power equivalent instead.
+The framework-level connector scripts (`lan_connector`, `cloud_connector`, `telegram_connector`) load inline because they extend the host chrome itself, not the widget grid. They do not have `ui_widgets`.
+
+### Server configuration
+
+```yaml
+ui.browser_isolation:
+  mode: per_widget        # per_widget | shared_host | auto
+  isolate: []             # optional llming names/globs forced into iframes
+  share: []               # optional llming names/globs allowed in host
+```
+
+| Mode | Behaviour | Security boundary |
+|---|---|---|
+| `per_widget` | Every card/app gets its own opaque-origin iframe. | One browser realm per widget. Safest; default. |
+| `shared_host` | Widget card scripts load into the host Vue app and render inline. | The host page is the boundary. Fastest; reviewed cards only. |
+| `auto` | Server isolates configured/marked/cross-capability widgets and shares simple widgets. | Mixed. Use `isolate` for sensitive widgets. |
+
+In `auto`, the server isolates a widget if:
+
+- its llming name matches `ui.browser_isolation.isolate`;
+- its manifest sets `"browser_isolation": "isolated"`;
+- its manifest asks for cross-llming browser capabilities in `needs`.
+
+`ui.browser_isolation.share` and manifest `"browser_isolation": "shared"` permit host rendering for reviewed cards.
 
 ## Architecture
 
@@ -109,7 +137,7 @@ Cards declare what they need:
 }
 ```
 
-`trust` is no longer settable — every card with `ui_widgets` is sandboxed.
+`trust` is no longer settable — it remains `sandboxed` for backwards-readable manifests. Runtime browser placement is controlled by `ui.browser_isolation`.
 
 `$llming.local.*` is **always** available without a `needs:` declaration — it operates exclusively on the card's own device-local namespace and never touches another llming's data.
 
@@ -128,7 +156,7 @@ For pulse, the prefix `subscribe:` or `publish:` selects the operation. For vaul
 ### Defaults
 
 - **Deny everything except `self:*`.** Unless the manifest declares a need, the card doesn't get the capability.
-- **`trust:` defaults to `sandboxed`** (after the sandbox lands).
+- **`trust:` defaults to `sandboxed`** and is not a performance knob.
 - **No implicit cross-llming powers.** If the card needs to invoke `vaults["x"].get` or `call("y", ...)` on another llming, it must be in `needs:`.
 
 ## Wire protocol
@@ -238,7 +266,7 @@ These rules ship alongside the [Card API](../../develop/card-api.md) developer d
 
 ## Sharing state across widget, subapp, and fullscreen
 
-A single llming can be visible at once as: a widget on Home, the same widget on Smart Home, an open subapp window, and a fullscreen app. Each of those is its own iframe — its own JS context, its own Vue instance, its own globals. **They cannot share JavaScript variables, in-memory caches, or Vue refs directly.** They share state through the host bridge.
+A single llming can be visible at once as: a widget on Home, the same widget on Smart Home, an open subapp window, and a fullscreen app. Under the default `per_widget` policy, each of those is its own iframe — its own JS context, its own Vue instance, its own globals. **They cannot share JavaScript variables, in-memory caches, or Vue refs directly.** They share state through the host bridge.
 
 The bridge is the single source of truth for cross-instance data. Every iframe of `cameras` reads/writes to the same vault key, the same `local` IndexedDB row, the same pulse channel. The host fans changes out to every subscribed iframe of that llming.
 

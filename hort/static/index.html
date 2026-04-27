@@ -2891,14 +2891,18 @@
                           </div>
                         </template>
 
-                        <!-- Extension widget — every card runs in a sandboxed iframe.
+                        <!-- Extension widget — isolated cards run in sandboxed iframes;
+                             shared_host cards render as host Vue components.
                              Wait for plugin manifests before mounting, otherwise
                              the first mount races discovery and ends up with an
                              empty widgetName. -->
                         <template v-else-if="w.type === 'extension'">
-                          <hort-card-frame v-if="spiritCardComponent(w.extId)"
+                          <hort-card-frame v-if="spiritCardComponent(w.extId) && spiritIsSandboxed(w.extId)"
                                            :llming-id="w.extId" :widget-name="spiritCardComponent(w.extId)"
                                            :props="{}" :key="w.extId + '-' + demoEpoch" />
+                          <component v-else-if="spiritCardComponent(w.extId)"
+                                     :is="spiritCardComponent(w.extId)"
+                                     :key="w.extId + '-shared-' + demoEpoch" />
                           <div v-else class="widget-thumb">
                             <div class="widget-loading-spinner"></div>
                           </div>
@@ -4031,9 +4035,9 @@
       }
       function spiritCardComponent(pluginName) {
         _trackRegistry();
-        // Cards run sandboxed — their classes are NOT registered in the
-        // host's LlmingClient registry. Derive the component name from
-        // the manifest's ui_widgets so the iframe knows what to mount.
+        // Isolated cards are not registered in the host registry. Shared
+        // host cards still expose the same ui_widgets name after their
+        // script loads, so the manifest remains the authoritative lookup.
         const manifest = (window.HortPlugins && window.HortPlugins.getPlugins() || []).find(p => p.name === pluginName);
         if (manifest && manifest.ui_widgets && manifest.ui_widgets.length) return manifest.ui_widgets[0];
         // Fall back to the in-page registry for chrome-level extensions
@@ -4044,7 +4048,12 @@
         }
         return '';
       }
-      function spiritIsSandboxed(_pluginName) { return true; }
+      function spiritIsSandboxed(pluginName) {
+        _trackRegistry();
+        const manifest = (window.HortPlugins && window.HortPlugins.getPlugins() || []).find(p => p.name === pluginName);
+        if (!manifest) return true;
+        return manifest.browser_isolated !== false;
+      }
 
       async function toggleSpiritFeature(pluginId, feature, enabled) {
         await sendControlRequest({ type: 'llmings.feature', name: pluginId, feature, enabled });
@@ -5814,10 +5823,11 @@
               </button>
             </div>
           </div>
-          <hort-app-frame v-else
+          <hort-app-frame v-else-if="spiritIsSandboxed(floatLlmingId(fw))"
                           :llming-id="floatLlmingId(fw)"
                           :widget-name="fw.widgetName"
                           :props="fw.props || {}" />
+          <component v-else :is="fw.widgetName" v-bind="fw.props || {}" />
         </div>
       </div>
 
@@ -5827,10 +5837,11 @@
            :style="{ overflow: isFullscreenCapable ? 'hidden' : 'auto' }">
         <div style="flex:1;display:flex;overflow:hidden">
           <div style="width:100%;height:100%">
-            <hort-app-frame v-if="fullscreenSpiritWidget"
+            <hort-app-frame v-if="fullscreenSpiritWidget && spiritIsSandboxed(fullscreenSpirit)"
                             :llming-id="fullscreenSpirit"
                             :widget-name="fullscreenSpiritWidget"
                             :props="{}" />
+            <component v-else-if="fullscreenSpiritWidget" :is="fullscreenSpiritWidget" />
           </div>
         </div>
       </div>

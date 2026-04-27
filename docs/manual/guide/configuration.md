@@ -16,6 +16,27 @@ This creates a containerized agent with no tools, no file access
 beyond `/workspace`, no network beyond `api.anthropic.com`, $1.00
 budget, and a 30-minute timeout.
 
+## UI Runtime Config
+
+OpenHORT also reads namespaced server settings from `hort-config.yaml`.
+The browser isolation policy controls where llming card JavaScript runs:
+
+```yaml
+ui.browser_isolation:
+  mode: per_widget        # per_widget | shared_host | auto
+  isolate: []             # llming names/globs forced into iframes
+  share: []               # llming names/globs allowed in shared host mode
+```
+
+| Mode | Effect |
+|---|---|
+| `per_widget` | Default. Every widget gets its own sandboxed iframe. Safest, slower reloads. |
+| `shared_host` | All widget cards load into the host Vue app. Fastest, but reviewed/mutually trusted cards only. |
+| `auto` | Simple widgets render in the host; configured, marked, or cross-capability widgets stay isolated. |
+
+In `auto`, use `isolate` for sensitive widgets and `share` for reviewed
+widgets you explicitly allow to run in the host page.
+
 ## Full Config
 
 ```yaml

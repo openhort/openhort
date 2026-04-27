@@ -113,6 +113,10 @@ class ExtensionManifest(BaseModel):
     # Optional override of the per-llming device-local IndexedDB quota in MB
     # (default 5 MB enforced by the host).
     local_quota_mb: int = 0
+    # Optional hint used only when ui.browser_isolation.mode = auto.
+    # "isolated" forces a per-widget iframe, "shared" permits inline host
+    # rendering unless server config overrides it, "" lets policy decide.
+    browser_isolation: str = ""
 
     @model_validator(mode="after")
     def _enforce_sandbox(self) -> "ExtensionManifest":
