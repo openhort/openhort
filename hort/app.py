@@ -385,6 +385,9 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
 
     @app.on_event("startup")
     async def _on_startup() -> None:
+        if _is_test_runtime():
+            logger.info("Skipping llming startup under test runtime")
+            return
         load_llmings_sync(llming_registry)
         await start_llmings(llming_registry)
         logger.info("App startup complete (pid=%d)", os.getpid())
@@ -397,6 +400,9 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     @app.on_event("startup")
     async def _start_target_scanner() -> None:
         """Periodically re-scan for Docker containers in the background."""
+        if _is_test_runtime():
+            return
+
         async def _scan_loop() -> None:
             while True:
                 await asyncio.sleep(10)
@@ -411,6 +417,8 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
     @app.on_event("startup")
     async def _start_cloud_connector() -> None:
         """Auto-start cloud tunnel and create temporary token if enabled."""
+        if _is_test_runtime():
+            return
         from hort.config import get_store
 
         cloud = get_store().get("connector.cloud")
@@ -457,6 +465,11 @@ def create_app(*, dev_mode: bool | None = None) -> FastAPI:
         )
 
     return app
+
+
+def _is_test_runtime() -> bool:
+    """Return True when app startup is running under pytest."""
+    return os.environ.get("PYTEST_CURRENT_TEST") is not None or os.environ.get("OPENHORT_SKIP_STARTUP_TASKS") == "1"
 
 
 def _temp_token_path() -> Path:
@@ -1076,6 +1089,7 @@ def _register_routes(app: FastAPI) -> None:
         import secrets as _secrets
 
         from hort.peer2peer.dc_proxy import DataChannelProxy
+        from hort.peer2peer.video_track import ScreenCaptureTrack
         from hort.peer2peer.webrtc import WebRTCPeer
 
         body = await request.json()
@@ -1096,6 +1110,8 @@ def _register_routes(app: FastAPI) -> None:
                     await entry[1].stop()
 
         peer = WebRTCPeer(on_message=on_message, on_state_change=on_state_change)
+        if "m=video" in sdp:
+            peer.add_video_track(ScreenCaptureTrack(fps=15, max_width=1280))
         proxy._peer = peer
         proxy._reconnect_store = _http_reconnect_tokens
 
@@ -1151,14 +1167,32 @@ def _register_routes(app: FastAPI) -> None:
 
         body = await request.json() if request.headers.get("content-type") == "application/json" else {}
         label = body.get("label", "Device")
+        app_name = body.get("app_name", body.get("name", "OpenHort"))
+        icon = body.get("icon", "/api/icon/192")
 
-        token = plugin._device_store.create(label=label)
+        token = plugin._device_store.create(label=label, app_name=app_name, icon=icon)
         room = plugin._room_id
         relay = plugin._relay_url
 
         from urllib.parse import quote
         deep_link = f"openhort://pair?token={quote(token, safe='')}&room={quote(room, safe='')}&relay={quote(relay, safe='')}"
-        return {"deep_link": deep_link, "token": token, "room": room, "relay": relay}
+        viewer_url = (
+            "https://openhort.ai/p2p/viewer"
+            f"?pair=1&device={quote(token, safe='')}"
+            f"&room={quote(room, safe='')}"
+            f"&relay={quote(relay, safe='')}"
+            f"&name={quote(app_name, safe='')}"
+            f"&icon={quote(icon, safe='')}"
+        )
+        return {
+            "deep_link": deep_link,
+            "viewer_url": viewer_url,
+            "token": token,
+            "room": room,
+            "relay": relay,
+            "app_name": app_name,
+            "icon": icon,
+        }
 
     @app.get("/api/p2p/devices")
     async def p2p_devices_list() -> dict[str, Any]:
@@ -1826,7 +1860,10 @@ def _register_routes(app: FastAPI) -> None:
         last_hash = _static_hash()
         try:
             while True:
-                await asyncio.sleep(0.5)
+                try:
+                    await asyncio.wait_for(websocket.receive_text(), timeout=0.5)
+                except TimeoutError:
+                    pass
                 current_hash = _static_hash()
                 if current_hash != last_hash:
                     last_hash = current_hash
@@ -1904,7 +1941,7 @@ def _dev_reload_script() -> str:
     let reconnectAttempts = 0;
     function connect() {
         const _b = document.querySelector('base');
-        const _bp = _b ? new URL(_b.href).pathname.replace(/\/$/, '') : '';
+        const _bp = _b ? new URL(_b.href).pathname.replace(/\\/$/, '') : '';
         const url = proto + '://' + location.host + _bp + '/ws/devreload';
         const ws = new WebSocket(url);
         ws.onopen = function() {

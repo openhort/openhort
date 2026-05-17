@@ -4,6 +4,28 @@ Native client applications for openhort live in a separate repository: [`openhor
 
 ## Principles
 
+### Shared transport stays in llming-com
+
+OpenHort clients are consumers of the shared `llming-com` P2P/proxy transport.
+Generic pairing pages, relay contracts, reconnect behavior, DataChannel proxy
+framing, and the simple Cloudflare relay deployment baseline live in
+`llming-com`, not in OpenHort.
+
+OpenHort-specific client code should focus on the agent-service experience:
+service discovery, isolated execution views, permissions, rendering, and native
+shell integration.  If a mobile, web, or native client needs to pair, reconnect,
+or create a proxy/P2P handshake, it should use the same `llming-com` credential
+and endpoint contract as every other llming application.
+
+The deployment-neutral host contract is:
+
+```text
+endpoint + admission key + same transport client
+```
+
+Switching between the managed OpenHort service and a private deployment should
+only change endpoint/key configuration.
+
 ### Thin shell, not a second UI
 
 Clients are WebView wrappers. They load the server's Quasar/Vue 3 SPA and display it fullscreen. **No UI logic is duplicated in native code.** If a feature can be implemented in the web UI, it must be — native code only handles what the WebView cannot.
@@ -80,7 +102,24 @@ Everything else (WebSocket streaming, window management, input, terminals) happe
 
 ## Deep Linking
 
-Both apps register the `openhort://` URL scheme for device pairing.
+Both apps register the `openhort://` URL scheme for native handoff, but QR codes
+for browser-based pairing should prefer an HTTPS URL with an opaque fragment
+token:
+
+```text
+https://openhort.ai/p2p/pair#pt=<opaque-pairing-token>
+```
+
+The pairing page redeems that token, stores the returned paired-device
+credential, and redirects to a stable app URL:
+
+```text
+https://openhort.ai/p2p/app
+```
+
+The stable URL contains no secrets.  It can be reloaded, bookmarked, restored
+after phone sleep, or loaded inside a WebView.  It reads stored credentials and
+requests a fresh handshake when the user connects.
 
 **Android** — intent-filter on `MainActivity`:
 ```xml
@@ -105,9 +144,25 @@ Both apps register the `openhort://` URL scheme for device pairing.
 
 | URL | Action |
 |-----|--------|
-| `openhort://pair?token=...&room=...&relay=...` | Pair device for P2P auto-reconnect |
+| `openhort://pair?pt=...` | Native handoff for opaque pairing-token redemption |
+| `https://openhort.ai/p2p/pair#pt=...` | Browser/WebView pairing-token redemption |
+| `https://openhort.ai/p2p/app` | Stable paired-device app shell |
 
-The app stores the `device_token`, `room_id`, and `relay_url` permanently. On every launch, it posts a connection wish to the relay and receives a fresh P2P URL. See [Device Tokens](../internals/security/device-tokens.md) for the security model.
+The app stores the returned pairing record permanently, preferably in secure
+platform storage.  At minimum the record contains the paired-device credential,
+room or service identifier, relay endpoint, expiry/revocation metadata, and
+display metadata returned after pairing.  On every launch, it requests a fresh
+handshake through the shared transport rather than reusing an old P2P URL. See
+[Device Tokens](../internals/security/device-tokens.md) for the security model.
+
+Credential categories are shared between browser and native clients:
+
+| Credential | Stored by | Purpose |
+|------------|-----------|---------|
+| Opaque pairing token | QR/deep link only | Short-lived bootstrap credential, single-use |
+| Paired-device credential | Browser IndexedDB or native secure storage | Lets the same device request future handshakes |
+| One-time connection token | Handshake response only | Authorizes one WebRTC/proxy connection |
+| Reconnect grant | Browser/native storage | Lets reload, sleep, and short network loss recover without rescanning |
 
 ## QR Scanner
 
@@ -120,7 +175,8 @@ The scanner auto-detects the code type:
 
 | Content | Detected as | Action |
 |---------|------------|--------|
-| `openhort://pair?...` | P2P pairing | Save device token, start polling |
+| `https://.../p2p/pair#pt=...` | P2P pairing | Redeem opaque token, save paired-device credential |
+| `openhort://pair?pt=...` | P2P pairing | Redeem opaque token, save paired-device credential |
 | `https://192.168.x.x:...` | LAN server | Direct WebView load |
 | `https://hub.openhort.ai/t/...` | Cloud proxy | Direct WebView load |
 | Any other URL | Generic server | Direct WebView load |
@@ -211,7 +267,10 @@ The `command` string is opaque to the native app — it echoes back whatever the
 
 ## P2P Auto-Reconnect
 
-In `p2p_paired` mode, the app always requests a fresh P2P URL on every launch:
+In `p2p_paired` mode, the app always requests a fresh handshake on every launch
+or reconnect.  The browser reference implementation lives in
+`llming-com/llming_com/static/p2p/`; native clients should mirror the same state
+machine using secure platform storage.
 
 ```mermaid
 sequenceDiagram
@@ -219,8 +278,8 @@ sequenceDiagram
     participant R as Relay (hub.openhort.ai)
     participant H as Host (openhort)
 
-    A->>A: Read device_token from storage
-    A->>A: SHA-256(device_token) → hash
+    A->>A: Read paired-device credential from storage
+    A->>A: SHA-256(credential) → hash
     A->>R: POST /relay/{room}/connect {device_token_hash}
     loop Every 5s
         H->>R: GET /relay/{room}/pending
@@ -231,8 +290,28 @@ sequenceDiagram
     loop Every 3s
         A->>R: GET /relay/{room}/response?h={hash}
     end
-    R-->>A: {url: "https://openhort.ai/p2p/viewer.html?..."}
-    A->>A: Load URL in WebView → P2P connection
+    R-->>A: {url: "one-time handshake URL"}
+    A->>A: Load or execute handshake in WebView
 ```
 
-The app never reuses old P2P URLs — each session gets a fresh one-time SDP token. The device_token (permanent, 256-bit) stays in app storage until explicit logout.
+The app never reuses old P2P URLs. Each session gets a fresh one-time SDP/proxy
+token. The paired-device credential stays in app storage until explicit logout,
+expiry, or server-side revocation.
+
+## Extensibility Points
+
+OpenHort clients should be configurable through narrow adapters instead of
+forking transport code:
+
+| Adapter | Responsibility |
+|---------|----------------|
+| Client shell | Browser page, PWA, WebView, or native wrapper |
+| Credential store | IndexedDB/WebCrypto/cookie storage in browsers; Keychain/Keystore/secure storage natively |
+| Endpoint resolver | Managed endpoint, private relay endpoint, or test relay endpoint |
+| Service catalog | OpenHort-specific list of available isolated services and capabilities |
+| Admission provider | Host-side key/quota policy behind the endpoint, not a client concern |
+| Renderer/viewer | OpenHort UI for terminal, desktop, workflows, and agent-service output |
+
+The OpenHort mobile app should only need the endpoint, pairing token or login,
+and stored paired-device credential.  The host/app development side remains the
+same whether the endpoint is commercial or private.

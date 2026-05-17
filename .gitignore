@@ -2,6 +2,8 @@
 .env
 .env.*
 hort-config.yaml
+.agents/*.local.md
+p2p-admission.local.yaml
 subprojects/telegram_bot/bot_config.yaml
 
 # Virtual environments

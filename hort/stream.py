@@ -17,6 +17,7 @@ ACK format (JSON via control WS):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
 import io
 import json
@@ -320,6 +321,9 @@ async def run_stream(
 
     try:
         while True:
+            if send_task.done():
+                break
+
             config = entry.stream_config
             if config is None:
                 await asyncio.sleep(0.1)
@@ -457,6 +461,8 @@ async def run_stream(
                 pass
             active_queue.put_nowait(None)
         send_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await send_task
         entry.stream_ws = None
         entry.stream_config = None
         entry.observer_id = 0
@@ -789,4 +795,3 @@ def _raise_window(window_id: int, provider: PlatformProvider) -> None:
     win = next((w for w in windows if w.window_id == window_id), None)
     if win and win.owner_pid:
         provider.activate_app(win.owner_pid, bounds=win.bounds)
-

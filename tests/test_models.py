@@ -93,7 +93,7 @@ class TestStreamConfig:
         c = StreamConfig(window_id=42)
         assert c.fps == 10
         assert c.quality == 70
-        assert c.max_width == 800
+        assert c.max_width == 100
 
     def test_custom(self) -> None:
         c = StreamConfig(window_id=42, fps=30, quality=90, max_width=1920)
@@ -115,7 +115,7 @@ class TestStreamConfig:
 
     def test_max_width_bounds(self) -> None:
         with pytest.raises(ValidationError):
-            StreamConfig(window_id=1, max_width=50)
+            StreamConfig(window_id=1, max_width=24)
         with pytest.raises(ValidationError):
             StreamConfig(window_id=1, max_width=8000)
 

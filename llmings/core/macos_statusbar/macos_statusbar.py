@@ -29,7 +29,7 @@ from typing import Any
 from hort.llming import Llming
 
 # Project layout
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _STATUSBAR_DIR = _PROJECT_ROOT / "subprojects" / "macos_statusbar"
 _STATUSBAR_BIN = _STATUSBAR_DIR / "build" / "HortStatusBar"
 
@@ -88,7 +88,7 @@ class MacOSStatusBarPlugin(Llming):
         if sys.platform != "darwin":
             return
 
-        if not self.config.get("features", {}).get("autostart", True):
+        if not self._feature_enabled("autostart", True):
             self.log.info("Status bar autostart disabled")
             return
 
@@ -133,6 +133,19 @@ class MacOSStatusBarPlugin(Llming):
 
     # --- Lifecycle ---
 
+    def _feature_enabled(self, name: str, default: bool) -> bool:
+        ctx = getattr(self, "_ctx", None)
+        if ctx is not None and getattr(ctx, "config", None) is not None:
+            checker = getattr(ctx.config, "is_feature_enabled", None)
+            if checker is not None:
+                return bool(checker(name))
+        return bool(self.config.get("features", {}).get(name, default))
+
+    def _set_state(self, state: dict[str, Any]) -> None:
+        vault = getattr(self, "vault", None)
+        if vault is not None:
+            vault.set("state", state)
+
     def _launch(self) -> None:
         """Spawn the status bar as an independent process."""
         if self._is_alive():
@@ -168,7 +181,7 @@ class MacOSStatusBarPlugin(Llming):
             start_new_session=True,  # detach from parent process group
         )
         self.log.info("Status bar launched (PID %d)", self._process.pid)
-        self.vault.set("state", {
+        self._set_state({
             "running": True,
             "pid": self._process.pid,
         })
@@ -193,7 +206,7 @@ class MacOSStatusBarPlugin(Llming):
         except ProcessLookupError:
             pass  # already exited
         self._process = None
-        self.vault.set("state", {"running": False, "pid": None})
+        self._set_state({"running": False, "pid": None})
 
     def _is_alive(self) -> bool:
         """Check if our managed subprocess is still running."""

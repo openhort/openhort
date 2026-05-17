@@ -191,9 +191,12 @@ class TestMCPBridgeProcess:
     def test_container_url(self) -> None:
         from hort.ext.chat_backend import MCPBridgeProcess
 
+        MCPBridgeProcess._host_ipv4 = ""
         bridge = MCPBridgeProcess(port=0)
         bridge._actual_port = 12345
-        assert bridge.container_url() == "http://host.docker.internal:12345/sse"
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.stdout = ""
+            assert bridge.container_url() == "http://host.docker.internal:12345/sse"
 
     def test_idempotent_start(self) -> None:
         from hort.ext.chat_backend import MCPBridgeProcess
@@ -348,10 +351,13 @@ class TestChatBackendManager:
         mock_sandbox_session.id = "test-id"
 
         mock_manager = MagicMock()
+        mock_manager.find_running_by_label.return_value = None
+        mock_manager.find_running.return_value = None
         mock_manager.create.return_value = mock_sandbox_session
         mgr._session_manager = mock_manager
 
-        session = mgr.get_session("user1")
+        with patch("hort.ext.chat_backend._get_claude_api_key", return_value=""):
+            session = mgr.get_session("user1")
 
         # Verify container was created and started
         mock_manager.create.assert_called_once()

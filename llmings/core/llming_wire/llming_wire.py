@@ -274,6 +274,8 @@ class LlmingWire(Llming):
 
     def _ensure_chat_mgr(self) -> Any:
         """Get the shared chat backend manager singleton."""
+        if hasattr(self, "_chat_mgr") and self._chat_mgr:
+            return self._chat_mgr
         from hort.ext.chat_backend import get_chat_manager
         self._chat_mgr = get_chat_manager()
         return self._chat_mgr
@@ -284,6 +286,8 @@ class LlmingWire(Llming):
             mgr = self._ensure_chat_mgr()
             session_key = f"llming-wire:{cid}"
             session = mgr.get_session(session_key)
+            if client_session_id and not getattr(session, "_session_id", None):
+                session._session_id = client_session_id
             response = await session.send(text)
             return response
         except ImportError:

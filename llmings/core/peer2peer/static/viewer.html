@@ -62,6 +62,41 @@
   .log div { margin-bottom: 2px; }
   .log .err { color: var(--error); }
   .log .ok { color: var(--success); }
+  .apps {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+    width: 100%;
+  }
+  .app-card {
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    width: 100%;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--fg);
+    padding: 10px;
+    text-align: left;
+  }
+  .app-card:active { transform: scale(0.99); }
+  .app-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.08);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    font-weight: 700;
+  }
+  .app-icon img { width: 100%; height: 100%; object-fit: cover; }
+  .app-meta { min-width: 0; }
+  .app-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .app-action { color: var(--accent); font-size: 13px; font-weight: 700; }
   /* SPA container — fills entire viewport once loaded */
   #spa-container { display: none; width: 100vw; height: 100vh; }
   #spa-container iframe { width: 100%; height: 100%; border: none; }
@@ -85,11 +120,13 @@
 // ====== Config ======
 const tg = window.Telegram && window.Telegram.WebApp;
 const params = new URLSearchParams(location.search);
-const signalMode = params.get('signal') || sessionStorage.getItem('p2p_signal') || 'http';
+let signalMode = params.get('signal') || sessionStorage.getItem('p2p_signal') || 'http';
 const serverUrl = params.get('server') || '';
-const relayUrl = params.get('relay') || sessionStorage.getItem('p2p_relay') || 'wss://relay.openhort.ai';
-const roomId = params.get('room') || sessionStorage.getItem('p2p_room') || '';
-const authToken = params.get('token') || '';
+let relayUrl = params.get('relay') || sessionStorage.getItem('p2p_relay') || 'wss://relay.openhort.ai';
+let roomId = params.get('room') || sessionStorage.getItem('p2p_room') || '';
+let authToken = params.get('token') || '';
+let deviceToken = params.get('device') || '';
+let currentApp = null;
 
 // If we have URL params, persist them to sessionStorage and strip from URL
 if (params.get('room')) {
@@ -112,9 +149,132 @@ if (tg) {
   }
 }
 
+// ====== Durable Paired Apps ======
+const APP_DB = 'openhort-p2p-apps';
+const APP_STORE = 'apps';
+
+function openAppDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(APP_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(APP_STORE, { keyPath: 'id' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function appStore(mode, fn) {
+  const db = await openAppDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(APP_STORE, mode);
+    const store = tx.objectStore(APP_STORE);
+    const result = fn(store);
+    tx.oncomplete = () => { db.close(); resolve(result); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function saveApp(app) {
+  app.updated_at = Date.now();
+  await appStore('readwrite', store => store.put(app));
+}
+
+async function listApps() {
+  return appStore('readonly', store => {
+    const req = store.getAll();
+    return new Promise((resolve) => {
+      req.onsuccess = () => resolve((req.result || []).sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0)));
+      req.onerror = () => resolve([]);
+    });
+  });
+}
+
+async function sha256Hex(text) {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function relayHttpBase(relay) {
+  return relay.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:').replace(/\/$/, '');
+}
+
+async function storePairingFromUrl() {
+  if (!params.get('pair') || !deviceToken || !roomId) return null;
+  const app = {
+    id: await sha256Hex(relayUrl + '|' + roomId + '|' + deviceToken),
+    name: params.get('name') || 'OpenHort',
+    icon: params.get('icon') || '',
+    relay: relayUrl,
+    room: roomId,
+    device_token: deviceToken,
+    created_at: Date.now(),
+  };
+  await saveApp(app);
+  currentApp = app;
+  history.replaceState(null, '', location.pathname);
+  return app;
+}
+
+async function requestPairedApp(app) {
+  currentApp = app;
+  relayUrl = app.relay;
+  roomId = app.room;
+  signalMode = 'ws';
+  authToken = '';
+  const hash = await sha256Hex(app.device_token);
+  const base = relayHttpBase(app.relay);
+  await fetch(base + '/' + encodeURIComponent(app.room) + '/connect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_token_hash: hash }),
+  });
+  setState('connecting', 'Waiting for app...');
+  for (let i = 0; i < 24; i++) {
+    const resp = await fetch(base + '/' + encodeURIComponent(app.room) + '/response?h=' + encodeURIComponent(hash));
+    const data = await resp.json();
+    if (data.url) {
+      const url = new URL(data.url);
+      relayUrl = url.searchParams.get('relay') || relayUrl;
+      roomId = url.searchParams.get('room') || roomId;
+      authToken = url.searchParams.get('token') || '';
+      await saveApp(app);
+      return startConnection();
+    }
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  throw new Error('App did not respond');
+}
+
+async function showAppGallery() {
+  const apps = await listApps();
+  if (!apps.length) {
+    setState('idle', 'Scan a pairing QR');
+    return;
+  }
+  setState('idle', 'Choose an app');
+  const container = document.createElement('div');
+  container.className = 'apps';
+  for (const app of apps) {
+    const card = document.createElement('button');
+    card.className = 'app-card';
+    const icon = app.icon ? '<img src="' + app.icon.replace(/"/g, '&quot;') + '" alt="">' : app.name.slice(0, 1).toUpperCase();
+    const last = app.updated_at ? new Date(app.updated_at).toLocaleString() : 'paired';
+    card.innerHTML = '<div class="app-icon">' + icon + '</div><div class="app-meta"><div class="app-name"></div><div class="app-sub"></div></div><div class="app-action">Connect</div>';
+    card.querySelector('.app-name').textContent = app.name;
+    card.querySelector('.app-sub').textContent = last;
+    card.onclick = () => requestPairedApp(app).catch(err => {
+      log('Reconnect failed: ' + err.message, 'err');
+      setState('failed', err.message);
+    });
+    container.appendChild(card);
+  }
+  document.getElementById('connect-ui').appendChild(container);
+}
+
 // ====== Logging ======
 const logEl = document.getElementById('log');
+window._p2pLogs = window._p2pLogs || [];
 function log(msg, cls) {
+  window._p2pLogs.push(msg);
   const d = document.createElement('div');
   if (cls) d.className = cls;
   d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
@@ -140,8 +300,18 @@ let lastRtt = 0;
 let pingInterval = null;
 
 function setState(state, text) {
-  document.getElementById('dot').className = 'dot ' + state;
-  document.getElementById('state').textContent = text;
+  window._p2pState = { state, text };
+  const dot = document.getElementById('dot');
+  const stateEl = document.getElementById('state');
+  if (dot) dot.className = 'dot ' + state;
+  if (stateEl) stateEl.textContent = text;
+}
+
+function showConnectUI() {
+  const connect = document.getElementById('connect-ui');
+  const spa = document.getElementById('spa-container');
+  if (connect) connect.style.display = 'block';
+  if (spa) spa.style.display = 'none';
 }
 
 // ====== DataChannel message handler ======
@@ -934,8 +1104,28 @@ log('openhort P2P viewer loaded');
 log('Signal mode: ' + signalMode + (signalMode === 'ws' ? ' (relay: ' + relayUrl + ')' : ''));
 if (tg) log('Running inside Telegram (' + tg.platform + ')');
 
-// Always auto-connect
-startConnection();
+async function init() {
+  try {
+    await storePairingFromUrl();
+  } catch (err) {
+    log('Pairing storage failed: ' + err.message, 'err');
+  }
+  if (authToken || sessionStorage.getItem('p2p_reconnect_token')) {
+    startConnection();
+    return;
+  }
+  if (currentApp) {
+    requestPairedApp(currentApp).catch(err => {
+      log('Reconnect failed: ' + err.message, 'err');
+      setState('failed', err.message);
+      showAppGallery();
+    });
+    return;
+  }
+  showAppGallery();
+}
+
+init();
 </script>
 </body>
 </html>

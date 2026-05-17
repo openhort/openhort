@@ -67,7 +67,7 @@ class TestCgimageToP:
 
 
 class TestCaptureWindow:
-    def test_returns_jpeg_bytes(self) -> None:
+    def test_returns_webp_bytes(self) -> None:
         pil_img = Image.new("RGB", (200, 150), color=(100, 150, 200))
 
         with (
@@ -77,7 +77,8 @@ class TestCaptureWindow:
             result = capture_window(42)
 
         assert result is not None
-        assert result[:2] == b"\xff\xd8"  # JPEG magic bytes
+        assert result[:4] == b"RIFF"
+        assert result[8:12] == b"WEBP"
 
     def test_returns_none_on_capture_failure(self) -> None:
         with patch("hort.screen._raw_capture", return_value=None):
@@ -121,9 +122,17 @@ class TestCaptureWindow:
         assert decoded.height == 300
 
     def test_quality_affects_size(self) -> None:
+        pil_img = Image.new("RGB", (400, 300))
+        pil_img.putdata(
+            [
+                ((x * 17 + y * 3) % 256, (x * 5 + y * 11) % 256, (x * 13 + y * 7) % 256)
+                for y in range(300)
+                for x in range(400)
+            ]
+        )
         with (
             patch("hort.screen._raw_capture", return_value=MagicMock()),
-            patch("hort.screen._cgimage_to_pil", side_effect=lambda _: Image.new("RGB", (400, 300), color=(100, 150, 200))),
+            patch("hort.screen._cgimage_to_pil", side_effect=lambda _: pil_img.copy()),
         ):
             low_q = capture_window(42, quality=10)
             high_q = capture_window(42, quality=95)
@@ -141,17 +150,18 @@ class TestCaptureWindow:
 class TestRealQuartzCapture:
     """Integration tests using real Quartz — verify capture + cleanup."""
 
-    def test_desktop_capture_returns_jpeg(self) -> None:
-        """Full desktop capture produces valid JPEG bytes."""
+    def test_desktop_capture_returns_webp(self) -> None:
+        """Full desktop capture produces valid WebP bytes."""
         from hort.screen import DESKTOP_WINDOW_ID
         result = capture_window(DESKTOP_WINDOW_ID, max_width=320, quality=30)
         if result is None:
             pytest.skip("Screen Recording permission not granted")
-        assert result[:2] == b"\xff\xd8"  # JPEG magic
+        assert result[:4] == b"RIFF"
+        assert result[8:12] == b"WEBP"
         assert len(result) > 100
 
     def test_desktop_capture_pil_pipeline(self) -> None:
-        """Raw capture → CGImage → PIL → JPEG full pipeline."""
+        """Raw capture -> CGImage -> PIL conversion pipeline."""
         from hort.screen import DESKTOP_WINDOW_ID, _raw_capture_desktop, _cgimage_to_pil
         import objc  # type: ignore[import-untyped]
 
@@ -186,7 +196,7 @@ class TestRealQuartzCapture:
 
         rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         growth_mb = (rss_after - rss_before) / 1024 / 1024
-        # Each capture is ~200px wide ≈ 0.1 MB JPEG.  With autorelease pool
+        # Each capture is a small WebP.  With autorelease pool
         # draining properly, RSS growth should be minimal.  If it grows by
         # >50 MB for 20 small captures, something is leaking.
         assert growth_mb < 50, f"RSS grew by {growth_mb:.0f} MB over 20 captures — likely leak"

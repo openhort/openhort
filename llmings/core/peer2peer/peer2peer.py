@@ -69,6 +69,7 @@ class HolepunchPlugin(Llming):
     _room_id: str = ""
     _relay_url: str = "wss://relay.openhort.ai"
     _relay_http_url: str = "https://relay.openhort.ai"
+    _relay_admission_key: str = ""
     _VMStatus: Any = None  # lazy-loaded class ref
 
     def activate(self, config: dict[str, Any]) -> None:
@@ -87,11 +88,14 @@ class HolepunchPlugin(Llming):
 
         self._relay_url = config.get("relay_url", "wss://relay.openhort.ai")
         self._relay_http_url = config.get("relay_http_url", "https://relay.openhort.ai")
+        self._relay_admission_key = config.get("admission_key", os.environ.get("OPENHORT_ADMISSION_KEY", ""))
 
-        # Device token store (MongoDB)
+        # Device token store (defaults to local JSON in temp; MongoDB remains optional)
         from hort.peer2peer.device_tokens import DeviceTokenStore
-        mongo_uri = config.get("mongodb_uri", "mongodb://localhost:27017")
-        self._device_store = DeviceTokenStore(uri=mongo_uri)
+        self._device_store = DeviceTokenStore(
+            uri=config.get("mongodb_uri", ""),
+            path=config.get("device_store_path"),
+        )
 
         # Parse STUN servers from config
         stun_servers_raw = config.get("stun_servers", ["stun.l.google.com:19302"])
@@ -126,6 +130,7 @@ class HolepunchPlugin(Llming):
         self._relay_poller = RelayPoller(
             relay_url=self._relay_url,
             relay_http_url=self._relay_http_url,
+            admission_key=self._relay_admission_key,
             room_id=self._room_id,
             device_store=self._device_store,
             on_peer_connected=on_peer_connected,

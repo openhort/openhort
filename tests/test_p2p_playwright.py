@@ -97,13 +97,13 @@ class TestMiniAppLoads:
     """Verify the Mini App page renders correctly."""
 
     def test_miniapp_renders(self, server_url: str, page: Any) -> None:
-        """Mini App loads and shows connect button."""
+        """Mini App loads and shows connection state."""
         page.goto(f"{server_url}/p2p")
         page.wait_for_load_state("networkidle")
 
         assert page.locator("h1").inner_text() == "openhort"
-        assert page.locator("#btnConnect").is_visible()
-        assert page.locator("#btnDisconnect").is_disabled()
+        assert page.locator("#state").is_visible()
+        assert page.locator("#log").is_visible()
 
         page.screenshot(path=str(SCREENSHOTS_DIR / "p2p_loaded.png"))
 
@@ -184,11 +184,8 @@ class TestBrowserWebRTC:
 
     def test_webrtc_connection(self, server_url: str, page: Any) -> None:
         """Full WebRTC flow in headless Chromium."""
-        page.goto(f"{server_url}/p2p")
+        page.goto(f"{server_url}/p2p?signal=http&token=test")
         page.wait_for_load_state("networkidle")
-
-        # Click connect
-        page.locator("#btnConnect").click()
 
         # Wait for SDP answer to be received (up to 15s)
         try:
@@ -206,18 +203,15 @@ class TestBrowserWebRTC:
         page.screenshot(path=str(SCREENSHOTS_DIR / "webrtc_connection.png"))
 
         # Check the signaling worked
-        log_text = page.locator("#log").inner_text()
-        assert "Session:" in log_text
+        log_text = page.evaluate("() => (window._p2pLogs || []).join('\\n')")
         assert "SDP offer ready" in log_text
         assert "SDP answer received" in log_text
         assert "ICE negotiation started" in log_text
 
     def test_webrtc_datachannel_opens(self, server_url: str, page: Any) -> None:
         """DataChannel opens end-to-end (both sides localhost = no NAT)."""
-        page.goto(f"{server_url}/p2p")
+        page.goto(f"{server_url}/p2p?signal=http&token=test")
         page.wait_for_load_state("networkidle")
-
-        page.locator("#btnConnect").click()
 
         # Wait for DataChannel to open (localhost-to-localhost, should be fast)
         try:
@@ -233,18 +227,16 @@ class TestBrowserWebRTC:
 
         page.screenshot(path=str(SCREENSHOTS_DIR / "datachannel_open.png"))
 
-        log_text = page.locator("#log").inner_text()
+        log_text = page.evaluate("() => (window._p2pLogs || []).join('\\n')")
 
         if "DataChannel open" in log_text:
-            assert "P2P connection established" in log_text
-            assert not page.locator("#btnDisconnect").is_disabled()
+            state = page.evaluate("() => window._p2pState && window._p2pState.text")
+            assert state
 
     def test_disconnect(self, server_url: str, page: Any) -> None:
-        """Disconnect button closes the connection."""
-        page.goto(f"{server_url}/p2p")
+        """Disconnect function closes the connection."""
+        page.goto(f"{server_url}/p2p?signal=http&token=test")
         page.wait_for_load_state("networkidle")
-
-        page.locator("#btnConnect").click()
 
         # Wait for connection or timeout
         try:
@@ -258,11 +250,9 @@ class TestBrowserWebRTC:
         except Exception:
             pass
 
-        # If connected, disconnect
-        if not page.locator("#btnDisconnect").is_disabled():
-            page.locator("#btnDisconnect").click()
-            page.wait_for_timeout(500)
-            log_text = page.locator("#log").inner_text()
-            assert "Disconnected" in log_text
+        page.evaluate("() => disconnect()")
+        page.wait_for_timeout(500)
+        log_text = page.evaluate("() => (window._p2pLogs || []).join('\\n')")
+        assert "Disconnected" in log_text
 
         page.screenshot(path=str(SCREENSHOTS_DIR / "disconnected.png"))

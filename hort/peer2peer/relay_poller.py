@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine
 
 import httpx
+from hort.peer2peer.admission import P2PAdmissionClient
 from hort.peer2peer.dc_proxy import DataChannelProxy
 from hort.peer2peer.device_tokens import DeviceTokenStore
 from hort.peer2peer.relay_listener import (
@@ -56,6 +57,7 @@ class RelayPoller:
         self,
         relay_url: str = "wss://relay.openhort.ai",
         relay_http_url: str = "https://relay.openhort.ai",
+        admission_key: str = "",
         room_id: str = "",
         device_store: DeviceTokenStore | None = None,
         on_peer_connected: PeerCallback | None = None,
@@ -65,6 +67,7 @@ class RelayPoller:
     ) -> None:
         self.relay_url = relay_url
         self.relay_http_url = relay_http_url
+        self._admission = P2PAdmissionClient(relay_http_url, admission_key)
         self.room_id = room_id
         self._device_store = device_store
         self._on_peer_connected = on_peer_connected
@@ -88,6 +91,11 @@ class RelayPoller:
             return
         self._running = True
         self._http = httpx.AsyncClient(timeout=10.0)
+        await self._admission.register_room(
+            self.room_id,
+            app_id="openhort.peer2peer",
+            app_name="OpenHort Peer-to-Peer",
+        )
         self._task = asyncio.create_task(self._poll_loop())
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         logger.info("relay poller started: %s/%s (poll every %.0fs)",
@@ -144,7 +152,7 @@ class RelayPoller:
             return
         url = f"{self.relay_http_url}/{self.room_id}/pending"
         try:
-            resp = await self._http.get(url)
+            resp = await self._http.get(url, headers=self._auth_headers())
             if resp.status_code != 200:
                 return
             data = resp.json()
@@ -190,10 +198,11 @@ class RelayPoller:
 
         # 2. Build P2P viewer URL
         viewer_url = (
-            f"{self._viewer_base}?signal=ws"
-            f"&room={self.room_id}"
-            f"&token={p2p_token}"
-            f"&relay={self.relay_url}"
+            self._admission.viewer_url(
+                self._viewer_base,
+                self.room_id,
+                token=p2p_token,
+            )
         )
 
         # 3. POST response URL to relay mailbox
@@ -201,7 +210,7 @@ class RelayPoller:
         await self._http.post(respond_url, json={
             "device_token_hash": device_token_hash,
             "url": viewer_url,
-        })
+        }, headers=self._auth_headers())
         logger.info("posted P2P URL for device %s...", device_token_hash[:12])
 
         # 4. Poll for SDP offer via HTTP and respond via HTTP
@@ -228,7 +237,7 @@ class RelayPoller:
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
             try:
-                resp = await self._http.get(poll_url)
+                resp = await self._http.get(poll_url, headers=self._auth_headers())
                 if resp.status_code == 200:
                     data = resp.json()
                     messages = data.get("messages", [])
@@ -245,14 +254,14 @@ class RelayPoller:
                             if not auth_ok:
                                 await self._http.post(send_url, json={
                                     "type": "error", "message": "invalid or expired token",
-                                })
+                                }, headers=self._auth_headers())
                                 continue
                             # Create peer and generate answer
                             answer_sdp = await self._create_session_http(msg["sdp"])
                             if answer_sdp:
                                 await self._http.post(send_url, json={
                                     "type": "answer", "sdp": answer_sdp,
-                                })
+                                }, headers=self._auth_headers())
                                 logger.info("SDP answer posted via HTTP")
                             return
             except Exception as exc:
@@ -260,6 +269,11 @@ class RelayPoller:
             await asyncio.sleep(0.25)  # Poll every 250ms for SDP (time-critical)
 
         logger.info("on-demand SDP listener timed out (no offer)")
+
+    def _auth_headers(self) -> dict[str, str]:
+        if not self._admission.admission_key:
+            return {}
+        return {"authorization": f"Bearer {self._admission.admission_key}"}
 
     async def _create_session_http(self, offer_sdp: str) -> str | None:
         """Create a WebRTC peer session and return the SDP answer (no WebSocket needed)."""

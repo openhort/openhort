@@ -8,6 +8,19 @@ openhort uses mkdocs-material (v9.7.6) with pymdownx (v10.21).
 - Serve: `cd docs && poetry run mkdocs serve -f mkdocs.yml`
 - Served in-app at `/guide/` (sidebar Help opens in new tab)
 
+## Visual Diagrams
+
+Use Mermaid for architecture and sequence diagrams that should stay close to
+the surrounding text. Use Excalidraw for higher-level concept diagrams, product
+flows, and visual explanations where layout and polish matter. Export Excalidraw
+drawings as SVG for the public docs, and keep editable `.excalidraw` sources
+next to the exported SVG when the source is suitable for the repository.
+
+Mermaid diagrams and SVG/Excalidraw images open in the docs diagram lightbox.
+Click a diagram to inspect it; use the toolbar to zoom in, zoom out, or reset.
+The lightbox behavior follows the MkDocs implementation first used in the local
+`yikes` project and is kept as local CSS/JS under `docs/manual/assets/`.
+
 ## Mermaid Diagrams
 
 Rendered client-side by mkdocs-material. Use fenced code blocks with `mermaid` language.

@@ -1,6 +1,6 @@
 """Llming framework — decorators, typed models, Pythonic access."""
 
-from hort.llming.base import Llming
+from hort.llming.base import Llming, LlmingBase
 from hort.llming.bus import MessageBus
 from hort.llming.decorators import on_ready, power, pulse, stream
 from hort.llming.handles import vault_ref
@@ -10,7 +10,7 @@ from hort.llming.powers import Power, PowerType
 from hort.llming.pulse import PulseBus
 
 __all__ = [
-    "Llming", "LlmExecutor", "SendResult", "SessionConfig", "SessionInfo",
+    "Llming", "LlmingBase", "LlmExecutor", "SendResult", "SessionConfig", "SessionInfo",
     "LlmingData", "PowerInput", "PowerOutput", "PulseEvent",
     "MessageBus", "Power", "PowerType", "PulseBus",
     "power", "pulse", "on_ready", "vault_ref",

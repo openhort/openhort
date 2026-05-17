@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -19,7 +20,12 @@ from hort.targets import TargetInfo, TargetRegistry
 # Stub provider for stream tests
 
 class _StubPlatform(PlatformProvider):
-    def __init__(self, jpeg: bytes = b"\xff\xd8stub") -> None:
+    def __init__(self, jpeg: bytes | None = None) -> None:
+        if jpeg is None:
+            from PIL import Image
+            buf = io.BytesIO()
+            Image.new("RGB", (80, 60), color=(100, 150, 200)).save(buf, format="WEBP")
+            jpeg = buf.getvalue()
         self._jpeg = jpeg
         self.activated_pid: int | None = None
 
@@ -149,7 +155,14 @@ class TestRunStream:
 
         ws.send_bytes = AsyncMock(side_effect=send_bytes_effect)
 
-        with patch("hort.stream.asyncio.sleep", return_value=None):
+        real_sleep = asyncio.sleep
+
+        async def sleep_effect(_delay: float) -> None:
+            if count >= 2:
+                raise WebSocketDisconnect()
+            await real_sleep(0)
+
+        with patch("hort.stream.asyncio.sleep", side_effect=sleep_effect):
             await run_stream(ws, "s1", registry)
 
         assert count == 2

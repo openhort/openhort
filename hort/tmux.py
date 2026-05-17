@@ -293,11 +293,14 @@ def send_text(
         logger.warning("Plugin '%s' denied send access to '%s'", caller_plugin, name)
         return False
 
-    args = ["send-keys", "-t", full_name, text]
+    if text:
+        result = _run(["send-keys", "-t", full_name, "-l", text])
+        if result.returncode != 0:
+            return False
     if enter:
-        args.append("Enter")
-    result = _run(args)
-    return result.returncode == 0
+        result = _run(["send-keys", "-t", full_name, "Enter"])
+        return result.returncode == 0
+    return True
 
 
 def _is_plugin_allowed(full_name: str, plugin_id: str) -> bool:

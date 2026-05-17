@@ -196,6 +196,37 @@ class Llming:
         payload["_channel"] = channel
         await self._pulse_bus.emit(self._instance_name, channel, payload)
 
+    async def emit_pulse(self, channel: str, data: dict[str, Any]) -> None:
+        """v2 compat: emit an instance-scoped pulse event."""
+        if self._pulse_bus is not None:
+            await self._pulse_bus.emit(self._instance_name, channel, data)
+
+    def subscribe(self, source: str, channel: str, handler: Any) -> None:
+        """v2 compat: subscribe to another llming's pulse event."""
+        bus = self._pulse_bus or PulseBus.get()
+        bus.subscribe(source, channel, handler)
+
+    async def read_pulse(self, source: str) -> dict[str, Any]:
+        """v2 compat: read another llming's cached pulse state."""
+        bus = self._pulse_bus or PulseBus.get()
+        return bus.read_state(source)
+
+    async def call(
+        self,
+        target: str,
+        power: str,
+        args: dict[str, Any] | None = None,
+    ) -> Any:
+        """v2 compat: call another llming through the message bus."""
+        from hort.llming.bus import MessageBus
+
+        return await MessageBus.get().call(
+            self._instance_name,
+            target,
+            power,
+            args or {},
+        )
+
     # ── Vault bindings ──
 
     def _poll_vault_refs(self) -> None:
@@ -339,6 +370,16 @@ class Llming:
                 description=desc,
                 plugin_id=self._instance_name or self._class_name,
             ))
+        if commands:
+            return commands
+        for power in self.get_powers():
+            if power.type != PowerType.COMMAND:
+                continue
+            commands.append(ConnectorCommand(
+                name=power.name,
+                description=power.description,
+                plugin_id=self._instance_name or self._class_name,
+            ))
         return commands
 
     async def handle_connector_command(
@@ -389,8 +430,18 @@ class Llming:
         return self._instance_name or self._class_name
 
     def get_status(self) -> dict[str, Any]:
-        """v1 compat: Read state from own vault."""
+        """v1 compat: Read status from pulse override or own vault."""
+        if type(self).get_pulse is not Llming.get_pulse:
+            return self.get_pulse()
         return self.vault.get("state") if hasattr(self, "vault") else {}
+
+    def get_pulse(self) -> dict[str, Any]:
+        """v2 compat: Return UI pulse state."""
+        return {}
+
+    def get_pulse_channels(self) -> list[str]:
+        """v2 compat: Return emitted pulse channel names."""
+        return []
 
     def get_jobs(self) -> list[Any]:
         """v1 compat: Return scheduled job definitions.
@@ -399,3 +450,6 @@ class Llming:
         in the manifest's ``jobs`` array, not in code.
         """
         return []
+
+
+LlmingBase = Llming

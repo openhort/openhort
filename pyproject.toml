@@ -35,12 +35,12 @@ pytest-cov = ">=6.0,<7.0"
 pytest-asyncio = ">=0.24,<1.0"
 httpx = ">=0.28,<1.0"
 mypy = ">=1.14,<2.0"
-llming-com = {path = "../llming-com", develop = true}
+llming-com = {path = "../../llming-com", develop = true}
 playwright = "^1.58.0"
 pytest-playwright = "^0.7.2"
 aiogram = "^3.26.0"
-llming-models = {path = "../llming-models", markers = "python_version >= '3.14'"}
-office-connect = {path = "../office-connect", develop = true, markers = "python_version >= '3.14'"}
+llming-models = {path = "../../llming-models", markers = "python_version >= '3.14'"}
+office-connect = {path = "../../office-connect", develop = true, markers = "python_version >= '3.14'"}
 
 
 [tool.poetry.group.docs.dependencies]
@@ -60,7 +60,7 @@ follow_untyped_imports = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = ["integration: tests that hit real macOS APIs (run with -m integration)"]
-addopts = "-m 'not integration'"
+addopts = "-m 'not integration' --import-mode=importlib"
 timeout = 60
 
 [tool.coverage.run]

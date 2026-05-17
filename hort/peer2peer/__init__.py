@@ -27,6 +27,7 @@ Usage::
 
 from hort.peer2peer.models import NatType, PeerInfo, PunchResult, StunResult
 from hort.peer2peer.punch import HolePuncher
+from hort.peer2peer.admission import P2PAdmissionClient, P2PAdmissionError, RoomRegistration
 from hort.peer2peer.signal import SignalingChannel
 from hort.peer2peer.stun import StunClient
 from hort.peer2peer.tunnel import UdpTunnel
@@ -36,7 +37,10 @@ __all__ = [
     "HolePuncher",
     "NatType",
     "PeerInfo",
+    "P2PAdmissionClient",
+    "P2PAdmissionError",
     "PunchResult",
+    "RoomRegistration",
     "SignalingChannel",
     "StunClient",
     "StunResult",

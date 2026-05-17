@@ -26,7 +26,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine
 
 import websockets  # type: ignore[import-untyped]
+from llming_com.p2p.proxy import OneTimeTokenStore, ReconnectTokenStore
 
+from hort.peer2peer.admission import P2PAdmissionClient
 from hort.peer2peer.dc_proxy import DataChannelProxy
 from hort.peer2peer.video_track import ScreenCaptureTrack
 from hort.peer2peer.webrtc import WebRTCPeer
@@ -43,102 +45,11 @@ BACKOFF_MAX = 60.0  # seconds
 CLEANUP_INTERVAL = 30.0  # seconds
 
 
-class ReconnectTokenStore:
-    """Manages reconnect tokens — long-lived (4min), refreshable, multi-session.
-
-    Each active P2P session gets a reconnect token. The token is sent to the
-    client on connect and refreshed every 30s via ping/pong. The client stores
-    it in sessionStorage. On disconnect, the client reconnects using this token
-    instead of generating a new one via Telegram.
-    """
+class TokenStore(OneTimeTokenStore):
+    """OpenHort compatibility name for llming-com one-time tokens."""
 
     def __init__(self) -> None:
-        self._tokens: dict[str, float] = {}  # token → last_refreshed_at
-
-    def generate(self) -> str:
-        """Generate a new reconnect token."""
-        token = secrets.token_urlsafe(32)
-        self._tokens[token] = time.monotonic()
-        self._cleanup()
-        return token
-
-    def refresh(self, token: str) -> bool:
-        """Refresh a token's TTL. Returns False if expired/unknown."""
-        if token in self._tokens:
-            self._tokens[token] = time.monotonic()
-            return True
-        return False
-
-    def verify(self, token: str) -> bool:
-        """Check if a reconnect token is valid (without consuming it)."""
-        self._cleanup()
-        return token in self._tokens
-
-    def revoke(self, token: str) -> None:
-        """Explicitly revoke a token."""
-        self._tokens.pop(token, None)
-
-    def _cleanup(self) -> None:
-        now = time.monotonic()
-        expired = [t for t, ts in self._tokens.items() if now - ts > RECONNECT_TOKEN_TTL]
-        for t in expired:
-            del self._tokens[t]
-
-    @property
-    def active_count(self) -> int:
-        self._cleanup()
-        return len(self._tokens)
-
-
-class TokenStore:
-    """Manages one-time connection tokens with expiry and rate limiting."""
-
-    def __init__(self) -> None:
-        self._tokens: dict[str, float] = {}  # token -> created_at
-        self._failures: int = 0
-        self._last_failure: float = 0.0
-
-    def generate(self) -> str:
-        """Generate a new one-time token (32 bytes, base64url, 256-bit entropy)."""
-        token = secrets.token_urlsafe(32)
-        self._tokens[token] = time.monotonic()
-        self._cleanup()
-        return token
-
-    def verify(self, token: str) -> bool:
-        """Verify and consume a token. Returns True if valid."""
-        self._cleanup()
-
-        if self._failures >= MAX_FAILURES_BEFORE_BACKOFF:
-            elapsed = time.monotonic() - self._last_failure
-            backoff = min(BACKOFF_BASE ** (self._failures - MAX_FAILURES_BEFORE_BACKOFF + 1), BACKOFF_MAX)
-            if elapsed < backoff:
-                logger.warning(
-                    "rate limited: %d failures, backoff %.1fs (%.1fs remaining)",
-                    self._failures, backoff, backoff - elapsed,
-                )
-                return False
-
-        if token not in self._tokens:
-            self._failures += 1
-            self._last_failure = time.monotonic()
-            logger.warning("invalid token (attempt %d)", self._failures)
-            return False
-
-        # Don't consume — token stays valid until TTL expires
-        self._failures = 0
-        return True
-
-    def _cleanup(self) -> None:
-        now = time.monotonic()
-        expired = [t for t, ts in self._tokens.items() if now - ts > TOKEN_EXPIRY]
-        for t in expired:
-            del self._tokens[t]
-
-    @property
-    def pending_count(self) -> int:
-        self._cleanup()
-        return len(self._tokens)
+        super().__init__(ttl=TOKEN_EXPIRY)
 
 
 @dataclass
@@ -161,6 +72,8 @@ class RelayListener:
     def __init__(
         self,
         relay_url: str = "wss://relay.openhort.ai",
+        relay_http_url: str = "https://relay.openhort.ai",
+        admission_key: str = "",
         room_id: str = "",
         on_peer_connected: PeerCallback | None = None,
         stun_servers: list[str] | None = None,
@@ -171,6 +84,7 @@ class RelayListener:
         capture_fn: Any = None,
     ) -> None:
         self.relay_url = relay_url
+        self._admission = P2PAdmissionClient(relay_http_url, admission_key)
         self.room_id = room_id
         self._on_peer_connected = on_peer_connected
         self._stun_servers = stun_servers
@@ -266,6 +180,12 @@ class RelayListener:
 
     async def _connect_and_listen(self) -> None:
         """Connect to relay and handle incoming offers."""
+        if self.room_id:
+            await self._admission.register_room(
+                self.room_id,
+                app_id="openhort.relay_listener",
+                app_name="OpenHort Relay Listener",
+            )
         url = f"{self.relay_url}/{self.room_id}" if self.room_id else self.relay_url
         logger.info("connecting to relay: %s", url)
 
@@ -329,6 +249,13 @@ class RelayListener:
             on_state_change=on_state_change,
             stun_servers=self._stun_servers,
         )
+        if self._video_enabled and "m=video" in offer_sdp:
+            peer.add_video_track(
+                ScreenCaptureTrack(
+                    fps=self._video_fps,
+                    max_width=self._video_max_width,
+                )
+            )
         proxy._peer = peer
 
         try:

@@ -98,7 +98,9 @@ class CodeWatch(Llming):
 
     def _sync_vault(self) -> None:
         """Write current session state to vault."""
-        self.vault.set("state", self.get_pulse())
+        vault = getattr(self, "vault", None)
+        if vault is not None:
+            vault.set("state", self.get_pulse())
 
     def get_pulse(self) -> dict[str, Any]:
         """Return session data for the dashboard with full state detection."""

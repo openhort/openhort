@@ -142,7 +142,7 @@ class TestMCPProtocol:
         )
         tools = result["result"]["tools"]
         assert len(tools) == 1
-        assert tools[0]["name"] == "test__my_tool"
+        assert tools[0]["name"] == "my_tool"
 
     def test_bridge_tool_call(self) -> None:
         from hort.mcp.bridge import MCPBridge
@@ -160,7 +160,7 @@ class TestMCPProtocol:
         result = asyncio.get_event_loop().run_until_complete(
             bridge.handle_message({
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                "params": {"name": "test__greet", "arguments": {}},
+                "params": {"name": "greet", "arguments": {}},
             })
         )
         assert result["result"]["content"][0]["text"] == "hello"
@@ -280,9 +280,11 @@ class TestLlmingLensTools:
         assert len(result.content) == 2
         assert result.content[0]["type"] == "text"  # metadata
         assert result.content[1]["type"] == "image"
-        # Verify it's valid base64 JPEG
+        assert result.content[1]["mimeType"] == "image/webp"
+        # Verify it's valid base64 WebP
         img_data = base64.b64decode(result.content[1]["data"])
-        assert img_data[:2] == b"\xff\xd8"  # JPEG magic bytes
+        assert img_data[:4] == b"RIFF"
+        assert img_data[8:12] == b"WEBP"
 
     def test_resolve_target_desktop(self) -> None:
         lens = self._make_lens()

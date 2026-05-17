@@ -39,6 +39,14 @@ theme:
 plugins:
   - search
 
+extra_css:
+  - assets/stylesheets/diagram-lightbox.css
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mermaid@10.9.3/dist/mermaid.min.js
+  - assets/javascripts/mermaid-init.js
+  - assets/javascripts/diagram-lightbox.js
+
 markdown_extensions:
   - admonition
   - pymdownx.details
@@ -160,6 +168,7 @@ nav:
       - Group Isolation: internals/security/group-isolation.md
       - Card Sandbox: internals/security/card-sandbox.md
       - Unified Access: internals/security/unified-access.md
+      - P2P Room Admission: internals/security/p2p-room-admission.md
       - Credential Provisioning: internals/security/credential-provisioning.md
       - Error Handling: internals/security/error-handling.md
       - Device Tokens: internals/security/device-tokens.md
